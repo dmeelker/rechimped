@@ -22,3 +22,6 @@ serde_json = "1"
 timechimp = { path = "../timechimp" }
 toml = "0.8"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[build-dependencies]
+embed-resource = "3.0.12"
