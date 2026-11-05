@@ -56,6 +56,9 @@ fn theme() -> Theme {
     theme.name = "TimeChimp".into();
     theme.accent_color = parse_hex("#f36f21");
     theme.input_border_focused_color = Some(parse_hex("#f36f21"));
+    // Text fields and selects a soft off-white, so they stand out from the dialog surface
+    // without glaring.
+    theme.input_bg_color = Some(parse_hex("#f6f7fa"));
     theme.input_cursor_color = Some(parse_hex("#f36f21"));
     theme.accent_bg_color = Some(parse_hex("#f36f21").opacity(0.14));
     theme.accent_bg_hover_color = Some(parse_hex("#f36f21").opacity(0.22));
