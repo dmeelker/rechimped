@@ -46,7 +46,7 @@ One root entity, `TimeChimpApp` (`app.rs`), holds all state; `view.rs` implement
 - Recent picker (new time entries only): `logic::load_history` fetches the last 5 weeks on reload; `apply_week` merges every loaded week into `TimeChimpApp.history`, and `logic::recent_items` groups it by project/task/notes. Picking replaces the form's project select, so its subscription must stay at `Form._subscriptions[0]`. ↑/↓/Enter in the filter are bound in context `RecentPicker > Input` (`main.rs`).
 - Form tab order is paint order, so field order in `render_form` is the Tab sequence (time form: Start → End → Notes → Hours, on purpose).
 - Gaps/overlaps between consecutive entries of a day come from `logic::junction` and render as marker rows via `entry_rows_with_gaps` in the Week tab's entry list.
-- `logic.rs` holds UI-free code: data loading, the lenient time parser (`9`, `930`, `12:30`), and the session token at `%APPDATA%\timechimp-tui\refresh_token` (path kept from the removed TUI so existing sessions stay valid; `TIMECHIMP_REFRESH_TOKEN` overrides it).
+- `logic.rs` holds UI-free code: data loading, the lenient time parser (`9`, `930`, `12:30`; End also takes `+15`, `+1h`, `+1h30`, `+1.5h` = start + that duration, expanded on blur and at save), and the session token at `%APPDATA%\timechimp-tui\refresh_token` (path kept from the removed TUI so existing sessions stay valid; `TIMECHIMP_REFRESH_TOKEN` overrides it).
 
 ## Checking UI changes
 

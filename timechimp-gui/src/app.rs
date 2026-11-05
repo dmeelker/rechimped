@@ -735,6 +735,16 @@ impl TimeChimpApp {
         };
         window.focus(&focus.read(cx).focus_handle(cx), cx);
         let mut subscriptions = vec![self.subscribe_project(&project, window, cx)];
+        // `+15` / `+1h` / `+1h30` in End becomes start + that duration when leaving the field.
+        subscriptions.push(cx.subscribe_in(&form.end, window, |this, end, event: &InputStateEvent, _, cx| {
+            let Some(Form { body: FormBody::Time(form), .. }) = &this.form else { return };
+            if !matches!(event, InputStateEvent::Blur) {
+                return;
+            }
+            if let Some(expanded) = logic::expand_end(&text(&form.start, cx), &text(end, cx)) {
+                forms::set_text(end, expanded, cx);
+            }
+        }));
         if let Some(picker) = &form.recent {
             // A new filter text highlights the first match again.
             subscriptions.push(cx.subscribe_in(&picker.filter, window, |this, _, event: &InputStateEvent, _, cx| {
@@ -1084,7 +1094,8 @@ impl TimeChimpApp {
                     entry.timezone = timezone.clone().or(entry.timezone);
                 }
 
-                let (start, end) = (logic::parse_time(&text(&f.start, cx))?, logic::parse_time(&text(&f.end, cx))?);
+                let start = logic::parse_time(&text(&f.start, cx))?;
+                let end = logic::parse_end(start, &text(&f.end, cx))?;
                 let entry = match (start, end) {
                     (Some(start), Some(end)) => {
                         if end <= start {

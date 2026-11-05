@@ -205,9 +205,66 @@ pub fn parse_time(s: &str) -> Result<Option<NaiveTime>, String> {
     NaiveTime::from_hms_opt(hours, minutes, 0).map(Some).ok_or_else(invalid)
 }
 
+/// A duration after `+` in the end field: `15` / `15m` minutes, `1h`, `1.5h`, `1h30` / `1h30m`.
+fn parse_offset(s: &str) -> Option<i64> {
+    let s = s.trim().to_ascii_lowercase();
+    let minutes = |m: &str| -> Option<f64> {
+        let m = m.trim().trim_end_matches('m').trim();
+        if m.is_empty() { Some(0.0) } else { m.parse().ok() }
+    };
+    let total = match s.split_once('h') {
+        Some((h, m)) => h.trim().replace(',', ".").parse::<f64>().ok()? * 60.0 + minutes(m)?,
+        None if s.is_empty() => return None,
+        None => minutes(&s)?,
+    };
+    (total.is_finite() && total >= 0.0).then(|| total.round() as i64)
+}
+
+/// Parses the end time; `+15`, `+1h`, `+1h30` mean that long after `start`, otherwise as `parse_time`.
+pub fn parse_end(start: Option<NaiveTime>, s: &str) -> Result<Option<NaiveTime>, String> {
+    let Some(offset) = s.trim().strip_prefix('+') else { return parse_time(s) };
+    let minutes = parse_offset(offset).ok_or_else(|| format!("Invalid end '{}', use e.g. +15 or +1h30", s.trim()))?;
+    let start = start.ok_or("Fill in the start to use +duration")?;
+    let (end, wrapped) = start.overflowing_add_signed(chrono::Duration::minutes(minutes));
+    if wrapped != 0 {
+        return Err("End must be on the same day".into());
+    }
+    Ok(Some(end))
+}
+
+/// The `HH:MM` an end field of `+N` stands for, given the start field; None when it isn't one
+/// (or can't be resolved yet).
+pub fn expand_end(start: &str, end: &str) -> Option<String> {
+    if !end.trim().starts_with('+') {
+        return None;
+    }
+    let end = parse_end(parse_time(start).ok()?, end).ok()??;
+    Some(end.format("%H:%M").to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relative_end() {
+        let at = |s: &str, e: &str| expand_end(s, e);
+        assert_eq!(at("9", "+15"), Some("09:15".into()));
+        assert_eq!(at("9:50", "+ 90"), Some("11:20".into()));
+        assert_eq!(at("", "+15"), None);
+        assert_eq!(at("9", "10"), None);
+        assert_eq!(at("23:50", "+15"), None);
+        assert_eq!(at("9", "+1h"), Some("10:00".into()));
+        assert_eq!(at("9", "+1H30"), Some("10:30".into()));
+        assert_eq!(at("9", "+1h30m"), Some("10:30".into()));
+        assert_eq!(at("9", "+1.5h"), Some("10:30".into()));
+        assert_eq!(at("9", "+1,25h"), Some("10:15".into()));
+        assert_eq!(at("9", "+45m"), Some("09:45".into()));
+        assert_eq!(at("9", "+"), None);
+        assert_eq!(at("9", "+h"), None);
+        assert!(parse_end(None, "+15").is_err());
+        assert!(parse_end(None, "+x").is_err());
+    }
 
     fn t(s: &str) -> Option<String> {
         parse_time(s).ok().flatten().map(|t| t.format("%H:%M").to_string())
