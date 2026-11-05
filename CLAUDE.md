@@ -4,17 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Toolchain
 
-The GUI needs Rust ≥ 1.93 (gpui uses `slice::as_array`); the machine's default `stable` may be older. A 1.99.1 toolchain is installed side-by-side, so prefix cargo commands with `+1.99.1`:
+The GUI needs Rust ≥ 1.93 (gpui uses `slice::as_array`; `rust-version` in `timechimp-gui/Cargo.toml` enforces it).
 
 ```sh
-cargo +1.99.1 build                                   # whole workspace
-cargo +1.99.1 run -p timechimp-gui                    # desktop app
-cargo +1.99.1 test                                    # all tests
-cargo +1.99.1 test -p timechimp-gui lenient_times     # single test by name
+cargo build                                   # whole workspace
+cargo run -p timechimp-gui                    # desktop app
+cargo test                                    # all tests
+cargo test -p timechimp-gui lenient_times     # single test by name
+cargo clippy --workspace
 TIMECHIMP_REFRESH_TOKEN=... cargo run -p timechimp --example smoke [-- --write]
 ```
 
-The `smoke` example hits the real API; `--write` creates and then deletes a test time entry and mileage registration. Clippy is not installed for the 1.99.1 toolchain.
+The `smoke` example hits the real API; `--write` creates and then deletes a test time entry and mileage registration.
 
 gpui crates are pinned to `=1.17.2` (`gpui-unofficial`, `gpui-platform-gpui-unofficial`), the version gpuikit 0.9 is locked against. Upgrading gpui means moving every `*-gpui-unofficial` crate in `Cargo.lock` together (`cargo update -p <crate> --precise ...`), or mixed versions fail to resolve.
 
