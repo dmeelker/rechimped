@@ -312,17 +312,16 @@ impl TimeChimpApp {
             .items_center()
             .border_b_1()
             .border_color(theme.border())
+            .child(self.tabs.clone())
+            .child(div().flex_1())
             .child(
                 h_stack()
                     .gap(px(8.))
                     .items_center()
                     .pb(px(10.))
                     .child(div().size(px(12.)).rounded_full().bg(theme.accent()))
-                    .child(div().font_weight(FontWeight::BOLD).child("TimeChimp"))
                     .child(muted(theme, title)),
-            )
-            .child(div().flex_1())
-            .child(self.tabs.clone());
+            );
 
         let body: AnyElement = match self.tab {
             Tab::Week => self.render_day(theme, cx).into_any_element(),
