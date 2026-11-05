@@ -774,30 +774,34 @@ impl TimeChimpApp {
     }
 
     fn render_form(&self, form: &Form, theme: &T, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Only the mileage form has hints; the time form uses the full width for its fields.
+        let show_help = matches!(form.body, FormBody::Mileage(_));
         let row = |label: &'static str, control: AnyElement, help: Option<&'static str>| {
             h_stack()
                 .gap(px(12.))
                 .items_center()
                 .child(div().w(px(110.)).flex_none().text_color(theme.fg_muted()).child(label))
                 .child(div().flex_1().min_w_0().child(control))
-                .child(div().w(px(150.)).flex_none().text_xs().text_color(theme.fg_muted()).children(help))
+                .when(show_help, |d| {
+                    d.child(div().w(px(150.)).flex_none().text_xs().text_color(theme.fg_muted()).children(help))
+                })
         };
         let field = |input, placeholder: &'static str, cx: &mut Context<Self>| {
             text_field(input, cx).placeholder(placeholder).into_any_element()
         };
         let rows: Vec<AnyElement> = match &form.body {
             FormBody::Time(f) => vec![
-                row("Date", field(&f.date, "YYYY-MM-DD", cx), Some("YYYY-MM-DD")),
+                row("Date", field(&f.date, "YYYY-MM-DD", cx), None),
                 row("Project", f.project.clone().into_any_element(), None),
                 row("Task", f.task.clone().into_any_element(), None),
-                row("Start", field(&f.start, "HH:MM", cx), Some("e.g. 9, 930, 12:30")),
-                row("End", field(&f.end, "HH:MM", cx), Some("e.g. 17, 1730")),
-                row("Hours", field(&f.hours, "e.g. 1.5", cx), Some("used without start/end")),
+                row("Start", field(&f.start, "HH:MM", cx), None),
+                row("End", field(&f.end, "HH:MM", cx), None),
+                row("Hours", field(&f.hours, "used without start/end, e.g. 1.5", cx), None),
                 row("Notes", field(&f.notes, "What did you work on?", cx), None),
                 row(
-                    "Tag",
+                    if f.extra_tags > 0 { "Tag (+more kept)" } else { "Tag" },
                     f.tag.clone().into_any_element(),
-                    (f.extra_tags > 0).then_some("other tags are kept"),
+                    None,
                 ),
             ]
             .into_iter()
