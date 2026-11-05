@@ -6,7 +6,7 @@ use gpui::{
     ParentElement, Render, Styled, Window, div, prelude::FluentBuilder, px,
 };
 use gpuikit::a11y::FocusNavigation;
-use gpuikit::theme::{ActiveTheme, Themeable};
+use gpuikit::theme::{ActiveTheme, ControlSize, Themeable};
 
 pub enum PasswordEvent {
     Submit,
@@ -64,6 +64,8 @@ impl Render for PasswordField {
         let theme = cx.theme();
         let focused = self.focus.is_focused(window);
         let focus = self.focus.clone();
+        // Same box as gpuikit's text fields.
+        let m = theme.control(ControlSize::Medium);
         div()
             .id("password")
             .track_focus(&self.focus)
@@ -71,11 +73,12 @@ impl Render for PasswordField {
             .on_key_down(cx.listener(Self::on_key))
             .on_mouse_down(MouseButton::Left, move |_, window, cx| window.focus(&focus, cx))
             .w_full()
-            .h(px(22.))
-            .px(px(8.))
+            .h(m.height)
+            .px(m.padding_x)
             .flex()
             .items_center()
-            .rounded(px(4.)).text_xs()
+            .rounded(m.radius)
+            .text_size(m.text_size)
             .border_1()
             .bg(theme.input_bg())
             .border_color(if focused { theme.input_border_focused() } else { theme.input_border() })
@@ -85,6 +88,6 @@ impl Render for PasswordField {
                 d.child(div().text_color(theme.input_placeholder()).child("Password"))
             })
             .child("•".repeat(self.value.chars().count()))
-            .when(focused, |d| d.child(div().w(px(1.5)).h(px(12.)).ml(px(1.)).bg(theme.input_cursor())))
+            .when(focused, |d| d.child(div().w(px(1.5)).h(m.line_height).ml(px(1.)).bg(theme.input_cursor())))
     }
 }

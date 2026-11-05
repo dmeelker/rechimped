@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use chrono::{Datelike, Duration, NaiveDate};
 use gpui::{
-    AnyElement, ClickEvent, Context, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton,
+    AnyElement, BoxShadow, point, ClickEvent, Context, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton,
     ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window, deferred, div,
     prelude::FluentBuilder, px,
 };
@@ -16,7 +16,8 @@ use gpuikit::elements::progress::{ProgressVariant, progress};
 use gpuikit::elements::text_field::text_field;
 use gpuikit::elements::toast::ToastExt;
 use gpuikit::layout::{h_stack, v_stack};
-use gpuikit::theme::{ActiveTheme, Theme, Themeable};
+use gpuikit::theme::{ActiveTheme, ControlSize, Theme, Themeable};
+use gpuikit::traits::control_sized::ControlSized;
 use timechimp::TimeEntry;
 
 use crate::app::{CalculateDistance, Cancel, Confirm, CycleAddress, Screen, Tab, TimeChimpApp};
@@ -113,8 +114,70 @@ fn empty_message(theme: &T, text: &'static str) -> gpui::Div {
     div().w_full().py(px(32.)).flex().justify_center().text_color(theme.fg_muted()).child(text)
 }
 
+/// Outline + soft drop shadow around a gpuikit button, so it stands off the background.
+/// Drawn as box-shadows, so the button keeps its size.
+fn pop(theme: &T, button: impl IntoElement) -> gpui::Div {
+    let m = theme.control(ControlSize::Medium);
+    div().flex_none().rounded(m.radius).shadow(button_shadow(theme.border_secondary(), 0.10)).child(button)
+}
+
+fn button_shadow(outline: Hsla, drop: f32) -> Vec<BoxShadow> {
+    vec![
+        BoxShadow { color: outline, offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.), inset: false },
+        BoxShadow {
+            color: gpui::hsla(0., 0., 0., drop),
+            offset: point(px(0.), px(1.)),
+            blur_radius: px(3.),
+            spread_radius: px(0.),
+            inset: false,
+        },
+    ]
+}
+
+/// The main action of a screen: solid accent with white text. gpuikit's button has no primary
+/// variant, so this mirrors its metrics (same height/padding/radius as the other controls).
+fn primary_button(
+    theme: &T,
+    id: &'static str,
+    label: impl Into<SharedString>,
+    disabled: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> impl IntoElement {
+    let m = theme.control(ControlSize::Medium);
+    let accent = theme.accent();
+    let darker = |by: f32| gpui::hsla(accent.h, accent.s, (accent.l - by).max(0.), accent.a);
+    let (hover, active) = (darker(0.06), darker(0.12));
+    h_stack()
+        .id(id)
+        .flex_none()
+        .h(m.height)
+        .px(m.padding_x)
+        .items_center()
+        .justify_center()
+        .rounded(m.radius)
+        .text_size(m.text_size)
+        .line_height(m.line_height)
+        .font_weight(FontWeight::SEMIBOLD)
+        .whitespace_nowrap()
+        .bg(accent)
+        .text_color(gpui::white())
+        .shadow(button_shadow(darker(0.08), 0.18))
+        .child(label.into())
+        .when(disabled, |d| d.opacity(0.5).cursor_not_allowed())
+        .when(!disabled, |d| {
+            d.cursor_pointer()
+                .hover(move |s| s.bg(hover))
+                .active(move |s| s.bg(active))
+                .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
+                .on_click(move |event, window, cx| {
+                    cx.stop_propagation();
+                    on_click(event, window, cx)
+                })
+        })
+}
+
 fn hint(key: &'static str, label: &'static str) -> gpui::Div {
-    h_stack().gap(px(4.)).items_center().child(kbd(key)).child(label)
+    h_stack().gap(px(4.)).items_center().child(kbd(key).small()).child(label)
 }
 
 fn week_title(app: &TimeChimpApp) -> String {
@@ -146,9 +209,9 @@ impl TimeChimpApp {
                 .key_context("Modal")
                 .moves_focus_on_tab()
                 .on_action(cx.listener(|this, _: &Confirm, window, cx| this.login_confirm(window, cx)))
-                .w(px(380.))
-                .gap(px(10.))
-                .p(px(24.))
+                .w(px(420.))
+                .gap(px(12.))
+                .p(px(28.))
                 .rounded(px(10.))
                 .border_1()
                 .border_color(theme.border())
@@ -170,12 +233,13 @@ impl TimeChimpApp {
                 })
                 .child(message)
                 .child(
-                    h_stack().justify_end().child(
-                        button("login-button", if login.mfa.is_some() { "Verify" } else { "Log in" })
-                            
-                            .disabled(self.busy.is_some())
-                            .on_click(cx.listener(|this, _, window, cx| this.login_confirm_click(window, cx))),
-                    ),
+                    h_stack().justify_end().child(primary_button(
+                        theme,
+                        "login-button",
+                        if login.mfa.is_some() { "Verify" } else { "Log in" },
+                        self.busy.is_some(),
+                        cx.listener(|this, _, window, cx| this.login_confirm_click(window, cx)),
+                    )),
                 ),
         )
     }
@@ -264,51 +328,54 @@ impl TimeChimpApp {
         let nav = |id: &'static str, label: &'static str, f: fn(&mut Self, &mut Window, &mut Context<Self>)| {
             button(id, label).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| f(this, window, cx)))
         };
-        let bar = h_stack().w_full().px(px(16.)).py(px(10.)).gap(px(6.)).items_center();
+        let bar = h_stack().w_full().px(px(16.)).py(px(12.)).gap(px(8.)).items_center();
         match self.tab {
             Tab::Week | Tab::Mileage => {
                 let week_tab = self.tab == Tab::Week;
-                bar.child(nav("prev", "‹", |this, w, cx| this.step(-1, w, cx)))
-                    .child(nav("today", "Today", |this, w, cx| this.go_today(w, cx)))
-                    .child(nav("next", "›", |this, w, cx| this.step(1, w, cx)))
+                bar.child(pop(theme, nav("prev", "‹", |this, w, cx| this.step(-1, w, cx))))
+                    .child(pop(theme, nav("today", "Today", |this, w, cx| this.go_today(w, cx))))
+                    .child(pop(theme, nav("next", "›", |this, w, cx| this.step(1, w, cx))))
                     .when(week_tab, |d| {
-                        d.child(
+                        d.child(pop(
+                            theme,
                             button("view", if self.day_view { "Week view" } else { "Day view" })
-                                
                                 .on_click(cx.listener(|this, _, _, cx| this.toggle_day_view(cx))),
-                        )
+                        ))
                     })
                     .child(div().flex_1())
                     .when(week_tab, |d| {
                         let has = self.selected_entry().is_some();
-                        d.child(nav("edit", "Edit", |this, w, cx| this.edit_selected(w, cx)).disabled(!has))
-                            .child(nav("copy", "Copy", |this, w, cx| this.copy_selected(w, cx)).disabled(!has))
+                        d.child(pop(theme, nav("edit", "Edit", |this, w, cx| this.edit_selected(w, cx)).disabled(!has)))
+                            .child(pop(theme, nav("copy", "Copy", |this, w, cx| this.copy_selected(w, cx)).disabled(!has)))
                     })
-                    .child(
+                    .child(pop(
+                        theme,
                         nav("delete", "Delete", |this, w, cx| this.ask_delete(w, cx))
                             .variant(ButtonVariant::Destructive)
                             .disabled(if week_tab { self.selected_entry().is_none() } else { self.selected_mileage().is_none() }),
-                    )
-                    .child(
-                        nav("add", if week_tab { "+ Add time" } else { "+ Add trip" }, |this, w, cx| this.add(w, cx))
-                            ,
-                    )
+                    ))
+                    .child(primary_button(
+                        theme,
+                        "add",
+                        if week_tab { "+ Add time" } else { "+ Add trip" },
+                        false,
+                        cx.listener(|this, _, w, cx| this.add(w, cx)),
+                    ))
             }
             Tab::Report => bar
-                .child(nav("prev-month", "‹", |this, w, cx| this.shift_month(-1, w, cx)))
-                .child(nav("this-month", "This month", |this, w, cx| this.go_today(w, cx)))
-                .child(nav("next-month", "›", |this, w, cx| this.shift_month(1, w, cx)))
+                .child(pop(theme, nav("prev-month", "‹", |this, w, cx| this.shift_month(-1, w, cx))))
+                .child(pop(theme, nav("this-month", "This month", |this, w, cx| this.go_today(w, cx))))
+                .child(pop(theme, nav("next-month", "›", |this, w, cx| this.shift_month(1, w, cx))))
                 .child(div().pl(px(8.)).font_weight(FontWeight::SEMIBOLD).child(self.report_month.format("%B %Y").to_string()))
                 .child(div().flex_1())
-                .child(nav("reload", "Reload", |this, w, cx| this.reload(false, w, cx))),
+                .child(pop(theme, nav("reload", "Reload", |this, w, cx| this.reload(false, w, cx)))),
             Tab::Projects => bar
                 .child(div().flex_1())
-                .child(nav("reload", "Reload", |this, w, cx| this.reload(false, w, cx)))
-                .child(
-                    button("logout", "Log out")
-                        
-                        .on_click(cx.listener(|this, _, w, cx| this.logout_click(w, cx))),
-                ),
+                .child(pop(theme, nav("reload", "Reload", |this, w, cx| this.reload(false, w, cx))))
+                .child(pop(
+                    theme,
+                    button("logout", "Log out").on_click(cx.listener(|this, _, w, cx| this.logout_click(w, cx))),
+                )),
         }
         .text_color(theme.fg())
     }
@@ -749,22 +816,27 @@ impl TimeChimpApp {
             })
             .child(
                 h_stack()
-                    .mt(px(14.))
-                    .gap(px(6.))
+                    .mt(px(16.))
+                    .gap(px(8.))
                     .justify_end()
-                    .child(
+                    .child(pop(
+                        theme,
                         button("detail-edit", "Edit").on_click(cx.listener(|this, _, w, cx| {
                             this.show_detail = false;
                             this.edit_selected(w, cx)
                         })),
-                    )
-                    .child(button("detail-close", "Close").on_click(cx.listener(
-                        |this, _, w, cx| {
+                    ))
+                    .child(primary_button(
+                        theme,
+                        "detail-close",
+                        "Close",
+                        false,
+                        cx.listener(|this, _, w, cx| {
                             this.show_detail = false;
                             w.focus(&this.focus, cx);
                             cx.notify()
-                        },
-                    ))),
+                        }),
+                    )),
             );
         let close = cx.listener(|this, _: &gpui::MouseDownEvent, _, cx| {
             this.show_detail = false;
@@ -778,7 +850,7 @@ impl TimeChimpApp {
         let show_help = matches!(form.body, FormBody::Mileage(_));
         let row = |label: &'static str, control: AnyElement, help: Option<&'static str>| {
             h_stack()
-                .gap(px(12.))
+                .gap(px(16.))
                 .items_center()
                 .child(div().w(px(110.)).flex_none().text_color(theme.fg_muted()).child(label))
                 .child(div().flex_1().min_w_0().child(control))
@@ -821,12 +893,13 @@ impl TimeChimpApp {
                 row(
                     "Distance (km)",
                     h_stack()
-                        .gap(px(6.))
+                        .gap(px(8.))
                         .child(div().flex_1().child(field(&f.distance, "km", cx)))
-                        .child(
+                        .child(pop(
+                            theme,
                             button("calc-distance", "Calculate")
                                 .on_click(cx.listener(|this, _, w, cx| this.calculate_distance(w, cx))),
-                        )
+                        ))
                         .into_any_element(),
                     Some("Ctrl+D: calculate"),
                 ),
@@ -848,8 +921,8 @@ impl TimeChimpApp {
             .on_action(cx.listener(|this, _: &Cancel, w, cx| this.close_form(w, cx)))
             .on_action(cx.listener(|this, _: &CalculateDistance, w, cx| this.calculate_distance(w, cx)))
             .on_action(cx.listener(|this, _: &CycleAddress, w, cx| this.cycle_address(w, cx)))
-            .p(px(20.))
-            .gap(px(10.))
+            .p(px(24.))
+            .gap(px(14.))
             .child(div().text_lg().font_weight(FontWeight::BOLD).text_color(theme.accent()).child(form.title()))
             .children(rows)
             .when_some(form.error.clone(), |d, e| {
@@ -857,19 +930,23 @@ impl TimeChimpApp {
             })
             .child(
                 h_stack()
-                    .pt(px(6.))
-                    .gap(px(6.))
+                    .pt(px(8.))
+                    .gap(px(8.))
                     .items_center()
                     .child(muted(theme, "Enter save · Esc cancel · Tab next field").text_xs())
                     .child(div().flex_1())
                     .when_some(self.busy, |d, b| d.child(div().text_color(theme.accent()).child(b)))
-                    .child(button("form-cancel", "Cancel").on_click(cx.listener(|this, _, w, cx| this.close_form(w, cx))))
-                    .child(
-                        button("form-save", "Save")
-                            
-                            .disabled(self.busy.is_some())
-                            .on_click(cx.listener(|this, _, w, cx| this.submit_form(w, cx))),
-                    ),
+                    .child(pop(
+                        theme,
+                        button("form-cancel", "Cancel").on_click(cx.listener(|this, _, w, cx| this.close_form(w, cx))),
+                    ))
+                    .child(primary_button(
+                        theme,
+                        "form-save",
+                        "Save",
+                        self.busy.is_some(),
+                        cx.listener(|this, _, w, cx| this.submit_form(w, cx)),
+                    )),
             );
         Self::modal(theme, "form", 720., card, None)
     }
