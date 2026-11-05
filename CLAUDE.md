@@ -17,6 +17,8 @@ TIMECHIMP_REFRESH_TOKEN=... cargo run -p timechimp --example smoke [-- --write]
 
 The `smoke` example hits the real API; `--write` creates and then deletes a test time entry and mileage registration.
 
+A recurring `note: did not finalize incremental compilation session directory … Access is denied` is harmless (Windows/Defender locking `target\debug\incremental`); delete that incremental folder if it sticks.
+
 gpui crates are pinned to `=1.17.2` (`gpui-unofficial`, `gpui-platform-gpui-unofficial`), the version gpuikit 0.9 is locked against. Upgrading gpui means moving every `*-gpui-unofficial` crate in `Cargo.lock` together (`cargo update -p <crate> --precise ...`), or mixed versions fail to resolve.
 
 ## Architecture
@@ -38,8 +40,15 @@ One root entity, `TimeChimpApp` (`app.rs`), holds all state; `view.rs` implement
 - gpuikit's input has no password masking, hence the custom `password.rs` field.
 - Tags: `%APPDATA%\timechimp-tui\projects.toml` maps project names to the tag names they may use (`logic::load_project_tags` / `resolve_project_tags`, case-insensitive; a starter file listing projects and non-`z_` tags is written when missing, reread on reload). The time form shows those tags as checkboxes (`TimeForm.tags`, rebuilt on project change); tags on an entry that no project configures are kept untouched (`kept_tag_ids`).
 - Forms (`forms.rs`) are built from gpuikit `InputState` / `SelectState<i64>` / `Switch` entities; values are read back on submit and validated in `TimeChimpApp::build_save`. Changing a time form's project replaces its task `SelectState` (selects can't change options in place).
-- Delete confirmation uses gpuikit `DialogState`; popups and forms are `deferred` overlays from `TimeChimpApp::modal`. Status messages are gpuikit toasts (`cx.toast_manager()` must stay rendered in the root).
-- Theme: Catppuccin Latte with TimeChimp orange accent (`main.rs::theme`).
+- Delete confirmation uses gpuikit `DialogState`; popups and forms are `deferred` overlays from `TimeChimpApp::modal`. The overlay's `absolute().inset_0()` must not be wrapped in an unpositioned div, or it collapses to zero height. Status messages are gpuikit toasts (`cx.toast_manager()` must stay rendered in the root).
+- Theme (`main.rs::theme`): Catppuccin Latte, TimeChimp orange accent, white button fill, and an enlarged `theme.controls.medium` rung (28px); all gpuikit controls size themselves from those metrics, so tune sizes there rather than per element.
+- Buttons: gpuikit's `ButtonVariant` is only `Filled`/`Destructive`. Wrap secondary buttons in `view::pop(theme, button(..))` (outline + shadow); a screen's main action uses the custom `view::primary_button` (solid accent). Keep new buttons consistent with that.
+- Form tab order is paint order, so field order in `render_form` is the Tab sequence (time form: Start → End → Notes → Hours, on purpose).
+- Gaps/overlaps between consecutive entries of a day come from `logic::junction` and render as marker rows via `entry_rows_with_gaps` in the Week tab's entry list.
 - `logic.rs` holds UI-free code: data loading, the lenient time parser (`9`, `930`, `12:30`), and the session token at `%APPDATA%\timechimp-tui\refresh_token` (path kept from the removed TUI so existing sessions stay valid; `TIMECHIMP_REFRESH_TOKEN` overrides it).
 
-Running the app with a stored session talks to the real account. When testing, avoid saving or deleting unless asked.
+## Checking UI changes
+
+Running the app with a stored session talks to the real account. When testing, avoid saving or deleting unless asked; cancel dialogs with Esc.
+
+To verify visually on Windows: start `target\debug\timechimp-gui.exe`, post input with `PostMessage` to the process's `MainWindowHandle` (a `WM_LBUTTONDOWN/UP` on an empty spot first, so the window takes key input; then `WM_KEYDOWN/UP` with VK codes), and capture with `PrintWindow`. Don't use `SendKeys`: it types into whatever window has the foreground. Stop the app before rebuilding, since a running exe blocks the linker.
