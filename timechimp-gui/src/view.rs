@@ -11,6 +11,7 @@ use gpui::{
 };
 use gpuikit::a11y::FocusNavigation;
 use gpuikit::elements::button::{ButtonVariant, button};
+use gpuikit::elements::context_menu::{context_menu, menu_item};
 use gpuikit::elements::kbd::kbd;
 use gpuikit::elements::progress::{ProgressVariant, progress};
 use gpuikit::elements::text_field::text_field;
@@ -760,14 +761,23 @@ impl TimeChimpApp {
     }
 
     /// One button per `[[trips]]` preset in `config.toml`; each opens the trip form for the
-    /// selected day, filled in, so adding a regular trip is a click plus Save.
+    /// selected day, filled in, so adding a regular trip is a click plus Save. Right-click for
+    /// a menu with Delete.
     fn render_presets(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.weak_entity();
         let buttons = self.trip_presets.iter().enumerate().map(|(i, preset)| {
-            pop(
+            let trigger = pop(
                 theme,
                 button(ElementId::NamedInteger("preset".into(), i as u64), preset.name.clone())
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_preset(i, window, cx))),
-            )
+            );
+            let this = this.clone();
+            context_menu(ElementId::NamedInteger("preset-menu".into(), i as u64), trigger).menu(move |menu, _, _| {
+                let this = this.clone();
+                menu.item(menu_item("Delete").destructive().on_click(move |window, cx| {
+                    let _ = this.update(cx, |this, cx| this.ask_delete_preset(i, window, cx));
+                }))
+            })
         });
         h_stack()
             .flex_wrap()

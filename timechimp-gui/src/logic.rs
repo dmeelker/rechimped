@@ -330,6 +330,35 @@ mod tests {
     }
 
     #[test]
+    fn remove_preset() {
+        let trip = |name: &str| format!("[[trips]]\nname = \"{name}\"\nproject = \"p\"\nfrom = \"a\"\nto = \"b\"\n");
+        let text = format!(
+            "# top\nbillable_goal = 70\n\n[projects]\n# keep me\nIntern = []\n\n# about trips\n{}\n# second\n{}\n{}",
+            trip("Commute"),
+            trip("Client"),
+            trip("Gym")
+        );
+        let names = |t: &str| parse_config(t).unwrap().trips.into_iter().map(|t| t.name).collect::<Vec<_>>();
+
+        let first_gone = without_trip(&text, "commute").unwrap();
+        assert_eq!(names(&first_gone), ["Client", "Gym"]);
+        assert!(first_gone.contains("# top") && first_gone.contains("# keep me"));
+        assert!(first_gone.contains("# about trips"), "section comment moves to the next preset");
+        assert!(first_gone.contains("# second"), "and the next preset keeps its own");
+
+        let middle_gone = without_trip(&text, "Client").unwrap();
+        assert_eq!(names(&middle_gone), ["Commute", "Gym"]);
+        assert!(middle_gone.contains("# about trips"));
+
+        let all_gone = ["Commute", "Client", "Gym"].iter().fold(text.clone(), |t, n| without_trip(&t, n).unwrap());
+        assert!(names(&all_gone).is_empty());
+        assert!(all_gone.contains("Intern = []"));
+
+        assert!(without_trip(&text, "Nope").is_err());
+        assert!(without_trip("billable_goal = 70\n", "Commute").is_err());
+    }
+
+    #[test]
     fn recent_filter() {
         let haystack = "Code reviews Tournament Software Software development Visual Reality wbso_tournament";
         assert!(matches_words(haystack, ""));
@@ -551,6 +580,41 @@ pub fn append_trip_preset(preset: &TripPreset) -> Result<PathBuf, String> {
     std::fs::create_dir_all(path.parent().expect("has parent")).map_err(|e| e.to_string())?;
     std::fs::write(&path, text).map_err(|e| format!("Could not write {}: {e}", path.display()))?;
     Ok(path)
+}
+
+/// Removes the `[[trips]]` preset called `name` from `config.toml`, leaving the rest of the file
+/// (comments included) as it is.
+pub fn remove_trip_preset(name: &str) -> Result<PathBuf, String> {
+    let path = config_path().ok_or("no config directory")?;
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
+    let text = without_trip(&text, name).map_err(|e| format!("{}: {e}", path.display()))?;
+    std::fs::write(&path, text).map_err(|e| format!("Could not write {}: {e}", path.display()))?;
+    Ok(path)
+}
+
+fn without_trip(text: &str, name: &str) -> Result<String, String> {
+    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| e.to_string())?;
+    let trips = doc
+        .get_mut("trips")
+        .and_then(toml_edit::Item::as_array_of_tables_mut)
+        .ok_or_else(|| format!("no preset \"{name}\""))?;
+    let index = trips
+        .iter()
+        .position(|t| t.get("name").and_then(|n| n.as_str()).is_some_and(|n| n.eq_ignore_ascii_case(name)))
+        .ok_or_else(|| format!("no preset \"{name}\""))?;
+    // The comment above the first preset explains the section; hand it to the next one.
+    let prefix = trips.get(index).and_then(|t| t.decor().prefix()).and_then(|p| p.as_str()).map(str::to_owned);
+    trips.remove(index);
+    if let (Some(prefix), Some(next)) = (prefix, trips.get_mut(index))
+        && index == 0
+    {
+        let own = next.decor().prefix().and_then(|p| p.as_str()).unwrap_or("").to_owned();
+        next.decor_mut().set_prefix(format!("{prefix}{own}"));
+    }
+    if trips.is_empty() {
+        doc.remove("trips");
+    }
+    Ok(doc.to_string())
 }
 
 const TRIPS_COMMENT: &str = "# Preset trips, shown as buttons on the Mileage tab. Fields: name, project, from, to,\n\

@@ -1302,11 +1302,31 @@ impl TimeChimpApp {
             })
         };
         let Some((target, question, label)) = target else { return };
+        self.confirm_delete(target, question, label, window, cx);
+    }
 
+    /// The preset buttons' right-click Delete: removes preset `index` from `config.toml`, after
+    /// confirmation.
+    pub fn ask_delete_preset(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(preset) = self.trip_presets.get(index) else { return };
+        let label = format!("\"{}\": {} → {}", preset.name, preset.from, preset.to);
+        let target = DeleteTarget::Preset(preset.name.clone());
+        self.confirm_delete(target, "Delete preset?", label, window, cx);
+    }
+
+    fn confirm_delete(
+        &mut self,
+        target: DeleteTarget,
+        question: &'static str,
+        label: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let this = cx.weak_entity();
         let state = cx.new(|_| {
             DialogState::new(dialog("confirm-delete").confirm(question, label).confirm_label("Delete").on_confirm(
                 move |window, cx| {
+                    let target = target.clone();
                     let _ = this.update(cx, |this, cx| this.delete(target, window, cx));
                 },
             ))
@@ -1323,11 +1343,23 @@ impl TimeChimpApp {
     }
 
     fn delete(&mut self, target: DeleteTarget, window: &mut Window, cx: &mut Context<Self>) {
+        // A preset only lives in config.toml; no request needed.
+        if let DeleteTarget::Preset(name) = &target {
+            match logic::remove_trip_preset(name) {
+                Ok(_) => {
+                    self.load_config(window, cx);
+                    self.set_info("Preset deleted from config.toml", window, cx);
+                }
+                Err(e) => self.set_error(e, window, cx),
+            }
+            return;
+        }
         let Some(client) = self.client.clone() else { return };
         let future = async move {
             match target {
                 DeleteTarget::Time(id) => client.delete_time_entry(id).await,
                 DeleteTarget::Mileage(id) => client.delete_mileage(id).await,
+                DeleteTarget::Preset(_) => unreachable!("handled above"),
             }
         };
         self.run("Deleting…", future, window, cx, |this, result, window, cx| match result {
@@ -1394,10 +1426,12 @@ impl TimeChimpApp {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum DeleteTarget {
     Time(i64),
     Mileage(i64),
+    /// A `[[trips]]` preset in `config.toml`, by name.
+    Preset(String),
 }
 
 enum SaveRequest {
