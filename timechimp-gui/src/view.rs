@@ -88,8 +88,11 @@ fn header_row(theme: &T, cells: impl IntoIterator<Item = gpui::Div>) -> gpui::Di
 }
 
 /// A bordered panel with a title bar.
+/// A bordered card with a title bar. It may shrink below its content (`min_h_0`), so put its
+/// rows in `table_rows` to have them scroll while the title and column header stay put.
 fn panel(theme: &T, title: impl IntoElement, right: Option<AnyElement>) -> gpui::Div {
     v_stack()
+        .min_h_0()
         .border_1()
         .border_color(theme.border())
         .rounded(px(6.))
@@ -106,6 +109,11 @@ fn panel(theme: &T, title: impl IntoElement, right: Option<AnyElement>) -> gpui:
                 .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
                 .children(right),
         )
+}
+
+/// The rows of a table inside a `panel`: scrolls vertically when the panel runs out of room.
+fn table_rows(id: &'static str, rows: impl IntoIterator<Item = impl IntoElement>) -> gpui::Stateful<gpui::Div> {
+    div().id(id).flex().flex_col().min_h_0().overflow_y_scroll().children(rows)
 }
 
 fn muted(theme: &T, text: impl Into<SharedString>) -> gpui::Div {
@@ -335,7 +343,8 @@ impl TimeChimpApp {
             .min_h_0()
             .child(header)
             .child(self.render_toolbar(theme, cx))
-            .child(div().id("body").flex_1().min_h_0().overflow_y_scroll().px(px(16.)).pb(px(12.)).child(body))
+            // The body fills the rest of the window; tables scroll inside their panels (`table_rows`).
+            .child(div().id("body").flex_1().min_h_0().flex().flex_col().px(px(16.)).pb(px(12.)).child(body))
             .child(self.render_footer(theme));
 
         let focus = self.focus.clone();
@@ -581,7 +590,7 @@ impl TimeChimpApp {
         let total: f64 = per_day.iter().sum();
         let contract = self.contract_hours();
 
-        let strip = h_stack().gap(px(8.)).children((0..7).map(|i| {
+        let strip = h_stack().flex_none().gap(px(8.)).children((0..7).map(|i| {
             let day = self.week_start + Duration::days(i as i64);
             let (hours, target) = (per_day[i], self.target_for(i));
             let selected = day == self.day;
@@ -663,10 +672,15 @@ impl TimeChimpApp {
         let rows = self.entry_rows_with_gaps(theme, &visible, cx);
 
         v_stack()
+            .flex_1()
+            .min_h_0()
             .gap(px(12.))
             .child(strip)
             .child(
-                panel(theme, title, Some(self.selection_actions(theme, cx))).child(Self::entry_header(theme)).children(rows).when(
+                panel(theme, title, Some(self.selection_actions(theme, cx)))
+                    .child(Self::entry_header(theme))
+                    .child(table_rows("entry-rows", rows))
+                    .when(
                     visible.is_empty() && self.busy.is_none(),
                     |d| d.child(empty_message(theme, "No time registered on this day. Press A to add.")),
                 ),
@@ -740,7 +754,7 @@ impl TimeChimpApp {
                     cell(Some(160.), "Notes"),
                 ],
             ))
-            .children(rows)
+            .child(table_rows("trip-rows", rows))
             .when(empty, |d| d.child(empty_message(theme, "No mileage this week. Press A to add.")))
     }
 
@@ -790,7 +804,7 @@ impl TimeChimpApp {
                 theme,
                 [cell(None, "Project"), cell(None, "Task"), right_cell(70., "Hours"), right_cell(50., "%"), cell(Some(100.), "")],
             ))
-            .children(rows)
+            .child(table_rows("report-rows", rows))
             .when(groups.is_empty(), |d| d.child(empty_message(theme, "No time registered this month.")));
 
         let stat = |label: &'static str, value: String| {
@@ -816,7 +830,15 @@ impl TimeChimpApp {
                 .child(stat("Distance", format!("{km:.0} km")))
                 .child(stat("Reimbursement", format!("€ {amount:.2}"))),
         );
-        h_stack().items_start().gap(px(12.)).child(table).child(summary).into_any_element()
+        // Panels are at most as tall as the body (`max_h_full`), so a long table scrolls.
+        h_stack()
+            .flex_1()
+            .min_h_0()
+            .items_start()
+            .gap(px(12.))
+            .child(table.max_h_full())
+            .child(summary.max_h_full())
+            .into_any_element()
     }
 
     // ---- Projects tab -------------------------------------------------------------------------
@@ -828,7 +850,7 @@ impl TimeChimpApp {
                 theme,
                 [cell(None, "Customer"), cell(None, "Project"), right_cell(60., "Tasks"), cell(Some(70.), "Active")],
             ))
-            .children(self.projects.iter().map(|p| {
+            .child(table_rows("project-rows", self.projects.iter().map(|p| {
                 let tasks = self.project_tasks.get(&p.id).map_or(0, |t| t.len());
                 h_stack()
                     .w_full()
@@ -841,12 +863,12 @@ impl TimeChimpApp {
                     .child(cell(None, p.name.clone()))
                     .child(right_cell(60., tasks.to_string()))
                     .child(cell(Some(70.), if p.active { "yes" } else { "no" }))
-            }));
+            })));
         let tasks = panel(theme, format!("Tasks ({})", self.tasks.len()), None)
             .w(px(360.))
             .flex_none()
             .child(header_row(theme, [cell(None, "Task"), cell(Some(80.), "Billable")]))
-            .children(self.tasks.iter().map(|t| {
+            .child(table_rows("task-rows", self.tasks.iter().map(|t| {
                 h_stack()
                     .w_full()
                     .py(px(6.))
@@ -856,8 +878,14 @@ impl TimeChimpApp {
                     .when(!t.billable, |d| d.text_color(theme.fg_muted()))
                     .child(cell(None, t.name.clone()))
                     .child(cell(Some(80.), if t.billable { "yes" } else { "no" }))
-            }));
-        h_stack().items_start().gap(px(12.)).child(projects).child(tasks)
+            })));
+        h_stack()
+            .flex_1()
+            .min_h_0()
+            .items_start()
+            .gap(px(12.))
+            .child(projects.max_h_full())
+            .child(tasks.max_h_full())
     }
 
     // ---- Popups -------------------------------------------------------------------------------
