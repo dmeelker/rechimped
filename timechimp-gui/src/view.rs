@@ -309,14 +309,10 @@ impl TimeChimpApp {
             .border_color(theme.border())
             .child(self.tabs.clone())
             .child(div().flex_1())
-            .child(
-                h_stack()
-                    .gap(px(8.))
-                    .items_center()
-                    .pb(px(10.))
-                    .child(div().size(px(12.)).rounded_full().bg(theme.accent()))
-                    .child(muted(theme, title)),
-            );
+            .child(div().relative().mb(px(6.)).child(self.render_user_button(theme, title, cx)).when(
+                self.user_menu,
+                |d| d.child(self.render_user_menu(theme, cx)),
+            ));
 
         let body: AnyElement = match self.tab {
             Tab::Week => self.render_day(theme, cx).into_any_element(),
@@ -353,6 +349,7 @@ impl TimeChimpApp {
                 }
             })
             .child(browse)
+            .when(self.user_menu, |d| d.child(self.render_user_menu_backdrop(cx)))
             .when(self.show_detail, |d| d.child(self.render_detail(theme, cx)))
             .when_some(self.form.as_ref(), |d, form| d.child(self.render_form(form, theme, window, cx)))
     }
@@ -391,13 +388,68 @@ impl TimeChimpApp {
                 .child(pop(theme, nav("reload", "Reload", |this, w, cx| this.reload(false, w, cx)))),
             Tab::Projects => bar
                 .child(div().flex_1())
-                .child(pop(theme, nav("reload", "Reload", |this, w, cx| this.reload(false, w, cx))))
-                .child(pop(
-                    theme,
-                    button("logout", "Log out").on_click(cx.listener(|this, _, w, cx| this.logout_click(w, cx))),
-                )),
+                .child(pop(theme, nav("reload", "Reload", |this, w, cx| this.reload(false, w, cx)))),
         }
         .text_color(theme.fg())
+    }
+
+    /// The user name in the header; a click opens the user menu.
+    fn render_user_button(&self, theme: &T, title: String, cx: &mut Context<Self>) -> impl IntoElement {
+        h_stack()
+            .id("user-button")
+            .gap(px(8.))
+            .items_center()
+            .px(px(8.))
+            .py(px(4.))
+            .rounded(px(6.))
+            .cursor_pointer()
+            .when(self.user_menu, |d| d.bg(theme.surface()))
+            .hover(|s| s.bg(theme.surface()))
+            .child(div().size(px(12.)).rounded_full().bg(theme.accent()))
+            .child(muted(theme, title))
+            .child(muted(theme, "▾"))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.user_menu = !this.user_menu;
+                cx.notify();
+            }))
+    }
+
+    /// Transparent, window-wide layer under the open user menu: any click outside closes it.
+    fn render_user_menu_backdrop(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let close = cx.listener(|this, _: &gpui::MouseDownEvent, _, cx| {
+            this.user_menu = false;
+            cx.stop_propagation();
+            cx.notify();
+        });
+        deferred(div().id("user-menu-backdrop").absolute().inset_0().occlude().on_mouse_down(MouseButton::Left, close))
+            .with_priority(1)
+    }
+
+    /// The dropdown under the user name (a child of its `relative()` wrapper).
+    fn render_user_menu(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
+        let item = |id: &'static str, label: &'static str| {
+            div()
+                .id(id)
+                .px(px(12.))
+                .py(px(6.))
+                .rounded(px(4.))
+                .cursor_pointer()
+                .hover(|s| s.bg(theme.accent_bg()))
+                .child(label)
+        };
+        let menu = v_stack()
+            .id("user-menu")
+            .occlude()
+            .min_w(px(160.))
+            .p(px(4.))
+            .rounded(px(6.))
+            .border_1()
+            .border_color(theme.border())
+            .bg(theme.surface())
+            .shadow_lg()
+            .text_color(theme.fg())
+            .child(item("user-menu-logout", "Log out").on_click(cx.listener(|this, _, w, cx| this.logout(w, cx))));
+        deferred(div().absolute().top_full().right_0().mt(px(4.)).child(menu)).with_priority(2)
     }
 
     /// Buttons acting on the selected row, for the right of the Week/Mileage panel header.
@@ -422,10 +474,6 @@ impl TimeChimpApp {
                     .disabled(!has),
             ))
             .into_any_element()
-    }
-
-    fn logout_click(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.logout(window, cx);
     }
 
     fn render_footer(&self, theme: &T) -> impl IntoElement {

@@ -122,6 +122,8 @@ pub struct TimeChimpApp {
     pub form: Option<Form>,
     pub confirm: Option<Entity<DialogState>>,
     pub show_detail: bool,
+    /// The dropdown under the user name in the header is open.
+    pub user_menu: bool,
     pub error: Option<String>,
     pub busy: Option<&'static str>,
     /// Bumped on every week load, so a slow response for a week we already left is dropped.
@@ -166,6 +168,7 @@ impl TimeChimpApp {
             form: None,
             confirm: None,
             show_detail: false,
+            user_menu: false,
             error: None,
             busy: None,
             week_generation: 0,
@@ -338,6 +341,7 @@ impl TimeChimpApp {
     }
 
     pub fn logout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.user_menu = false;
         logic::delete_token();
         self.to_login(None, window, cx);
     }
@@ -594,7 +598,8 @@ impl TimeChimpApp {
         if !matches!(self.screen, Screen::Main) || self.form.is_some() {
             return;
         }
-        if self.show_detail {
+        if self.user_menu || self.show_detail {
+            self.user_menu = false;
             self.show_detail = false;
             cx.stop_propagation();
             cx.notify();
