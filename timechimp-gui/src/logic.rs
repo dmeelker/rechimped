@@ -304,6 +304,32 @@ mod tests {
     }
 
     #[test]
+    fn trip_presets() {
+        let config = parse_config(
+            "[projects]\nIntern = []\n\n[[trips]]\nname = \"Commute\"\nproject = \"Intern\"\nfrom = \"A\"\nto = \"B\"\n\
+             distance = 23.5\nreturn_trip = true\ntype = \"Home-Work\"\n\n\
+             [[trips]]\nname = \"Client\"\nproject = \"X\"\nfrom = \"A\"\nto = \"C\"\n",
+        )
+        .unwrap();
+        let [commute, client] = &config.trips[..] else { panic!("two trips") };
+        assert_eq!(commute.distance, Some(23.5));
+        assert!(commute.return_trip && !commute.billable);
+        assert_eq!(commute.mileage_type_id(), Some(3));
+        assert_eq!(client.mileage_type_id(), Some(1));
+        assert_eq!(client.distance, None);
+        assert!(parse_config("[[trips]]\nname = \"x\"\nproject = \"p\"\nfrom = \"a\"\nto = \"b\"\ntype = \"bike\"\n").is_err());
+
+        // Round trip through the appended block.
+        assert_eq!(mileage_type_key(3).as_deref(), Some("home-work"));
+        let block = preset_toml(commute).unwrap();
+        let text = format!("billable_goal = 70\n[projects]\nIntern = []\n\n{block}");
+        assert_eq!(parse_config(&text).unwrap().trips, vec![TripPreset { name: "Commute".into(), ..commute.clone() }]);
+
+        assert_eq!(preset_name("Kerkstraat 1, Utrecht", "Stationsplein 5, Amersfoort", ""), "Kerkstraat 1 → Stationsplein 5");
+        assert_eq!(preset_name("a", "b", " Office "), "Office");
+    }
+
+    #[test]
     fn recent_filter() {
         let haystack = "Code reviews Tournament Software Software development Visual Reality wbso_tournament";
         assert!(matches_words(haystack, ""));
@@ -411,6 +437,57 @@ struct ConfigFile {
     /// Project name → tag names.
     #[serde(default)]
     projects: HashMap<String, Vec<String>>,
+    #[serde(default)]
+    trips: Vec<TripPreset>,
+}
+
+/// A `[[trips]]` entry in `config.toml`: a trip made often (a commute, a regular client visit),
+/// offered as a button on the Mileage tab that opens the trip form filled in.
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug, PartialEq)]
+pub struct TripPreset {
+    pub name: String,
+    /// Project name, matched case-insensitively.
+    pub project: String,
+    pub from: String,
+    pub to: String,
+    /// Kilometres one way; left out, the form's Calculate fills it in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distance: Option<f64>,
+    #[serde(default)]
+    pub return_trip: bool,
+    /// A name from `MILEAGE_TYPES` ("business", "home-work"); defaults to business.
+    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
+    pub mileage_type: Option<String>,
+    #[serde(default)]
+    pub billable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+}
+
+impl TripPreset {
+    /// The trip type id; None when `type` names no known type.
+    pub fn mileage_type_id(&self) -> Option<i64> {
+        let Some(name) = &self.mileage_type else { return Some(MILEAGE_TYPES[0].0) };
+        let key = |s: &str| s.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
+        MILEAGE_TYPES.iter().find(|(_, n)| key(n) == key(name)).map(|(id, _)| *id)
+    }
+}
+
+/// How a trip type is written in `config.toml` (`Home – work` → `home-work`).
+pub fn mileage_type_key(id: i64) -> Option<String> {
+    let (_, name) = MILEAGE_TYPES.iter().find(|(i, _)| *i == id)?;
+    let words: Vec<String> =
+        name.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_lowercase).collect();
+    Some(words.join("-"))
+}
+
+/// A short name for a new preset: its notes, else the start of each address ("A → B").
+pub fn preset_name(from: &str, to: &str, notes: &str) -> String {
+    if !notes.trim().is_empty() {
+        return notes.trim().to_owned();
+    }
+    let short = |a: &str| a.split(',').next().unwrap_or(a).trim().to_owned();
+    format!("{} → {}", short(from), short(to))
 }
 
 pub struct Config {
@@ -418,6 +495,7 @@ pub struct Config {
     pub billable_goal: f64,
     /// Project name → tag names.
     pub projects: HashMap<String, Vec<String>>,
+    pub trips: Vec<TripPreset>,
 }
 
 fn parse_config(text: &str) -> Result<Config, String> {
@@ -427,8 +505,57 @@ fn parse_config(text: &str) -> Result<Config, String> {
         Some(pct) if (0.0..=100.0).contains(&pct) => pct / 100.0,
         Some(pct) => return Err(format!("billable_goal must be a percentage between 0 and 100, not {pct}")),
     };
-    Ok(Config { billable_goal, projects: file.projects })
+    for trip in &file.trips {
+        if trip.mileage_type_id().is_none() {
+            let known: Vec<String> = MILEAGE_TYPES.iter().filter_map(|(id, _)| mileage_type_key(*id)).collect();
+            return Err(format!(
+                "trip \"{}\": unknown type \"{}\" (use {})",
+                trip.name,
+                trip.mileage_type.as_deref().unwrap_or_default(),
+                known.join(" or ")
+            ));
+        }
+    }
+    Ok(Config { billable_goal, projects: file.projects, trips: file.trips })
 }
+
+/// The `[[trips]]` block for `preset`, as appended to `config.toml`.
+fn preset_toml(preset: &TripPreset) -> Result<String, String> {
+    #[derive(serde::Serialize)]
+    struct Trips<'a> {
+        trips: [&'a TripPreset; 1],
+    }
+    toml::to_string(&Trips { trips: [preset] }).map_err(|e| e.to_string())
+}
+
+/// Adds `preset` to the end of `config.toml` (as text, so the comments stay).
+pub fn append_trip_preset(preset: &TripPreset) -> Result<PathBuf, String> {
+    let path = config_path().ok_or("no config directory")?;
+    let block = preset_toml(preset)?;
+    let mut text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("Could not read {}: {e}", path.display())),
+    };
+    // Make sure the result still parses before touching the file.
+    let had_trips = parse_config(&text).map(|c| !c.trips.is_empty()).unwrap_or(false);
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    if !had_trips {
+        text.push_str(&format!("\n{TRIPS_COMMENT}"));
+    }
+    text.push('\n');
+    text.push_str(&block);
+    parse_config(&text).map_err(|e| format!("Error in {}: {e}", path.display()))?;
+    std::fs::create_dir_all(path.parent().expect("has parent")).map_err(|e| e.to_string())?;
+    std::fs::write(&path, text).map_err(|e| format!("Could not write {}: {e}", path.display()))?;
+    Ok(path)
+}
+
+const TRIPS_COMMENT: &str = "# Preset trips, shown as buttons on the Mileage tab. Fields: name, project, from, to,\n\
+     # distance (km, one way; optional), return_trip, type (\"business\" or \"home-work\"),\n\
+     # billable, notes (optional).\n";
 
 /// Reads `config.toml`. `Ok(None)` if the file doesn't exist.
 pub fn load_config() -> Result<Option<Config>, String> {
@@ -497,6 +624,11 @@ pub fn write_config_template(projects: &[Project], tags: &[Tag]) -> std::io::Res
     for project in projects.iter().filter(|p| p.active) {
         text.push_str(&format!("# {:?} = []\n", project.name));
     }
+    text.push_str(&format!(
+        "\n{TRIPS_COMMENT}# \"Save as preset\" in the trip form adds one here. Example:\n#\n\
+         # [[trips]]\n# name = \"Commute\"\n# project = \"Intern\"\n# from = \"Home street 1, Town\"\n\
+         # to = \"Office lane 2, City\"\n# distance = 23\n# return_trip = true\n# type = \"home-work\"\n"
+    ));
     std::fs::create_dir_all(path.parent().expect("has parent"))?;
     std::fs::write(&path, text)?;
     Ok(path)

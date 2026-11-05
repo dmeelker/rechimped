@@ -742,7 +742,7 @@ impl TimeChimpApp {
             start += day.len();
         }
         let empty = self.mileage.is_empty() && self.busy.is_none();
-        panel(theme, format!("Trips · {} km", trim_hours(total)), Some(actions))
+        let trips = panel(theme, format!("Trips · {} km", trim_hours(total)), Some(actions))
             .child(header_row(
                 theme,
                 [
@@ -755,7 +755,29 @@ impl TimeChimpApp {
                 ],
             ))
             .child(table_rows("trip-rows", rows))
-            .when(empty, |d| d.child(empty_message(theme, "No mileage this week. Press A to add.")))
+            .when(empty, |d| d.child(empty_message(theme, "No mileage this week. Press A to add.")));
+        v_stack().min_h_0().gap(px(10.)).child(self.render_presets(theme, cx)).child(trips)
+    }
+
+    /// One button per `[[trips]]` preset in `config.toml`; each opens the trip form for the
+    /// selected day, filled in, so adding a regular trip is a click plus Save.
+    fn render_presets(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
+        let buttons = self.trip_presets.iter().enumerate().map(|(i, preset)| {
+            pop(
+                theme,
+                button(ElementId::NamedInteger("preset".into(), i as u64), preset.name.clone())
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_preset(i, window, cx))),
+            )
+        });
+        h_stack()
+            .flex_wrap()
+            .gap(px(8.))
+            .items_center()
+            .child(muted(theme, "Presets"))
+            .children(buttons)
+            .when(self.trip_presets.is_empty(), |d| {
+                d.child(muted(theme, "none yet: use \"Save as preset\" in the trip form, or add [[trips]] to config.toml"))
+            })
     }
 
     // ---- Report tab ---------------------------------------------------------------------------
@@ -1074,6 +1096,14 @@ impl TimeChimpApp {
                     .pt(px(8.))
                     .gap(px(8.))
                     .items_center()
+                    // Any trip form, so an existing trip can become a preset too.
+                    .when(matches!(&form.body, FormBody::Mileage(_)), |d| {
+                        d.child(pop(
+                            theme,
+                            button("form-preset", "Save as preset")
+                                .on_click(cx.listener(|this, _, w, cx| this.save_as_preset(w, cx))),
+                        ))
+                    })
                     .child(div().flex_1())
                     .when_some(self.busy, |d, b| d.child(div().text_color(theme.accent()).child(b)))
                     .child(pop(

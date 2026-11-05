@@ -119,6 +119,8 @@ pub struct TimeChimpApp {
     pub project_tags: HashMap<i64, Vec<Tag>>,
     /// Billable share to aim for, from `config.toml` (fraction).
     pub billable_goal: f64,
+    /// `[[trips]]` from `config.toml`: buttons on the Mileage tab that open a filled-in trip form.
+    pub trip_presets: Vec<logic::TripPreset>,
     pub form: Option<Form>,
     pub confirm: Option<Entity<DialogState>>,
     pub show_detail: bool,
@@ -165,6 +167,7 @@ impl TimeChimpApp {
             tags: Vec::new(),
             project_tags: HashMap::new(),
             billable_goal: logic::DEFAULT_BILLABLE_GOAL,
+            trip_presets: Vec::new(),
             form: None,
             confirm: None,
             show_detail: false,
@@ -399,12 +402,25 @@ impl TimeChimpApp {
                 self.billable_goal = config.billable_goal;
                 let (resolved, warning) = logic::resolve_project_tags(&config.projects, &self.projects, &self.tags);
                 self.project_tags = resolved;
+                let unknown: Vec<String> = config
+                    .trips
+                    .iter()
+                    .filter(|t| self.preset_project(t).is_none())
+                    .map(|t| format!("project \"{}\" (trip \"{}\")", t.project, t.name))
+                    .collect();
+                self.trip_presets = config.trips;
+                let warning = match (warning, unknown.is_empty()) {
+                    (w, true) => w,
+                    (None, false) => Some(format!("config.toml: unknown {}", unknown.join(", "))),
+                    (Some(w), false) => Some(format!("{w}, {}", unknown.join(", "))),
+                };
                 if let Some(warning) = warning {
                     self.set_error(warning, window, cx);
                 }
             }
             Ok(None) => {
                 self.project_tags.clear();
+                self.trip_presets.clear();
                 self.billable_goal = logic::DEFAULT_BILLABLE_GOAL;
                 match logic::write_config_template(&self.projects, &self.tags) {
                     Ok(path) => self.set_info(format!("Created {}; add the tags per project there", path.display()), window, cx),
@@ -413,6 +429,7 @@ impl TimeChimpApp {
             }
             Err(e) => {
                 self.project_tags.clear();
+                self.trip_presets.clear();
                 self.set_error(e, window, cx);
             }
         }
@@ -652,7 +669,7 @@ impl TimeChimpApp {
             return;
         }
         if self.tab == Tab::Mileage {
-            self.open_mileage_form(None, window, cx);
+            self.open_mileage_form(None, None, window, cx);
         } else {
             self.open_time_form(None, false, window, cx);
         }
@@ -661,7 +678,7 @@ impl TimeChimpApp {
     pub fn edit_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.tab == Tab::Mileage {
             if let Some(trip) = self.selected_mileage().cloned() {
-                self.open_mileage_form(Some(Box::new(trip)), window, cx);
+                self.open_mileage_form(Some(Box::new(trip)), None, window, cx);
             }
         } else if let Some(entry) = self.selected_entry().cloned() {
             self.open_time_form(Some(&entry), false, window, cx);
@@ -889,9 +906,73 @@ impl TimeChimpApp {
         tag_ids.iter().copied().filter(|id| !self.project_tags.values().flatten().any(|t| t.id == *id)).collect()
     }
 
-    /// The trip form: empty for a new trip (project, type and billable from the last trip), or
-    /// filled in with `editing`.
-    fn open_mileage_form(&mut self, editing: Option<Box<Mileage>>, window: &mut Window, cx: &mut Context<Self>) {
+    /// The project a preset names (case-insensitive), among the user's projects.
+    fn preset_project(&self, preset: &logic::TripPreset) -> Option<&Project> {
+        self.projects.iter().find(|p| p.name.eq_ignore_ascii_case(preset.project.trim()))
+    }
+
+    /// A preset button: the trip form for the selected day, filled in from preset `index`.
+    pub fn open_preset(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.me.is_none() || self.form.is_some() {
+            return;
+        }
+        if let Some(preset) = self.trip_presets.get(index).cloned() {
+            self.open_mileage_form(None, Some(&preset), window, cx);
+        }
+    }
+
+    /// "Save as preset" in the trip form: appends its trip to `config.toml`.
+    pub fn save_as_preset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(Form { body: FormBody::Mileage(f), .. }) = &self.form else { return };
+        let (from, to, notes) = (text(&f.from, cx), text(&f.to, cx), text(&f.notes, cx));
+        if from.is_empty() || to.is_empty() {
+            return self.form_error("Fill in both addresses first", cx);
+        }
+        let Some(project) = chosen(&f.project, cx).and_then(|id| self.projects.iter().find(|p| p.id == id)) else {
+            return self.form_error("Pick a project first", cx);
+        };
+        let distance = text(&f.distance, cx).replace(',', ".");
+        let distance = match distance.parse::<f64>() {
+            Ok(km) => Some(km),
+            Err(_) if distance.is_empty() => None,
+            Err(_) => return self.form_error("Distance must be a number (or empty)", cx),
+        };
+        let name = logic::preset_name(&from, &to, &notes);
+        if self.trip_presets.iter().any(|p| p.name.eq_ignore_ascii_case(&name)) {
+            return self.form_error(format!("There already is a preset \"{name}\" in config.toml"), cx);
+        }
+        let preset = logic::TripPreset {
+            name: name.clone(),
+            project: project.name.clone(),
+            from,
+            to,
+            distance,
+            return_trip: f.editing.is_none() && f.return_trip.read(cx).is_on(),
+            mileage_type: chosen(&f.mileage_type, cx).and_then(logic::mileage_type_key),
+            billable: f.billable.read(cx).is_on(),
+            notes: Some(notes).filter(|n| !n.is_empty()),
+        };
+        match logic::append_trip_preset(&preset) {
+            Ok(_) => {
+                if let Some(form) = &mut self.form {
+                    form.error = None;
+                }
+                self.load_config(window, cx);
+                self.set_info(format!("Preset \"{name}\" added to config.toml"), window, cx);
+            }
+            Err(e) => self.form_error(e, cx),
+        }
+    }
+
+    /// The trip form: for a new trip filled in from `preset`, or empty (project, type and billable
+    /// from the last trip); or filled in with `editing`.
+    fn open_mileage_form(
+        &mut self,
+        editing: Option<Box<Mileage>>,
+        preset: Option<&logic::TripPreset>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let template = editing.as_deref().or(self.mileage.last());
         let saved = self.saved_addresses();
         let types = MILEAGE_TYPES.iter().map(|(id, name)| (*id, name.to_string())).collect();
@@ -901,20 +982,34 @@ impl TimeChimpApp {
         {
             projects.push((m.project_id, format!("{} — {}", m.project_name, m.customer_name)));
         }
-        let (project, mileage_type, billable) = (
+        let (mut project, mut mileage_type, mut billable, mut return_trip) = (
             template.map(|m| m.project_id),
             template.map(|m| m.mileage_type as i64),
             template.is_some_and(|m| m.billable),
+            false,
         );
-        let (date, from, to, distance, notes) = match &editing {
-            Some(m) => (
+        if let Some(p) = preset {
+            project = self.preset_project(p).map(|p| p.id).or(project);
+            mileage_type = p.mileage_type_id();
+            billable = p.billable;
+            return_trip = p.return_trip;
+        }
+        let (date, from, to, distance, notes) = match (&editing, preset) {
+            (None, Some(p)) => (
+                self.day,
+                p.from.clone(),
+                p.to.clone(),
+                p.distance.map(|d| format!("{d}")).unwrap_or_default(),
+                p.notes.clone().unwrap_or_default(),
+            ),
+            (Some(m), _) => (
                 m.date.date(),
                 m.from_address.clone().unwrap_or_default(),
                 m.to_address.clone().unwrap_or_default(),
                 format!("{}", m.distance),
                 m.notes.clone().unwrap_or_default(),
             ),
-            None => (
+            (None, None) => (
                 self.day,
                 saved.first().cloned().unwrap_or_default(),
                 saved.get(1).cloned().unwrap_or_default(),
@@ -929,7 +1024,7 @@ impl TimeChimpApp {
             from: forms::text_input(cx, from),
             to: forms::text_input(cx, to),
             distance: forms::text_input(cx, distance),
-            return_trip: forms::toggle(cx, "form-return", "Return trip", false),
+            return_trip: forms::toggle(cx, "form-return", "Return trip", return_trip),
             mileage_type: forms::choice(cx, "form-type", "Type", types, mileage_type),
             billable: forms::toggle(cx, "form-billable", "Billable", billable),
             notes: forms::text_input(cx, notes),
@@ -1207,6 +1302,7 @@ impl TimeChimpApp {
             })
         };
         let Some((target, question, label)) = target else { return };
+
         let this = cx.weak_entity();
         let state = cx.new(|_| {
             DialogState::new(dialog("confirm-delete").confirm(question, label).confirm_label("Delete").on_confirm(
