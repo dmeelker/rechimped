@@ -1,4 +1,4 @@
-//! Desktop GUI for TimeChimp, built with gpui + gpuikit: log in, browse your time entries per
+//! Rechimped: desktop GUI for TimeChimp, built with gpui + gpuikit: log in, browse your time entries per
 //! day or week, register/edit/copy/delete time and mileage, and see a monthly report.
 //!
 //! The session is stored in `%APPDATA%\timechimp-tui\refresh_token`, so you only log in once.
@@ -38,7 +38,7 @@ fn main() {
             cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    titlebar: Some(TitlebarOptions { title: Some(SharedString::from("TimeChimp")), ..Default::default() }),
+                    titlebar: Some(TitlebarOptions { title: Some(SharedString::from("Rechimped")), ..Default::default() }),
                     ..Default::default()
                 },
                 |window, cx| cx.new(|cx| TimeChimpApp::new(window, cx)),
@@ -53,7 +53,7 @@ fn main() {
 /// Catppuccin Latte (light) with TimeChimp's orange as the accent.
 fn theme() -> Theme {
     let mut theme = Theme::catppuccin_latte();
-    theme.name = "TimeChimp".into();
+    theme.name = "Rechimped".into();
     theme.accent_color = parse_hex("#f36f21");
     theme.input_border_focused_color = Some(parse_hex("#f36f21"));
     // Text fields and selects a soft off-white, so they stand out from the dialog surface

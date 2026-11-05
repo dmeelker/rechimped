@@ -260,7 +260,7 @@ impl TimeChimpApp {
                         .gap(px(8.))
                         .items_center()
                         .child(div().size(px(14.)).rounded_full().bg(accent))
-                        .child(div().text_lg().font_weight(FontWeight::BOLD).child("TimeChimp")),
+                        .child(div().text_lg().font_weight(FontWeight::BOLD).child("Rechimped")),
                 )
                 .child(muted(theme, "Log in to view and register your time."))
                 .child(label("Email"))

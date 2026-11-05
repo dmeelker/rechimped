@@ -8,7 +8,7 @@ The GUI needs Rust ≥ 1.93 (gpui uses `slice::as_array`; `rust-version` in `tim
 
 ```sh
 cargo build                                   # whole workspace
-cargo run -p timechimp-gui                    # desktop app
+cargo run -p timechimp-gui                    # desktop app (binary: rechimped)
 cargo test                                    # all tests
 cargo test -p timechimp-gui lenient_times     # single test by name
 cargo clippy --workspace
@@ -32,7 +32,7 @@ Client for TimeChimp's **undocumented internal** web API (`web.timechimp.com/api
 - `models.rs`: serde models; `NewTimeEntry` / `NewMileage` are the write payloads.
 - `srp.rs` has unit tests against a pycognito-generated vector in `testdata/`.
 
-### `timechimp-gui` — gpui + gpuikit desktop app
+### `timechimp-gui` — Rechimped, the gpui + gpuikit desktop app
 One root entity, `TimeChimpApp` (`app.rs`), holds all state; `view.rs` implements `Render` for it.
 - **Async**: reqwest needs tokio, gpui has its own executor. `TimeChimpApp::run` spawns the future on a global tokio runtime (`logic::runtime()`), awaits the `JoinHandle` inside `cx.spawn_in`, and applies the result in a callback with `&mut Self, Window, Context`. Week loads carry a generation counter so stale responses are dropped. All network work goes through `run`.
 - **Keyboard**: browse-mode shortcuts are a single `on_key_down` handler (`TimeChimpApp::on_key`) on the element tracking `self.focus`; it only fires while that element (not a form input) has focus. Forms and the login card are separate modal elements with key context `"Modal"` handling the `Confirm`/`Cancel`/`CalculateDistance`/`CycleAddress` actions.
@@ -52,4 +52,4 @@ One root entity, `TimeChimpApp` (`app.rs`), holds all state; `view.rs` implement
 
 Running the app with a stored session talks to the real account. When testing, avoid saving or deleting unless asked; cancel dialogs with Esc.
 
-To verify visually on Windows: start `target\debug\timechimp-gui.exe`, post input with `PostMessage` to the process's `MainWindowHandle` (a `WM_LBUTTONDOWN/UP` on an empty spot first, so the window takes key input; then `WM_KEYDOWN/UP` with VK codes), and capture with `PrintWindow`. Don't use `SendKeys`: it types into whatever window has the foreground. Stop the app before rebuilding, since a running exe blocks the linker.
+To verify visually on Windows: start `target\debug\rechimped.exe`, post input with `PostMessage` to the process's `MainWindowHandle` (a `WM_LBUTTONDOWN/UP` on an empty spot first, so the window takes key input; then `WM_KEYDOWN/UP` with VK codes), and capture with `PrintWindow`. Don't use `SendKeys`: it types into whatever window has the foreground. Stop the app before rebuilding, since a running exe blocks the linker.

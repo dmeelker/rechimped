@@ -4,7 +4,11 @@ version = "0.1.0"
 edition = "2024"
 # gpui needs a recent compiler (it uses `slice::as_array`, stable since 1.93).
 rust-version = "1.93"
-description = "Desktop GUI (gpui + gpuikit) for viewing and editing your TimeChimp time entries"
+description = "Rechimped: desktop GUI (gpui + gpuikit) for viewing and editing your TimeChimp time entries"
+
+[[bin]]
+name = "rechimped"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
