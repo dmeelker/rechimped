@@ -22,7 +22,7 @@ use gpuikit::a11y::{FocusNext, FocusPrevious};
 use gpuikit::input::INPUT_CONTEXT;
 use gpuikit::theme::{ControlMetrics, GlobalTheme, Theme, parse_hex};
 
-use app::{CalculateDistance, Cancel, Confirm, CycleAddress, TimeChimpApp};
+use app::{CalculateDistance, Cancel, Confirm, CycleAddress, PickRecent, RecentDown, RecentUp, TimeChimpApp};
 
 fn main() {
     // Start the tokio runtime up front so the first request doesn't pay for it.
@@ -101,5 +101,9 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-enter", Confirm, Some("Modal")),
         KeyBinding::new("ctrl-d", CalculateDistance, Some("Modal")),
         KeyBinding::new("f2", CycleAddress, Some("Modal")),
+        // The time form's Recent filter: ↑/↓ move through the list, Enter picks.
+        KeyBinding::new("up", RecentUp, Some("RecentPicker > Input")),
+        KeyBinding::new("down", RecentDown, Some("RecentPicker > Input")),
+        KeyBinding::new("enter", PickRecent, Some("RecentPicker > Input")),
     ]);
 }

@@ -20,9 +20,11 @@ use gpuikit::theme::{ActiveTheme, ControlSize, Theme, Themeable};
 use gpuikit::traits::control_sized::ControlSized;
 use timechimp::TimeEntry;
 
-use crate::app::{CalculateDistance, Cancel, Confirm, CycleAddress, Screen, Tab, TimeChimpApp};
-use crate::forms::{Form, FormBody};
-use crate::logic::mileage_type_name;
+use crate::app::{
+    CalculateDistance, Cancel, Confirm, CycleAddress, PickRecent, RecentDown, RecentUp, Screen, Tab, TimeChimpApp,
+};
+use crate::forms::{Form, FormBody, RecentPicker};
+use crate::logic::{RecentItem, mileage_type_name};
 
 type T = Arc<Theme>;
 
@@ -885,6 +887,11 @@ impl TimeChimpApp {
         };
         let rows: Vec<AnyElement> = match &form.body {
             FormBody::Time(f) => vec![
+                row("Recent", f.recent.as_ref().map_or_else(|| div().into_any_element(), |p| self.render_recent(p, theme, cx)), None)
+                    .when(f.recent.is_none(), |d| d.hidden())
+                    .items_start(),
+                // Separates the picker from the fields it fills in.
+                h_stack().h(px(1.)).w_full().bg(theme.border()).when(f.recent.is_none(), |d| d.hidden()),
                 row("Date", field(&f.date, "YYYY-MM-DD", cx), None),
                 row("Project", f.project.clone().into_any_element(), None),
                 row("Task", f.task.clone().into_any_element(), None),
@@ -943,6 +950,9 @@ impl TimeChimpApp {
             .on_action(cx.listener(|this, _: &Cancel, w, cx| this.close_form(w, cx)))
             .on_action(cx.listener(|this, _: &CalculateDistance, w, cx| this.calculate_distance(w, cx)))
             .on_action(cx.listener(|this, _: &CycleAddress, w, cx| this.cycle_address(w, cx)))
+            .on_action(cx.listener(|this, _: &RecentUp, _, cx| this.move_recent(-1, cx)))
+            .on_action(cx.listener(|this, _: &RecentDown, _, cx| this.move_recent(1, cx)))
+            .on_action(cx.listener(|this, _: &PickRecent, w, cx| this.pick_highlighted_recent(w, cx)))
             .p(px(24.))
             .gap(px(14.))
             .child(div().text_lg().font_weight(FontWeight::BOLD).text_color(theme.accent()).child(form.title()))
@@ -970,5 +980,54 @@ impl TimeChimpApp {
                     )),
             );
         Self::modal(theme, "form", 720., card, None)
+    }
+
+    /// The time form's Recent picker: a filter field over the recent items, the highlighted one
+    /// picked with Enter (or any one by clicking it).
+    fn render_recent(&self, picker: &RecentPicker, theme: &T, cx: &mut Context<Self>) -> AnyElement {
+        let matches: Vec<RecentItem> = self.recent_matches(cx).into_iter().cloned().collect();
+        let selected = picker.selected.min(matches.len().saturating_sub(1));
+        let empty = matches.is_empty();
+        let typed = !crate::forms::text(&picker.filter, cx).is_empty();
+        let rows = matches.into_iter().enumerate().map(|(i, item)| {
+            let notes = item.notes().to_owned();
+            let e = item.entry;
+            let label = format!("{} / {}", e.project_name, e.task_name);
+            let tags = e.tag_names.join(", ");
+            h_stack()
+                .id(ElementId::NamedInteger("recent".into(), i as u64))
+                .py(px(4.))
+                .px(px(4.))
+                .cursor_pointer()
+                .when(i == selected, |d| d.bg(theme.accent_bg()))
+                .when(i != selected, |d| d.hover(|s| s.bg(theme.surface())))
+                .child(if notes.is_empty() {
+                    cell(Some(200.), "(no notes)").text_color(theme.fg_muted())
+                } else {
+                    cell(Some(200.), notes)
+                })
+                .child(cell(None, label).text_color(theme.fg_muted()))
+                .child(cell(Some(110.), tags).text_color(theme.fg_muted()))
+                .on_click(cx.listener(move |this, _, w, cx| this.pick_recent(e.clone(), w, cx)))
+        });
+        let list = v_stack()
+            .border_1()
+            .border_color(theme.border())
+            .rounded(px(6.))
+            .overflow_hidden()
+            .bg(theme.bg())
+            .children(rows)
+            .when(empty, |d| {
+                d.child(muted(theme, "Nothing matches").px(px(10.)).py(px(4.)))
+            });
+        v_stack()
+            .gap(px(6.))
+            .child(
+                div()
+                    .key_context("RecentPicker")
+                    .child(text_field(&picker.filter, cx).placeholder("Type to search recent work · ↑/↓ and Enter to pick · Tab to skip")),
+            )
+            .when(typed, |d| d.child(list))
+            .into_any_element()
     }
 }

@@ -11,7 +11,7 @@ use gpuikit::elements::dialog::{DialogClosed, DialogState, dialog};
 use gpuikit::elements::select::SelectChanged;
 use gpuikit::elements::tabs::{TabChanged, Tabs, tab, tabs};
 use gpuikit::elements::toast::ToastExt;
-use gpuikit::input::InputState;
+use gpuikit::input::{InputState, InputStateEvent};
 use timechimp::{
     Authenticator, Client, CurrentUser, LoginOutcome, MfaChallenge, Mileage, NewMileage, NewTimeEntry, Project,
     ProjectTask, Tag, Task, TimeEntry,
@@ -32,6 +32,12 @@ actions!(
         CalculateDistance,
         /// F2 in an address field: cycle through saved addresses.
         CycleAddress,
+        /// ↑ in the time form's Recent filter.
+        RecentUp,
+        /// ↓ in the time form's Recent filter.
+        RecentDown,
+        /// Enter in the time form's Recent filter: fill in the highlighted item.
+        PickRecent,
     ]
 );
 
@@ -97,6 +103,10 @@ pub struct TimeChimpApp {
     pub week_start: NaiveDate,
     pub entries: Vec<TimeEntry>,
     pub selected_entry: Option<usize>,
+    /// Entries of the last few weeks plus every week loaded since, by id; feeds `recent`.
+    history: HashMap<i64, TimeEntry>,
+    /// What the time form's Recent picker offers, most recent first.
+    pub recent: Vec<logic::RecentItem>,
     pub mileage: Vec<Mileage>,
     pub selected_mileage: Option<usize>,
     pub report_month: NaiveDate,
@@ -141,6 +151,8 @@ impl TimeChimpApp {
             week_start: logic::monday_of(today),
             entries: Vec::new(),
             selected_entry: None,
+            history: HashMap::new(),
+            recent: Vec::new(),
             mileage: Vec::new(),
             selected_mileage: None,
             report_month: logic::first_of_month(today),
@@ -234,6 +246,8 @@ impl TimeChimpApp {
         self.client = None;
         self.me = None;
         self.entries.clear();
+        self.history.clear();
+        self.recent.clear();
         self.mileage.clear();
         self.projects.clear();
         self.tasks.clear();
@@ -336,15 +350,18 @@ impl TimeChimpApp {
         let (week_start, report_month, want_report) = (self.week_start, self.report_month, self.tab == Tab::Report);
         self.week_generation += 1;
         let generation = self.week_generation;
+        let today = logic::today();
         let future = async move {
             let base = logic::load_base(&client).await?;
-            let week = logic::load_week(&client, base.me.id, week_start).await?;
-            let report =
-                if want_report { Some(logic::load_report(&client, base.me.id, report_month).await?) } else { None };
-            timechimp::Result::Ok((base, week, report))
+            let user_id = base.me.id;
+            // The history only feeds the Recent picker; failing to load it doesn't fail the reload.
+            let (week, history) =
+                tokio::join!(logic::load_week(&client, user_id, week_start), logic::load_history(&client, user_id, today));
+            let report = if want_report { Some(logic::load_report(&client, user_id, report_month).await?) } else { None };
+            timechimp::Result::Ok((base, week?, report, history))
         };
         self.run("Loading…", future, window, cx, move |this, result, window, cx| match result {
-            Ok((base, week, report)) => {
+            Ok((base, week, report, history)) => {
                 this.project_tasks = base.project_tasks;
                 this.me = Some(base.me);
                 this.projects = base.projects;
@@ -352,10 +369,17 @@ impl TimeChimpApp {
                 this.tags = base.tags;
                 this.load_config(window, cx);
                 this.report = report.unwrap_or_default();
+                this.error = None;
+                match history {
+                    Ok(history) => {
+                        this.history = history.into_iter().map(|e| (e.id, e)).collect();
+                        this.recent = logic::recent_items(this.history.values());
+                    }
+                    Err(e) => this.set_error(format!("Could not load recent entries: {e}"), window, cx),
+                }
                 if generation == this.week_generation {
                     this.apply_week(week, None);
                 }
-                this.error = None;
             }
             Err(e) if resuming => {
                 this.to_login(Some(format!("Session expired or invalid, please log in again ({e})")), window, cx)
@@ -413,6 +437,12 @@ impl TimeChimpApp {
     }
 
     fn apply_week(&mut self, week: logic::Week, select_id: Option<i64>) {
+        // The week replaces what the history had for it, so saves and deletes show up in Recent.
+        let week_end = self.week_start + Duration::days(7);
+        self.history.retain(|_, e| !(self.week_start..week_end).contains(&e.date.date()));
+        self.history.extend(week.entries.iter().map(|e| (e.id, e.clone())));
+        self.recent = logic::recent_items(self.history.values());
+
         self.selected_entry = keep_selection(self.selected_entry, week.entries.len());
         self.selected_mileage = keep_selection(self.selected_mileage, week.mileage.len());
         self.entries = week.entries;
@@ -673,6 +703,8 @@ impl TimeChimpApp {
         let notes = entry.and_then(|e| e.notes.clone()).unwrap_or_default();
 
         let project = forms::choice(cx, "form-project", "Project", projects, project_id);
+        let recent = (entry.is_none() && !self.recent.is_empty())
+            .then(|| forms::RecentPicker { filter: forms::text_input(cx, ""), selected: 0 });
         let form = TimeForm {
             kind: match editing {
                 None => TimeKind::New,
@@ -692,14 +724,105 @@ impl TimeChimpApp {
             tags,
             kept_tag_ids,
             project: project.clone(),
+            recent,
         };
-        // Editing: jump to the times; new: to the end time when the start is already filled in.
-        let focus = if editing.is_some() || start.is_empty() { &form.start } else { &form.end };
+        // A new entry starts in the Recent filter; editing jumps to the times, a copy to the end
+        // time when the start is already filled in.
+        let focus = match &form.recent {
+            Some(picker) => &picker.filter,
+            None if editing.is_some() || start.is_empty() => &form.start,
+            None => &form.end,
+        };
         window.focus(&focus.read(cx).focus_handle(cx), cx);
-        let sub = cx.subscribe_in(&project, window, |this, _, _: &SelectChanged, window, cx| {
-            this.on_project_changed(window, cx)
-        });
-        self.form = Some(Form { body: FormBody::Time(form), error: None, _subscriptions: vec![sub] });
+        let mut subscriptions = vec![self.subscribe_project(&project, window, cx)];
+        if let Some(picker) = &form.recent {
+            // A new filter text highlights the first match again.
+            subscriptions.push(cx.subscribe_in(&picker.filter, window, |this, _, event: &InputStateEvent, _, cx| {
+                if matches!(event, InputStateEvent::TextChanged) {
+                    if let Some(picker) = this.recent_picker_mut() {
+                        picker.selected = 0;
+                    }
+                    cx.notify();
+                }
+            }));
+        }
+        self.form = Some(Form { body: FormBody::Time(form), error: None, _subscriptions: subscriptions });
+        cx.notify();
+    }
+
+    fn subscribe_project(
+        &self,
+        project: &Entity<gpuikit::elements::select::SelectState<i64>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Subscription {
+        cx.subscribe_in(project, window, |this, _, _: &SelectChanged, window, cx| this.on_project_changed(window, cx))
+    }
+
+    fn recent_picker_mut(&mut self) -> Option<&mut forms::RecentPicker> {
+        match &mut self.form {
+            Some(Form { body: FormBody::Time(TimeForm { recent: Some(picker), .. }), .. }) => Some(picker),
+            _ => None,
+        }
+    }
+
+    /// The recent items matching the filter of the open time form, best first, at most `RECENT_ROWS`.
+    /// None while the filter is empty: the list only appears once you type.
+    pub fn recent_matches(&self, cx: &gpui::App) -> Vec<&logic::RecentItem> {
+        let Some(Form { body: FormBody::Time(TimeForm { recent: Some(picker), .. }), .. }) = &self.form else {
+            return Vec::new();
+        };
+        let query = text(&picker.filter, cx);
+        if query.is_empty() {
+            return Vec::new();
+        }
+        self.recent.iter().filter(|item| item.matches(&query)).take(RECENT_ROWS).collect()
+    }
+
+    /// ↑/↓ in the Recent filter.
+    pub fn move_recent(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let count = self.recent_matches(cx).len();
+        if let Some(picker) = self.recent_picker_mut() {
+            picker.selected = picker.selected.saturating_add_signed(delta).min(count.saturating_sub(1));
+        }
+        cx.notify();
+    }
+
+    /// Enter in the Recent filter: fills in the highlighted item, or (without a match) moves on.
+    pub fn pick_highlighted_recent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let selected = match &self.form {
+            Some(Form { body: FormBody::Time(TimeForm { recent: Some(picker), .. }), .. }) => picker.selected,
+            _ => return,
+        };
+        match self.recent_matches(cx).get(selected).map(|item| item.entry.clone()) {
+            Some(entry) => self.pick_recent(entry, window, cx),
+            None => window.focus_next(cx),
+        }
+    }
+
+    /// Fills the open time form with the project, task, notes and tags of `entry` (a recent item);
+    /// date and times stay. Focus moves on to the times.
+    pub fn pick_recent(&mut self, entry: TimeEntry, window: &mut Window, cx: &mut Context<Self>) {
+        let mut projects = self.project_options();
+        if !projects.iter().any(|(id, _)| *id == entry.project_id) {
+            projects.push((entry.project_id, format!("{} — {}", entry.project_name, entry.customer_name)));
+        }
+        let project = forms::choice(cx, "form-project", "Project", projects, Some(entry.project_id));
+        let tasks = self.task_options(Some(entry.project_id), Some(&entry));
+        let task = forms::choice(cx, "form-task", "Task", tasks, Some(entry.project_task_id));
+        let tags = self.tag_checkboxes(Some(entry.project_id), Some(&entry), cx);
+        let kept_tag_ids = self.unconfigured_tags(&entry.tag_ids);
+        let project_sub = self.subscribe_project(&project, window, cx);
+        let Some(Form { body: FormBody::Time(form), _subscriptions, error }) = &mut self.form else { return };
+        forms::set_text(&form.notes, entry.notes.clone().unwrap_or_default(), cx);
+        form.project = project;
+        form.task = task;
+        form.tags = tags;
+        form.kept_tag_ids = kept_tag_ids;
+        _subscriptions[0] = project_sub;
+        *error = None;
+        let next = if text(&form.start, cx).is_empty() { &form.start } else { &form.end };
+        window.focus(&next.read(cx).focus_handle(cx), cx);
         cx.notify();
     }
 
@@ -1126,6 +1249,9 @@ enum SaveRequest {
     Time { id: Option<i64>, entry: NewTimeEntry },
     Mileage { trip: NewMileage, return_trip: bool },
 }
+
+/// Rows the Recent picker shows at most.
+const RECENT_ROWS: usize = 6;
 
 fn keep_selection(selected: Option<usize>, len: usize) -> Option<usize> {
     match (len, selected) {

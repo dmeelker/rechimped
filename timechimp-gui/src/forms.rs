@@ -25,6 +25,16 @@ pub struct TimeForm {
     pub tags: Vec<TagCheckbox>,
     /// Tags on the entry that no project configures (e.g. old `z_wbso_*` ones); kept on save.
     pub kept_tag_ids: Vec<i64>,
+    /// Picker over recent work, on a new (not copied) entry only.
+    pub recent: Option<RecentPicker>,
+}
+
+/// Filter field plus highlighted row of the Recent list; picking a row fills in project, task,
+/// notes and tags.
+pub struct RecentPicker {
+    pub filter: Entity<InputState>,
+    /// Index into the filtered list.
+    pub selected: usize,
 }
 
 pub struct TagCheckbox {
@@ -52,6 +62,8 @@ pub enum FormBody {
 pub struct Form {
     pub body: FormBody,
     pub error: Option<String>,
+    /// The time form's project subscription comes first: picking a recent item replaces the
+    /// project select, and with it that subscription.
     pub _subscriptions: Vec<Subscription>,
 }
 

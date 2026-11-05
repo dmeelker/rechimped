@@ -64,6 +64,62 @@ pub async fn load_week(client: &Client, user_id: i64, week_start: NaiveDate) -> 
     Ok(Week { entries, mileage })
 }
 
+/// How many weeks (this one included) the Recent picker in the time form looks back.
+const HISTORY_WEEKS: i64 = 5;
+
+/// The user's entries of the last `HISTORY_WEEKS` weeks up to `today`, for the Recent picker.
+pub async fn load_history(client: &Client, user_id: i64, today: NaiveDate) -> timechimp::Result<Vec<TimeEntry>> {
+    let this_week = monday_of(today);
+    let weeks = (0..HISTORY_WEEKS).map(|k| client.time_entries_for_week(user_id, this_week - Duration::weeks(k)));
+    Ok(futures::future::try_join_all(weeks).await?.into_iter().flatten().collect())
+}
+
+/// Something worked on recently: a distinct project / task / notes combination. `entry` is its
+/// latest registration, which also supplies the tags.
+#[derive(Clone)]
+pub struct RecentItem {
+    pub entry: TimeEntry,
+    pub uses: usize,
+}
+
+impl RecentItem {
+    pub fn notes(&self) -> &str {
+        self.entry.notes.as_deref().unwrap_or("").trim()
+    }
+
+    /// Whether every word of `query` occurs (case-insensitively) in the notes, project, task,
+    /// customer or tags.
+    pub fn matches(&self, query: &str) -> bool {
+        let e = &self.entry;
+        let haystack =
+            format!("{} {} {} {} {}", self.notes(), e.project_name, e.task_name, e.customer_name, e.tag_names.join(" "));
+        matches_words(&haystack, query)
+    }
+}
+
+fn matches_words(haystack: &str, query: &str) -> bool {
+    let haystack = haystack.to_lowercase();
+    query.split_whitespace().all(|word| haystack.contains(&word.to_lowercase()))
+}
+
+/// Groups `entries` by project, task and notes; the most recently used first, then the most used.
+pub fn recent_items<'a>(entries: impl IntoIterator<Item = &'a TimeEntry>) -> Vec<RecentItem> {
+    let mut groups: HashMap<(i64, i64, String), RecentItem> = HashMap::new();
+    for e in entries {
+        let key = (e.project_id, e.project_task_id, e.notes.as_deref().unwrap_or("").trim().to_lowercase());
+        let item = groups.entry(key).or_insert_with(|| RecentItem { entry: e.clone(), uses: 0 });
+        item.uses += 1;
+        if (e.date, e.modified) > (item.entry.date, item.entry.modified) {
+            item.entry = e.clone();
+        }
+    }
+    let mut items: Vec<RecentItem> = groups.into_values().collect();
+    items.sort_by(|a, b| {
+        (b.entry.date.date(), b.uses, b.entry.modified).cmp(&(a.entry.date.date(), a.uses, a.entry.modified))
+    });
+    items
+}
+
 /// Share of hours that should be billable, unless `billable_goal` in `config.toml` says otherwise.
 pub const DEFAULT_BILLABLE_GOAL: f64 = 0.75;
 
@@ -188,6 +244,16 @@ mod tests {
         assert!(empty.projects.is_empty());
         assert_eq!(empty.billable_goal, DEFAULT_BILLABLE_GOAL);
         assert!(parse_config("billable_goal = 150").is_err());
+    }
+
+    #[test]
+    fn recent_filter() {
+        let haystack = "Code reviews Tournament Software Software development Visual Reality wbso_tournament";
+        assert!(matches_words(haystack, ""));
+        assert!(matches_words(haystack, "code"));
+        assert!(matches_words(haystack, "REV tourn"));
+        assert!(matches_words(haystack, "  visual   wbso "));
+        assert!(!matches_words(haystack, "code daily"));
     }
 
     #[test]
