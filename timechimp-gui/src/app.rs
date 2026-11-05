@@ -38,6 +38,8 @@ actions!(
         RecentDown,
         /// Enter in the time form's Recent filter: fill in the highlighted item.
         PickRecent,
+        /// F12: showcase mode (aurora behind the app, frame-time HUD).
+        ToggleShowcase,
     ]
 );
 
@@ -130,6 +132,8 @@ pub struct TimeChimpApp {
     pub busy: Option<&'static str>,
     /// Bumped on every week load, so a slow response for a week we already left is dropped.
     week_generation: u64,
+    /// GPU effects state (`fx.rs`).
+    pub fx: crate::fx::Fx,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -175,6 +179,7 @@ impl TimeChimpApp {
             error: None,
             busy: None,
             week_generation: 0,
+            fx: crate::fx::Fx::new(),
             _subscriptions: vec![tab_sub],
         };
 
@@ -458,6 +463,7 @@ impl TimeChimpApp {
     }
 
     fn apply_week(&mut self, week: logic::Week, select_id: Option<i64>) {
+        self.fx.sweep += 1;
         // The week replaces what the history had for it, so saves and deletes show up in Recent.
         let week_end = self.week_start + Duration::days(7);
         self.history.retain(|_, e| !(self.week_start..week_end).contains(&e.date.date()));
@@ -510,6 +516,7 @@ impl TimeChimpApp {
             return;
         }
         self.tab = tab;
+        self.fx.sweep += 1;
         self.tabs.update(cx, |t, cx| t.set_selected(tab.id().into(), cx));
         if tab == Tab::Report && self.report.month != Some(self.report_month) {
             self.load_report(window, cx);

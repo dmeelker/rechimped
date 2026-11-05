@@ -8,6 +8,7 @@
 
 mod app;
 mod forms;
+mod fx;
 mod logic;
 mod password;
 mod view;
@@ -22,7 +23,9 @@ use gpuikit::a11y::{FocusNext, FocusPrevious};
 use gpuikit::input::INPUT_CONTEXT;
 use gpuikit::theme::{ControlMetrics, GlobalTheme, Theme, parse_hex};
 
-use app::{CalculateDistance, Cancel, Confirm, CycleAddress, PickRecent, RecentDown, RecentUp, TimeChimpApp};
+use app::{
+    CalculateDistance, Cancel, Confirm, CycleAddress, PickRecent, RecentDown, RecentUp, TimeChimpApp, ToggleShowcase,
+};
 
 fn main() {
     // Start the tokio runtime up front so the first request doesn't pay for it.
@@ -108,5 +111,7 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("up", RecentUp, Some("RecentPicker > Input")),
         KeyBinding::new("down", RecentDown, Some("RecentPicker > Input")),
         KeyBinding::new("enter", PickRecent, Some("RecentPicker > Input")),
+        // Showcase mode: aurora behind the app plus the frame-time HUD.
+        KeyBinding::new("f12", ToggleShowcase, None),
     ]);
 }

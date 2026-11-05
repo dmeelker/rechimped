@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use chrono::{Datelike, Duration};
 use gpui::{
-    AnyElement, BoxShadow, point, ClickEvent, Context, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton,
+    Animation, AnimationExt, AnyElement, BoxShadow, point, ClickEvent, Context, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton,
     ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window, deferred, div,
     prelude::FluentBuilder, px,
 };
@@ -23,6 +23,7 @@ use timechimp::TimeEntry;
 
 use crate::app::{
     CalculateDistance, Cancel, Confirm, CycleAddress, PickRecent, RecentDown, RecentUp, Screen, Tab, TimeChimpApp,
+    ToggleShowcase,
 };
 use crate::forms::{Form, FormBody, RecentPicker};
 use crate::logic::{RecentItem, mileage_type_name};
@@ -32,6 +33,10 @@ type T = Arc<Theme>;
 impl Render for TimeChimpApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
+        let login = matches!(self.screen, Screen::Login(_));
+        // The aurora animates on the login screen and in showcase mode; the busy bar while loading.
+        let started = self.fx.begin_frame(login || self.fx.showcase || self.busy.is_some(), window, cx);
+        let t = self.fx.time(cx);
         let root = div()
             .id("root")
             .size_full()
@@ -40,12 +45,25 @@ impl Render for TimeChimpApp {
             .flex_col()
             .bg(theme.bg())
             .text_color(theme.fg())
-            .text_sm();
+            .text_sm()
+            .on_action(cx.listener(|this, _: &ToggleShowcase, _, cx| {
+                this.fx.toggle_showcase();
+                cx.notify();
+            }))
+            .when(login || self.fx.showcase, |d| {
+                let strength = if login { 1.0 } else { 0.7 };
+                d.child(div().absolute().inset_0().child(crate::fx::aurora(t, theme.accent(), theme.bg(), strength)))
+            });
         let root = match &self.screen {
-            Screen::Login(_) => root.child(self.render_login(&theme, cx)),
+            Screen::Login(_) => root.child(self.render_login(&theme, t, cx)),
             Screen::Main => root.child(self.render_main(&theme, window, cx)),
         };
-        root.children(self.confirm.clone()).child(cx.toast_manager().clone())
+        root.when(self.fx.showcase, |d| {
+            d.child(self.fx.hud(theme.fg(), theme.fg_muted(), theme.accent(), theme.surface()))
+        })
+        .children(self.confirm.clone())
+        .child(cx.toast_manager().clone())
+        .child(self.fx.end_frame(started))
     }
 }
 
@@ -240,7 +258,7 @@ fn week_title(app: &TimeChimpApp) -> String {
 // ---- Login ------------------------------------------------------------------------------------
 
 impl TimeChimpApp {
-    fn render_login(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_login(&self, theme: &T, t: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let Screen::Login(login) = &self.screen else { unreachable!() };
         let accent = theme.accent();
         let label = |text: &'static str| div().text_xs().text_color(theme.fg_muted()).child(text);
@@ -251,8 +269,7 @@ impl TimeChimpApp {
         };
         let mfa_label = login.mfa.as_ref().map(|m| if m.kind() == "SMS_MFA" { "SMS code" } else { "Authenticator code" });
 
-        div().size_full().flex().items_center().justify_center().child(
-            v_stack()
+        let card = v_stack()
                 .id("login")
                 .key_context("Modal")
                 .moves_focus_on_tab()
@@ -261,9 +278,7 @@ impl TimeChimpApp {
                 .gap(px(12.))
                 .p(px(28.))
                 .rounded(px(10.))
-                .border_1()
-                .border_color(theme.border())
-                .bg(theme.surface())
+                .bg(theme.surface().opacity(0.92))
                 .child(
                     h_stack()
                         .gap(px(8.))
@@ -288,8 +303,13 @@ impl TimeChimpApp {
                         self.busy.is_some(),
                         cx.listener(|this, _, window, cx| this.login_confirm_click(window, cx)),
                     )),
-                ),
-        )
+                );
+        let card = crate::fx::glow_frame(t, accent, px(10.), card).with_animation(
+            "login-enter",
+            Animation::new(std::time::Duration::from_millis(700)).with_easing(gpui::ease_out_quint()),
+            |el, d| el.opacity(d).mt(px(24. * (1. - d))),
+        );
+        div().size_full().flex().items_center().justify_center().child(card)
     }
 
     fn login_confirm_click(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -343,6 +363,7 @@ impl TimeChimpApp {
             .flex_1()
             .min_h_0()
             .child(header)
+            .child(crate::fx::sweep_bar(self.fx.sweep, self.busy.is_some(), theme.accent()))
             .child(self.render_toolbar(theme, cx))
             // The body fills the rest of the window; tables scroll inside their panels (`table_rows`).
             .child(div().id("body").flex_1().min_h_0().flex().flex_col().px(px(16.)).pb(px(12.)).child(body))
