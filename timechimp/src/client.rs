@@ -265,6 +265,17 @@ impl Client {
         self.post("mileage", &mileage.to_json()).await
     }
 
+    /// Replaces `original` with `mileage`: `PUT` with the id in the path and the body, as the web
+    /// app does. The approval statuses are carried over from `original` rather than reset.
+    pub async fn update_mileage(&self, original: &Mileage, mileage: &NewMileage) -> Result<Mileage> {
+        let mut body = mileage.to_json();
+        body["id"] = original.id.into();
+        body["status"] = original.status.into();
+        body["statusIntern"] = original.status_intern.into();
+        body["statusExtern"] = original.status_extern.into();
+        self.put(&format!("mileage/{}", original.id), &body).await
+    }
+
     pub async fn delete_mileage(&self, id: i64) -> Result<()> {
         self.delete(&format!("mileage/{id}")).await
     }

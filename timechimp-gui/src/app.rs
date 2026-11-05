@@ -451,6 +451,9 @@ impl TimeChimpApp {
         self.selected_mileage = keep_selection(self.selected_mileage, week.mileage.len());
         self.entries = week.entries;
         self.mileage = week.mileage;
+        // Per day in the order they were registered (outbound before return), so the Mileage tab
+        // can group consecutive rows by day and ↑/↓ follow what's on screen.
+        self.mileage.sort_by_key(|m| (m.date, m.id));
         if let Some(id) = select_id {
             if let Some(i) = self.entries.iter().position(|e| e.id == id) {
                 self.selected_entry = Some(i);
@@ -586,9 +589,12 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    pub fn click_mileage(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn click_mileage(&mut self, index: usize, clicks: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.selected_mileage = Some(index);
         window.focus(&self.focus, cx);
+        if clicks >= 2 {
+            self.edit_selected(window, cx);
+        }
         cx.notify();
     }
 
@@ -629,7 +635,8 @@ impl TimeChimpApp {
             ("up" | "k", _) => self.move_selection(-1),
             ("enter", _) if week_tab && self.selected_entry().is_some() => self.show_detail = true,
             ("a" | "n", _) => self.add(window, cx),
-            ("e", _) if week_tab => self.edit_selected(window, cx),
+            ("e", _) => self.edit_selected(window, cx),
+            ("enter", _) if self.tab == Tab::Mileage => self.edit_selected(window, cx),
             ("c", _) if week_tab => self.copy_selected(window, cx),
             ("d" | "delete", _) => self.ask_delete(window, cx),
             _ => return,
@@ -645,14 +652,18 @@ impl TimeChimpApp {
             return;
         }
         if self.tab == Tab::Mileage {
-            self.open_mileage_form(window, cx);
+            self.open_mileage_form(None, window, cx);
         } else {
             self.open_time_form(None, false, window, cx);
         }
     }
 
     pub fn edit_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(entry) = self.selected_entry().cloned() {
+        if self.tab == Tab::Mileage {
+            if let Some(trip) = self.selected_mileage().cloned() {
+                self.open_mileage_form(Some(Box::new(trip)), window, cx);
+            }
+        } else if let Some(entry) = self.selected_entry().cloned() {
             self.open_time_form(Some(&entry), false, window, cx);
         }
     }
@@ -878,22 +889,50 @@ impl TimeChimpApp {
         tag_ids.iter().copied().filter(|id| !self.project_tags.values().flatten().any(|t| t.id == *id)).collect()
     }
 
-    fn open_mileage_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let last = self.mileage.last();
+    /// The trip form: empty for a new trip (project, type and billable from the last trip), or
+    /// filled in with `editing`.
+    fn open_mileage_form(&mut self, editing: Option<Box<Mileage>>, window: &mut Window, cx: &mut Context<Self>) {
+        let template = editing.as_deref().or(self.mileage.last());
         let saved = self.saved_addresses();
         let types = MILEAGE_TYPES.iter().map(|(id, name)| (*id, name.to_string())).collect();
-        let (last_project, last_type, last_billable) =
-            (last.map(|m| m.project_id), last.map(|m| m.mileage_type as i64), last.is_some_and(|m| m.billable));
+        let mut projects = self.project_options();
+        if let Some(m) = &editing
+            && !projects.iter().any(|(id, _)| *id == m.project_id)
+        {
+            projects.push((m.project_id, format!("{} — {}", m.project_name, m.customer_name)));
+        }
+        let (project, mileage_type, billable) = (
+            template.map(|m| m.project_id),
+            template.map(|m| m.mileage_type as i64),
+            template.is_some_and(|m| m.billable),
+        );
+        let (date, from, to, distance, notes) = match &editing {
+            Some(m) => (
+                m.date.date(),
+                m.from_address.clone().unwrap_or_default(),
+                m.to_address.clone().unwrap_or_default(),
+                format!("{}", m.distance),
+                m.notes.clone().unwrap_or_default(),
+            ),
+            None => (
+                self.day,
+                saved.first().cloned().unwrap_or_default(),
+                saved.get(1).cloned().unwrap_or_default(),
+                String::new(),
+                String::new(),
+            ),
+        };
         let form = MileageForm {
-            date: forms::text_input(cx, self.day.to_string()),
-            project: forms::choice(cx, "form-project", "Project", self.project_options(), last_project),
-            from: forms::text_input(cx, saved.first().cloned().unwrap_or_default()),
-            to: forms::text_input(cx, saved.get(1).cloned().unwrap_or_default()),
-            distance: forms::text_input(cx, ""),
+            editing,
+            date: forms::text_input(cx, date.to_string()),
+            project: forms::choice(cx, "form-project", "Project", projects, project),
+            from: forms::text_input(cx, from),
+            to: forms::text_input(cx, to),
+            distance: forms::text_input(cx, distance),
             return_trip: forms::toggle(cx, "form-return", "Return trip", false),
-            mileage_type: forms::choice(cx, "form-type", "Type", types, last_type),
-            billable: forms::toggle(cx, "form-billable", "Billable", last_billable),
-            notes: forms::text_input(cx, ""),
+            mileage_type: forms::choice(cx, "form-type", "Type", types, mileage_type),
+            billable: forms::toggle(cx, "form-billable", "Billable", billable),
+            notes: forms::text_input(cx, notes),
         };
         window.focus(&form.from.read(cx).focus_handle(cx), cx);
         self.form = Some(Form { body: FormBody::Mileage(form), error: None, _subscriptions: Vec::new() });
@@ -989,7 +1028,10 @@ impl TimeChimpApp {
                 SaveRequest::Time { id: None, entry } => {
                     Ok((client.create_time_entry(&entry).await.map_err(e)?.id, "Time entry saved."))
                 }
-                SaveRequest::Mileage { trip, return_trip } => {
+                SaveRequest::Mileage { trip, editing: Some(original), .. } => {
+                    Ok((client.update_mileage(&original, &trip).await.map_err(e)?.id, "Trip updated."))
+                }
+                SaveRequest::Mileage { trip, return_trip, editing: None } => {
                     let id = client.create_mileage(&trip).await.map_err(e)?.id;
                     if !return_trip {
                         return Ok((id, "Mileage saved."));
@@ -1056,9 +1098,10 @@ impl TimeChimpApp {
                         notes: Some(notes).filter(|n| !n.is_empty()),
                         billable: f.billable.read(cx).is_on(),
                         mileage_type: chosen(&f.mileage_type, cx).unwrap_or(1) as i32,
-                        mileage_vehicle_id: None,
+                        mileage_vehicle_id: f.editing.as_ref().and_then(|m| m.mileage_vehicle_id),
                     },
-                    return_trip: f.return_trip.read(cx).is_on(),
+                    return_trip: f.editing.is_none() && f.return_trip.read(cx).is_on(),
+                    editing: f.editing.clone(),
                 }
             }
             FormBody::Time(f) => {
@@ -1263,7 +1306,8 @@ enum DeleteTarget {
 
 enum SaveRequest {
     Time { id: Option<i64>, entry: NewTimeEntry },
-    Mileage { trip: NewMileage, return_trip: bool },
+    /// `editing` is the trip being replaced; None creates `trip` (and its return with `return_trip`).
+    Mileage { trip: NewMileage, return_trip: bool, editing: Option<Box<Mileage>> },
 }
 
 /// Rows the Recent picker shows at most.

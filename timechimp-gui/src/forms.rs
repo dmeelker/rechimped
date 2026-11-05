@@ -5,6 +5,7 @@ use gpuikit::elements::checkbox::{Checkbox, checkbox};
 use gpuikit::elements::select::{SelectState, select};
 use gpuikit::elements::switch::{Switch, switch};
 use gpuikit::input::InputState;
+use timechimp::Mileage;
 
 pub enum TimeKind {
     New,
@@ -43,6 +44,8 @@ pub struct TagCheckbox {
 }
 
 pub struct MileageForm {
+    /// The trip being edited (None for a new one); its vehicle and statuses are kept.
+    pub editing: Option<Box<Mileage>>,
     pub date: Entity<InputState>,
     pub project: Entity<SelectState<i64>>,
     pub from: Entity<InputState>,
@@ -72,7 +75,8 @@ impl Form {
         match &self.body {
             FormBody::Time(TimeForm { kind: TimeKind::New, .. }) => "New time entry",
             FormBody::Time(TimeForm { kind: TimeKind::Edit { .. }, .. }) => "Edit time entry",
-            FormBody::Mileage(_) => "New mileage",
+            FormBody::Mileage(MileageForm { editing: None, .. }) => "New trip",
+            FormBody::Mileage(MileageForm { editing: Some(_), .. }) => "Edit trip",
         }
     }
 }
