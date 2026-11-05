@@ -207,30 +207,23 @@ fn junction_row(theme: &T, junction: &crate::logic::Junction) -> impl IntoElemen
 
 /// "billable: 24.75/32 (77%)": billable hours over `of` (the week's contract hours). The
 /// percentage is green once it reaches the goal, amber below it.
-fn billable_summary(theme: &T, billable: f64, of: f64, goal: f64) -> impl IntoElement + use<> {
-    let ratio = if of > 0.0 { billable / of } else { 0.0 };
-    let colour = if of == 0.0 { theme.fg_muted() } else if ratio >= goal { theme.success() } else { theme.warning() };
-    h_stack()
-        .gap(px(4.))
-        .items_center()
-        .child(muted(theme, "billable:"))
-        .child(format!("{}/{}", trim_hours(billable), trim_hours(of)))
-        .child(div().font_weight(FontWeight::SEMIBOLD).text_color(colour).child(format!("({:.0}%)", ratio * 100.0)))
-}
-
 /// Hours without trailing zeros: 24 → "24", 24.5 → "24.5", 24.75 → "24.75".
 fn trim_hours(hours: f64) -> String {
     let s = format!("{hours:.2}");
     s.trim_end_matches('0').trim_end_matches('.').to_owned()
 }
 
+/// "Week 45 · 2–8 Nov 2026", "Week 44 · 26 Oct – 1 Nov 2026", "Week 1 · 29 Dec 2025 – 4 Jan 2026".
 fn week_title(app: &TimeChimpApp) -> String {
-    format!(
-        "Week {} · {} – {}",
-        app.week_start.iso_week().week(),
-        app.week_start.format("%Y-%m-%d"),
-        (app.week_start + Duration::days(6)).format("%Y-%m-%d"),
-    )
+    let (start, end) = (app.week_start, app.week_start + Duration::days(6));
+    let range = if start.year() != end.year() {
+        format!("{} – {}", start.format("%-d %b %Y"), end.format("%-d %b %Y"))
+    } else if start.month() != end.month() {
+        format!("{} – {}", start.format("%-d %b"), end.format("%-d %b %Y"))
+    } else {
+        format!("{}–{}", start.format("%-d"), end.format("%-d %b %Y"))
+    };
+    format!("Week {} · {range}", start.iso_week().week())
 }
 
 // ---- Login ------------------------------------------------------------------------------------
@@ -377,18 +370,8 @@ impl TimeChimpApp {
                 bar.child(pop(theme, nav("prev", "‹", |this, w, cx| this.step(-1, w, cx))))
                     .child(pop(theme, nav("today", "Today", |this, w, cx| this.go_today(w, cx))))
                     .child(pop(theme, nav("next", "›", |this, w, cx| this.step(1, w, cx))))
+                    .child(div().pl(px(8.)).font_weight(FontWeight::SEMIBOLD).child(week_title(self)))
                     .child(div().flex_1())
-                    .when(week_tab, |d| {
-                        let has = self.selected_entry().is_some();
-                        d.child(pop(theme, nav("edit", "Edit", |this, w, cx| this.edit_selected(w, cx)).disabled(!has)))
-                            .child(pop(theme, nav("copy", "Copy", |this, w, cx| this.copy_selected(w, cx)).disabled(!has)))
-                    })
-                    .child(pop(
-                        theme,
-                        nav("delete", "Delete", |this, w, cx| this.ask_delete(w, cx))
-                            .variant(ButtonVariant::Destructive)
-                            .disabled(if week_tab { self.selected_entry().is_none() } else { self.selected_mileage().is_none() }),
-                    ))
                     .child(primary_button(
                         theme,
                         "add",
@@ -413,6 +396,30 @@ impl TimeChimpApp {
                 )),
         }
         .text_color(theme.fg())
+    }
+
+    /// Buttons acting on the selected row, for the right of the Week/Mileage panel header.
+    fn selection_actions(&self, theme: &T, cx: &mut Context<Self>) -> AnyElement {
+        let nav = |id: &'static str, label: &'static str, f: fn(&mut Self, &mut Window, &mut Context<Self>)| {
+            button(id, label).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| f(this, window, cx)))
+        };
+        let week_tab = self.tab == Tab::Week;
+        let has = if week_tab { self.selected_entry().is_some() } else { self.selected_mileage().is_some() };
+        h_stack()
+            .gap(px(8.))
+            .items_center()
+            .font_weight(FontWeight::NORMAL)
+            .when(week_tab, |d| {
+                d.child(pop(theme, nav("edit", "Edit", |this, w, cx| this.edit_selected(w, cx)).disabled(!has)))
+                    .child(pop(theme, nav("copy", "Copy", |this, w, cx| this.copy_selected(w, cx)).disabled(!has)))
+            })
+            .child(pop(
+                theme,
+                nav("delete", "Delete", |this, w, cx| this.ask_delete(w, cx))
+                    .variant(ButtonVariant::Destructive)
+                    .disabled(!has),
+            ))
+            .into_any_element()
     }
 
     fn logout_click(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -545,38 +552,65 @@ impl TimeChimpApp {
                         .child(div().font_weight(FontWeight::SEMIBOLD).child(day.format("%a %d").to_string()))
                         .when(is_today, |d| d.child(div().text_xs().text_color(theme.accent()).child("today"))),
                 )
-                .child(div().text_lg().text_color(hours_colour(theme, hours, target)).child(format!("{hours:.2}h")))
+                .child(div().text_lg().text_color(hours_colour(theme, hours, target)).child(format!("{}h", trim_hours(hours))))
                 .child(progress(fraction).variant(if hours >= target { ProgressVariant::Success } else { ProgressVariant::Default }))
         }));
+
+        // Week card: total against the contract, and billable hours against the contract (without
+        // one, against what was logged), coloured by the billable goal.
+        let billable = crate::logic::billable_hours(&self.entries);
+        let of = if contract > 0.0 { contract } else { total };
+        let ratio = if of > 0.0 { billable / of } else { 0.0 };
+        let goal_met = of > 0.0 && ratio >= self.billable_goal;
+        let ratio_colour = if of == 0.0 { theme.fg_muted() } else if goal_met { theme.success() } else { theme.warning() };
+        let week_card = v_stack()
+            .flex_1()
+            .gap(px(4.))
+            .p(px(10.))
+            .rounded(px(6.))
+            .border_1()
+            .border_color(theme.border())
+            .bg(theme.bg())
+            .child(
+                h_stack()
+                    .justify_between()
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Week"))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(ratio_colour)
+                            .child(format!("{:.0}% billable", ratio * 100.0)),
+                    ),
+            )
+            .child(
+                h_stack()
+                    .gap(px(4.))
+                    .items_baseline()
+                    .child(div().text_lg().text_color(hours_colour(theme, total, contract)).child(format!("{}h", trim_hours(total))))
+                    .child(muted(theme, format!("/ {}h", trim_hours(contract)))),
+            )
+            .child(
+                progress(ratio.min(1.0) as f32)
+                    .variant(if goal_met { ProgressVariant::Success } else { ProgressVariant::Default }),
+            );
+        let strip = strip.child(week_card);
 
         let index = (self.day - self.week_start).num_days() as usize;
         let (hours, target) = (self.hours_per_day()[index], self.target_for(index));
         let visible = self.visible_entries();
         let title = h_stack()
             .gap(px(4.))
-            .child(self.day.format("%A %-d %B %Y").to_string())
+            .child(self.day.format("%A %-d %B").to_string())
             .child("·")
-            .child(div().text_color(hours_colour(theme, hours, target)).child(format!("{hours:.2}")))
-            .child(format!("/ {target:.2}h"));
+            .child(div().text_color(hours_colour(theme, hours, target)).child(trim_hours(hours)))
+            .child(format!("/ {}h", trim_hours(target)));
         let rows = self.entry_rows_with_gaps(theme, &visible, cx);
 
         v_stack()
             .gap(px(12.))
-            .child(
-                h_stack()
-                    .justify_between()
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child(format!("{} · {total:.2} / {contract:.2}h", week_title(self))))
-                    .child(billable_summary(
-                        theme,
-                        crate::logic::billable_hours(&self.entries),
-                        // Against the contract; without one, against what was logged.
-                        if contract > 0.0 { contract } else { total },
-                        self.billable_goal,
-                    )),
-            )
             .child(strip)
             .child(
-                panel(theme, title, None).child(Self::entry_header(theme)).children(rows).when(
+                panel(theme, title, Some(self.selection_actions(theme, cx))).child(Self::entry_header(theme)).children(rows).when(
                     visible.is_empty() && self.busy.is_none(),
                     |d| d.child(empty_message(theme, "No time registered on this day. Press A to add.")),
                 ),
@@ -587,6 +621,7 @@ impl TimeChimpApp {
 
     fn render_mileage(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         let total: f64 = self.mileage.iter().map(|m| m.distance).sum();
+        let actions = self.selection_actions(theme, cx);
         let rows = self.mileage.iter().enumerate().map(|(i, m)| {
             let selected = self.selected_mileage == Some(i);
             h_stack()
@@ -610,7 +645,7 @@ impl TimeChimpApp {
                 .child(cell(None, m.notes.clone().unwrap_or_default()))
         });
         let empty = self.mileage.is_empty() && self.busy.is_none();
-        panel(theme, format!("{} · {total:.0} km", week_title(self)), None)
+        panel(theme, format!("Trips · {total:.0} km"), Some(actions))
             .child(header_row(
                 theme,
                 [
