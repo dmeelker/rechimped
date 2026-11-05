@@ -64,10 +64,12 @@ pub async fn load_week(client: &Client, user_id: i64, week_start: NaiveDate) -> 
     Ok(Week { entries, mileage })
 }
 
-pub async fn load_report(client: &Client, user_id: i64, month: NaiveDate) -> timechimp::Result<Report> {
-    let to = (month + Months::new(1)).pred_opt().expect("valid date");
-    // Page through the server-side grid until all rows are in.
-    const PAGE: u32 = 500;
+/// Share of hours that should be billable, unless `billable_goal` in `config.toml` says otherwise.
+pub const DEFAULT_BILLABLE_GOAL: f64 = 0.75;
+
+/// Page through the server-side grid until all of the month's rows are in (own rows only).
+async fn load_month_time(client: &Client, user_id: i64, month: NaiveDate) -> timechimp::Result<Vec<TimeReportRow>> {
+    let to = last_of_month(month);
     let mut time = Vec::new();
     loop {
         let start = time.len() as u32;
@@ -78,6 +80,25 @@ pub async fn load_report(client: &Client, user_id: i64, month: NaiveDate) -> tim
             break;
         }
     }
+    // Reports include everyone the caller can see.
+    time.retain(|r: &TimeReportRow| r.user_id == user_id);
+    Ok(time)
+}
+
+const PAGE: u32 = 500;
+
+fn last_of_month(month: NaiveDate) -> NaiveDate {
+    (month + Months::new(1)).pred_opt().expect("valid date")
+}
+
+/// Billable hours among `entries`.
+pub fn billable_hours(entries: &[TimeEntry]) -> f64 {
+    entries.iter().filter(|e| e.billable).map(|e| e.hours).sum()
+}
+
+pub async fn load_report(client: &Client, user_id: i64, month: NaiveDate) -> timechimp::Result<Report> {
+    let to = last_of_month(month);
+    let time = load_month_time(client, user_id, month).await?;
     let mut mileage = Vec::new();
     loop {
         let start = mileage.len() as u32;
@@ -88,8 +109,6 @@ pub async fn load_report(client: &Client, user_id: i64, month: NaiveDate) -> tim
             break;
         }
     }
-    // Reports include everyone the caller can see; show only our own rows.
-    time.retain(|r: &TimeReportRow| r.user_id == user_id);
     mileage.retain(|r: &MileageReportRow| r.user_id == user_id);
     Ok(Report { month: Some(month), time, mileage })
 }
@@ -156,15 +175,19 @@ mod tests {
     }
 
     #[test]
-    fn project_tags_file() {
-        let file: ProjectTagsFile = toml::from_str(
-            "# comment\n[projects]\n\"Tournament Software\" = [\"wbso_tournament\"]\nIntern = []\n",
+    fn config_file() {
+        let config = parse_config(
+            "# comment\nbillable_goal = 80\n[projects]\n\"Tournament Software\" = [\"wbso_tournament\"]\nIntern = []\n",
         )
         .unwrap();
-        assert_eq!(file.projects["Tournament Software"], vec!["wbso_tournament".to_owned()]);
-        assert!(file.projects["Intern"].is_empty());
-        let empty: ProjectTagsFile = toml::from_str("").unwrap();
+        assert_eq!(config.billable_goal, 0.8);
+        assert_eq!(config.projects["Tournament Software"], vec!["wbso_tournament".to_owned()]);
+        assert!(config.projects["Intern"].is_empty());
+
+        let empty = parse_config("").unwrap();
         assert!(empty.projects.is_empty());
+        assert_eq!(empty.billable_goal, DEFAULT_BILLABLE_GOAL);
+        assert!(parse_config("billable_goal = 150").is_err());
     }
 
     #[test]
@@ -250,30 +273,60 @@ fn config_dir() -> Option<PathBuf> {
     Some(base.join("timechimp-tui"))
 }
 
-// ---- Project tags -------------------------------------------------------------------------
-// `projects.toml` lists which tags a project may use; the time form shows those as checkboxes.
+// ---- Config file --------------------------------------------------------------------------
+// `config.toml`: the billable goal, and which tags each project may use (shown as checkboxes in
+// the time form). Earlier versions called it `projects.toml`; that file is renamed on first load.
 
-pub fn project_tags_path() -> Option<PathBuf> {
-    Some(config_dir()?.join("projects.toml"))
+pub fn config_path() -> Option<PathBuf> {
+    Some(config_dir()?.join("config.toml"))
 }
 
 #[derive(serde::Deserialize, Default)]
-struct ProjectTagsFile {
+struct ConfigFile {
+    /// Percentage, e.g. `75`.
+    billable_goal: Option<f64>,
     /// Project name → tag names.
     #[serde(default)]
     projects: HashMap<String, Vec<String>>,
 }
 
-/// Project name → tag names, as written in `projects.toml`. `Ok(None)` if the file doesn't exist.
-pub fn load_project_tags() -> Result<Option<HashMap<String, Vec<String>>>, String> {
-    let Some(path) = project_tags_path() else { return Ok(None) };
+pub struct Config {
+    /// Fraction, e.g. `0.75`.
+    pub billable_goal: f64,
+    /// Project name → tag names.
+    pub projects: HashMap<String, Vec<String>>,
+}
+
+fn parse_config(text: &str) -> Result<Config, String> {
+    let file: ConfigFile = toml::from_str(text).map_err(|e| e.to_string())?;
+    let billable_goal = match file.billable_goal {
+        None => DEFAULT_BILLABLE_GOAL,
+        Some(pct) if (0.0..=100.0).contains(&pct) => pct / 100.0,
+        Some(pct) => return Err(format!("billable_goal must be a percentage between 0 and 100, not {pct}")),
+    };
+    Ok(Config { billable_goal, projects: file.projects })
+}
+
+/// Reads `config.toml`. `Ok(None)` if the file doesn't exist.
+pub fn load_config() -> Result<Option<Config>, String> {
+    let Some(path) = config_path() else { return Ok(None) };
+    let legacy = path.with_file_name("projects.toml");
+    if !path.exists() && legacy.exists() {
+        // Move it over with the (then new) goal setting on top, where top-level keys must go.
+        let old = std::fs::read_to_string(&legacy).map_err(|e| format!("Could not read {}: {e}", legacy.display()))?;
+        let migrated = format!(
+            "# Percentage of your hours that should be billable.\nbillable_goal = {}\n\n{old}",
+            DEFAULT_BILLABLE_GOAL * 100.0
+        );
+        std::fs::write(&path, migrated).map_err(|e| format!("Could not write {}: {e}", path.display()))?;
+        let _ = std::fs::remove_file(&legacy);
+    }
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(format!("Could not read {}: {e}", path.display())),
     };
-    let file: ProjectTagsFile = toml::from_str(&text).map_err(|e| format!("Error in {}: {e}", path.display()))?;
-    Ok(Some(file.projects))
+    parse_config(&text).map(Some).map_err(|e| format!("Error in {}: {e}", path.display()))
 }
 
 /// Resolves the configured names against the user's projects and tags (case-insensitive).
@@ -299,16 +352,20 @@ pub fn resolve_project_tags(
         }
         resolved.insert(project.id, project_tags);
     }
-    let warning = (!unknown.is_empty()).then(|| format!("projects.toml: unknown {}", unknown.join(", ")));
+    let warning = (!unknown.is_empty()).then(|| format!("config.toml: unknown {}", unknown.join(", ")));
     (resolved, warning)
 }
 
-/// Writes a starter `projects.toml` listing the user's projects and current (non-`z_`) tags.
-pub fn write_project_tags_template(projects: &[Project], tags: &[Tag]) -> std::io::Result<PathBuf> {
-    let path = project_tags_path().ok_or_else(|| std::io::Error::other("no config directory"))?;
-    let mut text = String::from(
-        "# Tags each project may use. The time entry form shows them as checkboxes.\n\
-         # Names are matched case-insensitively. Reload the app (R) after editing.\n#\n# Available tags:\n",
+/// Writes a starter `config.toml` listing the user's projects and current (non-`z_`) tags.
+pub fn write_config_template(projects: &[Project], tags: &[Tag]) -> std::io::Result<PathBuf> {
+    let path = config_path().ok_or_else(|| std::io::Error::other("no config directory"))?;
+    let mut text = format!(
+        "# Reload the app (R) after editing.\n\n\
+         # Percentage of your hours that should be billable.\n\
+         billable_goal = {}\n\n\
+         # Tags each project may use; the time entry form shows them as checkboxes.\n\
+         # Names are matched case-insensitively.\n#\n# Available tags:\n",
+        DEFAULT_BILLABLE_GOAL * 100.0
     );
     for tag in tags.iter().filter(|t| !t.name.starts_with("z_")) {
         text.push_str(&format!("#   {}\n", tag.name));

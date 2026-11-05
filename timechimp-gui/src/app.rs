@@ -105,8 +105,10 @@ pub struct TimeChimpApp {
     pub tasks: Vec<Task>,
     pub project_tasks: HashMap<i64, Vec<ProjectTask>>,
     pub tags: Vec<Tag>,
-    /// Tags each project may use, from `projects.toml` (project id → tags).
+    /// Tags each project may use, from `config.toml` (project id → tags).
     pub project_tags: HashMap<i64, Vec<Tag>>,
+    /// Billable share to aim for, from `config.toml` (fraction).
+    pub billable_goal: f64,
     pub form: Option<Form>,
     pub confirm: Option<Entity<DialogState>>,
     pub show_detail: bool,
@@ -148,6 +150,7 @@ impl TimeChimpApp {
             project_tasks: HashMap::new(),
             tags: Vec::new(),
             project_tags: HashMap::new(),
+            billable_goal: logic::DEFAULT_BILLABLE_GOAL,
             form: None,
             confirm: None,
             show_detail: false,
@@ -347,7 +350,7 @@ impl TimeChimpApp {
                 this.projects = base.projects;
                 this.tasks = base.tasks;
                 this.tags = base.tags;
-                this.load_project_tags(window, cx);
+                this.load_config(window, cx);
                 this.report = report.unwrap_or_default();
                 if generation == this.week_generation {
                     this.apply_week(week, None);
@@ -361,12 +364,12 @@ impl TimeChimpApp {
         });
     }
 
-    /// Loads the current week; afterwards selects the item with `select_id`, if given.
-    /// Reads `projects.toml`, creating a starter file (listing projects and tags) if missing.
-    fn load_project_tags(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        match logic::load_project_tags() {
+    /// Reads `config.toml`, creating a starter file (listing projects and tags) if missing.
+    fn load_config(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match logic::load_config() {
             Ok(Some(config)) => {
-                let (resolved, warning) = logic::resolve_project_tags(&config, &self.projects, &self.tags);
+                self.billable_goal = config.billable_goal;
+                let (resolved, warning) = logic::resolve_project_tags(&config.projects, &self.projects, &self.tags);
                 self.project_tags = resolved;
                 if let Some(warning) = warning {
                     self.set_error(warning, window, cx);
@@ -374,9 +377,10 @@ impl TimeChimpApp {
             }
             Ok(None) => {
                 self.project_tags.clear();
-                match logic::write_project_tags_template(&self.projects, &self.tags) {
+                self.billable_goal = logic::DEFAULT_BILLABLE_GOAL;
+                match logic::write_config_template(&self.projects, &self.tags) {
                     Ok(path) => self.set_info(format!("Created {}; add the tags per project there", path.display()), window, cx),
-                    Err(e) => self.set_error(format!("Could not create projects.toml: {e}"), window, cx),
+                    Err(e) => self.set_error(format!("Could not create config.toml: {e}"), window, cx),
                 }
             }
             Err(e) => {
@@ -386,6 +390,7 @@ impl TimeChimpApp {
         }
     }
 
+    /// Loads the current week; afterwards selects the item with `select_id`, if given.
     fn load_week(&mut self, select_id: Option<i64>, window: &mut Window, cx: &mut Context<Self>) {
         let (Some(client), Some(me)) = (self.client.clone(), self.me.as_ref()) else { return };
         let (user_id, week_start) = (me.id, self.week_start);

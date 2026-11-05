@@ -21,7 +21,7 @@ pub struct TimeForm {
     pub end: Entity<InputState>,
     pub hours: Entity<InputState>,
     pub notes: Entity<InputState>,
-    /// One checkbox per tag configured for the selected project (`projects.toml`).
+    /// One checkbox per tag configured for the selected project (`config.toml`).
     pub tags: Vec<TagCheckbox>,
     /// Tags on the entry that no project configures (e.g. old `z_wbso_*` ones); kept on save.
     pub kept_tag_ids: Vec<i64>,

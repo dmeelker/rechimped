@@ -205,6 +205,25 @@ fn junction_row(theme: &T, junction: &crate::logic::Junction) -> impl IntoElemen
         .child(div().flex_1().h(px(1.)).bg(colour.opacity(0.4)))
 }
 
+/// "billable: 24.75/32 (77%)": billable hours over `of` (the week's contract hours). The
+/// percentage is green once it reaches the goal, amber below it.
+fn billable_summary(theme: &T, billable: f64, of: f64, goal: f64) -> impl IntoElement + use<> {
+    let ratio = if of > 0.0 { billable / of } else { 0.0 };
+    let colour = if of == 0.0 { theme.fg_muted() } else if ratio >= goal { theme.success() } else { theme.warning() };
+    h_stack()
+        .gap(px(4.))
+        .items_center()
+        .child(muted(theme, "billable:"))
+        .child(format!("{}/{}", trim_hours(billable), trim_hours(of)))
+        .child(div().font_weight(FontWeight::SEMIBOLD).text_color(colour).child(format!("({:.0}%)", ratio * 100.0)))
+}
+
+/// Hours without trailing zeros: 24 → "24", 24.5 → "24.5", 24.75 → "24.75".
+fn trim_hours(hours: f64) -> String {
+    let s = format!("{hours:.2}");
+    s.trim_end_matches('0').trim_end_matches('.').to_owned()
+}
+
 fn week_title(app: &TimeChimpApp) -> String {
     format!(
         "Week {} · {} – {}",
@@ -548,7 +567,13 @@ impl TimeChimpApp {
                 h_stack()
                     .justify_between()
                     .child(div().font_weight(FontWeight::SEMIBOLD).child(format!("{} · {total:.2} / {contract:.2}h", week_title(self))))
-                    .child(muted(theme, "grey = non-billable").text_xs()),
+                    .child(billable_summary(
+                        theme,
+                        crate::logic::billable_hours(&self.entries),
+                        // Against the contract; without one, against what was logged.
+                        if contract > 0.0 { contract } else { total },
+                        self.billable_goal,
+                    )),
             )
             .child(strip)
             .child(
@@ -663,7 +688,10 @@ impl TimeChimpApp {
             v_stack()
                 .p(px(12.))
                 .child(stat("Total hours", format!("{total:.2}")))
-                .child(stat("Billable", format!("{billable:.2} ({:.0}%)", pct(billable))))
+                .child(stat("Billable", format!("{billable:.2} ({:.0}%)", pct(billable))).when(total > 0.0, |d| {
+                    d.text_color(if billable / total >= self.billable_goal { theme.success() } else { theme.warning() })
+                }))
+                .child(stat("Billable goal", format!("{:.0}%", self.billable_goal * 100.0)))
                 .child(stat("Non-billable", format!("{:.2}", total - billable)))
                 .child(stat("Days registered", days.to_string()))
                 .child(stat("Entries", report.time.len().to_string()))
@@ -830,7 +858,7 @@ impl TimeChimpApp {
                 row("End", field(&f.end, "HH:MM", cx), None),
                 row("Notes", field(&f.notes, "What did you work on?", cx), None),
                 row("Hours", field(&f.hours, "used without start/end, e.g. 1.5", cx), None),
-                // Only projects with tags in projects.toml get the row.
+                // Only projects with tags in config.toml get the row.
                 row(
                     "Tags",
                     h_stack()
