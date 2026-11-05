@@ -798,11 +798,17 @@ impl TimeChimpApp {
                 row("End", field(&f.end, "HH:MM", cx), None),
                 row("Hours", field(&f.hours, "used without start/end, e.g. 1.5", cx), None),
                 row("Notes", field(&f.notes, "What did you work on?", cx), None),
+                // Only projects with tags in projects.toml get the row.
                 row(
-                    if f.extra_tags > 0 { "Tag (+more kept)" } else { "Tag" },
-                    f.tag.clone().into_any_element(),
+                    "Tags",
+                    h_stack()
+                        .flex_wrap()
+                        .gap(px(16.))
+                        .children(f.tags.iter().map(|t| t.checkbox.clone()))
+                        .into_any_element(),
                     None,
-                ),
+                )
+                .when(f.tags.is_empty(), |d| d.hidden()),
             ]
             .into_iter()
             .map(IntoElement::into_any_element)

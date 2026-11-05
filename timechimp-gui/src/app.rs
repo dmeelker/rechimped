@@ -106,6 +106,8 @@ pub struct TimeChimpApp {
     pub tasks: Vec<Task>,
     pub project_tasks: HashMap<i64, Vec<ProjectTask>>,
     pub tags: Vec<Tag>,
+    /// Tags each project may use, from `projects.toml` (project id → tags).
+    pub project_tags: HashMap<i64, Vec<Tag>>,
     pub form: Option<Form>,
     pub confirm: Option<Entity<DialogState>>,
     pub show_detail: bool,
@@ -147,6 +149,7 @@ impl TimeChimpApp {
             tasks: Vec::new(),
             project_tasks: HashMap::new(),
             tags: Vec::new(),
+            project_tags: HashMap::new(),
             form: None,
             confirm: None,
             show_detail: false,
@@ -346,6 +349,7 @@ impl TimeChimpApp {
                 this.projects = base.projects;
                 this.tasks = base.tasks;
                 this.tags = base.tags;
+                this.load_project_tags(window, cx);
                 this.report = report.unwrap_or_default();
                 if generation == this.week_generation {
                     this.apply_week(week, None);
@@ -360,6 +364,30 @@ impl TimeChimpApp {
     }
 
     /// Loads the current week; afterwards selects the item with `select_id`, if given.
+    /// Reads `projects.toml`, creating a starter file (listing projects and tags) if missing.
+    fn load_project_tags(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match logic::load_project_tags() {
+            Ok(Some(config)) => {
+                let (resolved, warning) = logic::resolve_project_tags(&config, &self.projects, &self.tags);
+                self.project_tags = resolved;
+                if let Some(warning) = warning {
+                    self.set_error(warning, window, cx);
+                }
+            }
+            Ok(None) => {
+                self.project_tags.clear();
+                match logic::write_project_tags_template(&self.projects, &self.tags) {
+                    Ok(path) => self.set_info(format!("Created {}; add the tags per project there", path.display()), window, cx),
+                    Err(e) => self.set_error(format!("Could not create projects.toml: {e}"), window, cx),
+                }
+            }
+            Err(e) => {
+                self.project_tags.clear();
+                self.set_error(e, window, cx);
+            }
+        }
+    }
+
     fn load_week(&mut self, select_id: Option<i64>, window: &mut Window, cx: &mut Context<Self>) {
         let (Some(client), Some(me)) = (self.client.clone(), self.me.as_ref()) else { return };
         let (user_id, week_start) = (me.id, self.week_start);
@@ -635,15 +663,8 @@ impl TimeChimpApp {
         let project_id = template.map(|e| e.project_id).or(projects.first().map(|(id, _)| *id));
         let tasks = self.task_options(project_id, entry);
 
-        let mut tags = vec![(0, "(none)".to_owned())];
-        tags.extend(self.tags.iter().map(|t| (t.id, t.name.clone())));
-        if let Some(e) = entry {
-            for (id, name) in e.tag_ids.iter().zip(&e.tag_names) {
-                if !tags.iter().any(|(t, _)| t == id) {
-                    tags.push((*id, name.clone()));
-                }
-            }
-        }
+        let tags = self.tag_checkboxes(project_id, template, cx);
+        let kept_tag_ids = entry.map(|e| self.unconfigured_tags(&e.tag_ids)).unwrap_or_default();
 
         let editing = entry.filter(|_| !copy);
         let date = editing.map(|e| e.date.date()).unwrap_or(self.day);
@@ -654,7 +675,6 @@ impl TimeChimpApp {
             .unwrap_or_else(|| (self.next_start_time(date).unwrap_or_default(), String::new()));
         let hours = editing.map(|e| format!("{}", e.hours)).unwrap_or_default();
         let notes = entry.and_then(|e| e.notes.clone()).unwrap_or_default();
-        let extra_tags = entry.map(|e| e.tag_ids.len().saturating_sub(1)).unwrap_or(0);
 
         let project = forms::choice(cx, "form-project", "Project", projects, project_id);
         let form = TimeForm {
@@ -662,7 +682,6 @@ impl TimeChimpApp {
                 None => TimeKind::New,
                 Some(e) => TimeKind::Edit {
                     id: e.id,
-                    extra_tag_ids: e.tag_ids.iter().skip(1).copied().collect(),
                     pause: e.pause,
                     timezone: e.timezone.clone(),
                     task: (e.project_task_id, e.task_id),
@@ -674,8 +693,8 @@ impl TimeChimpApp {
             end: forms::text_input(cx, end),
             hours: forms::text_input(cx, hours),
             notes: forms::text_input(cx, notes),
-            tag: forms::choice(cx, "form-tag", "Tag", tags, template.and_then(|e| e.tag_ids.first().copied())),
-            extra_tags: if copy { 0 } else { extra_tags },
+            tags,
+            kept_tag_ids,
             project: project.clone(),
         };
         // Editing: jump to the times; new: to the end time when the start is already filled in.
@@ -688,16 +707,41 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// The task list follows the project.
+    /// The task list and the tag checkboxes follow the project.
     fn on_project_changed(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(Form { body: FormBody::Time(form), .. }) = &self.form else { return };
         let project_id = chosen(&form.project, cx);
         let options = self.task_options(project_id, None);
         let task = forms::choice(cx, "form-task", "Task", options, None);
+        // Pre-check the tags the project's most recently modified entry had.
+        let last = self.entries.iter().filter(|e| Some(e.project_id) == project_id).max_by_key(|e| e.modified).cloned();
+        let tags = self.tag_checkboxes(project_id, last.as_ref(), cx);
         if let Some(Form { body: FormBody::Time(form), .. }) = &mut self.form {
             form.task = task;
+            form.tags = tags;
         }
         cx.notify();
+    }
+
+    /// Checkboxes for the tags configured for `project_id`, checked where `from` has the tag.
+    fn tag_checkboxes(
+        &self,
+        project_id: Option<i64>,
+        from: Option<&TimeEntry>,
+        cx: &mut Context<Self>,
+    ) -> Vec<forms::TagCheckbox> {
+        let tags = project_id.and_then(|id| self.project_tags.get(&id)).cloned().unwrap_or_default();
+        tags.into_iter()
+            .map(|t| {
+                let checked = from.is_some_and(|e| e.tag_ids.contains(&t.id));
+                forms::tag_checkbox(cx, t.id, t.name, checked)
+            })
+            .collect()
+    }
+
+    /// The tags in `tag_ids` that no project configures; the form can't show them, so they're kept.
+    fn unconfigured_tags(&self, tag_ids: &[i64]) -> Vec<i64> {
+        tag_ids.iter().copied().filter(|id| !self.project_tags.values().flatten().any(|t| t.id == *id)).collect()
     }
 
     fn open_mileage_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -908,12 +952,15 @@ impl TimeChimpApp {
                     start: None,
                     end: None,
                     pause: 0.0,
-                    tag_ids: chosen(&f.tag, cx).filter(|id| *id != 0).into_iter().collect(),
+                    tag_ids: f
+                        .kept_tag_ids
+                        .iter()
+                        .copied()
+                        .chain(f.tags.iter().filter(|t| t.checkbox.read(cx).is_checked()).map(|t| t.tag_id))
+                        .collect(),
                     timezone: Some(self.timezone()),
                 };
-                if let TimeKind::Edit { extra_tag_ids, pause, timezone, .. } = &f.kind {
-                    let extra: Vec<i64> = extra_tag_ids.iter().copied().filter(|id| !entry.tag_ids.contains(id)).collect();
-                    entry.tag_ids.extend(extra);
+                if let TimeKind::Edit { pause, timezone, .. } = &f.kind {
                     entry.pause = *pause;
                     entry.timezone = timezone.clone().or(entry.timezone);
                 }

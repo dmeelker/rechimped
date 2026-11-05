@@ -5999,9 +5999,11 @@ dependencies = [
  "gpui-platform-gpui-unofficial",
  "gpui-unofficial",
  "gpuikit",
+ "serde",
  "serde_json",
  "timechimp",
  "tokio",
+ "toml 0.8.23",
 ]
 
 [[package]]

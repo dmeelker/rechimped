@@ -1,6 +1,7 @@
 //! The add/edit dialogs, built from gpuikit inputs, selects and switches.
 
-use gpui::{App, AppContext, Entity, Focusable, SharedString, Subscription};
+use gpui::{App, AppContext, ElementId, Entity, Focusable, SharedString, Subscription};
+use gpuikit::elements::checkbox::{Checkbox, checkbox};
 use gpuikit::elements::select::{SelectState, select};
 use gpuikit::elements::switch::{Switch, switch};
 use gpuikit::input::InputState;
@@ -8,7 +9,7 @@ use gpuikit::input::InputState;
 pub enum TimeKind {
     New,
     /// Keeps what the form doesn't edit, so an update doesn't drop it.
-    Edit { id: i64, extra_tag_ids: Vec<i64>, pause: f64, timezone: Option<String>, task: (i64, i64) },
+    Edit { id: i64, pause: f64, timezone: Option<String>, task: (i64, i64) },
 }
 
 pub struct TimeForm {
@@ -20,9 +21,15 @@ pub struct TimeForm {
     pub end: Entity<InputState>,
     pub hours: Entity<InputState>,
     pub notes: Entity<InputState>,
-    pub tag: Entity<SelectState<i64>>,
-    /// The entry has more tags than the single tag picker shows; they are kept on save.
-    pub extra_tags: usize,
+    /// One checkbox per tag configured for the selected project (`projects.toml`).
+    pub tags: Vec<TagCheckbox>,
+    /// Tags on the entry that no project configures (e.g. old `z_wbso_*` ones); kept on save.
+    pub kept_tag_ids: Vec<i64>,
+}
+
+pub struct TagCheckbox {
+    pub tag_id: i64,
+    pub checkbox: Entity<Checkbox>,
 }
 
 pub struct MileageForm {
@@ -105,4 +112,9 @@ pub fn chosen(select: &Entity<SelectState<i64>>, cx: &App) -> Option<i64> {
 pub fn set_text(input: &Entity<InputState>, value: impl Into<String>, cx: &mut App) {
     let value = value.into();
     input.update(cx, |s, cx| s.set_content(value, cx));
+}
+
+pub fn tag_checkbox(cx: &mut App, tag_id: i64, label: String, checked: bool) -> TagCheckbox {
+    let id = ElementId::NamedInteger("form-tag".into(), tag_id as u64);
+    TagCheckbox { tag_id, checkbox: cx.new(|_| checkbox(id, checked).label(label)) }
 }

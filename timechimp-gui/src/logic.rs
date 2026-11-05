@@ -139,6 +139,18 @@ mod tests {
     }
 
     #[test]
+    fn project_tags_file() {
+        let file: ProjectTagsFile = toml::from_str(
+            "# comment\n[projects]\n\"Tournament Software\" = [\"wbso_tournament\"]\nIntern = []\n",
+        )
+        .unwrap();
+        assert_eq!(file.projects["Tournament Software"], vec!["wbso_tournament".to_owned()]);
+        assert!(file.projects["Intern"].is_empty());
+        let empty: ProjectTagsFile = toml::from_str("").unwrap();
+        assert!(empty.projects.is_empty());
+    }
+
+    #[test]
     fn lenient_times() {
         assert_eq!(t("12"), Some("12:00".into()));
         assert_eq!(t("9"), Some("09:00".into()));
@@ -174,16 +186,94 @@ pub fn mileage_type_name(mileage_type: i32) -> String {
         .map_or_else(|| format!("type {mileage_type}"), |(_, n)| n.to_string())
 }
 
-// ---- Session token ------------------------------------------------------------------------
+// ---- Config directory ---------------------------------------------------------------------
 // Lives under `timechimp-tui` for historical reasons (the former terminal UI); keeping the
 // path means existing sessions stay valid.
 
-fn token_path() -> Option<PathBuf> {
+fn config_dir() -> Option<PathBuf> {
     let base = std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from))
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("timechimp-tui").join("refresh_token"))
+    Some(base.join("timechimp-tui"))
+}
+
+// ---- Project tags -------------------------------------------------------------------------
+// `projects.toml` lists which tags a project may use; the time form shows those as checkboxes.
+
+pub fn project_tags_path() -> Option<PathBuf> {
+    Some(config_dir()?.join("projects.toml"))
+}
+
+#[derive(serde::Deserialize, Default)]
+struct ProjectTagsFile {
+    /// Project name → tag names.
+    #[serde(default)]
+    projects: HashMap<String, Vec<String>>,
+}
+
+/// Project name → tag names, as written in `projects.toml`. `Ok(None)` if the file doesn't exist.
+pub fn load_project_tags() -> Result<Option<HashMap<String, Vec<String>>>, String> {
+    let Some(path) = project_tags_path() else { return Ok(None) };
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("Could not read {}: {e}", path.display())),
+    };
+    let file: ProjectTagsFile = toml::from_str(&text).map_err(|e| format!("Error in {}: {e}", path.display()))?;
+    Ok(Some(file.projects))
+}
+
+/// Resolves the configured names against the user's projects and tags (case-insensitive).
+/// Returns project id → tags, plus a warning for names that don't match anything.
+pub fn resolve_project_tags(
+    config: &HashMap<String, Vec<String>>,
+    projects: &[Project],
+    tags: &[Tag],
+) -> (HashMap<i64, Vec<Tag>>, Option<String>) {
+    let mut resolved = HashMap::new();
+    let mut unknown = Vec::new();
+    for (project_name, tag_names) in config {
+        let Some(project) = projects.iter().find(|p| p.name.eq_ignore_ascii_case(project_name)) else {
+            unknown.push(format!("project \"{project_name}\""));
+            continue;
+        };
+        let mut project_tags = Vec::new();
+        for name in tag_names {
+            match tags.iter().find(|t| t.name.eq_ignore_ascii_case(name)) {
+                Some(tag) => project_tags.push(tag.clone()),
+                None => unknown.push(format!("tag \"{name}\"")),
+            }
+        }
+        resolved.insert(project.id, project_tags);
+    }
+    let warning = (!unknown.is_empty()).then(|| format!("projects.toml: unknown {}", unknown.join(", ")));
+    (resolved, warning)
+}
+
+/// Writes a starter `projects.toml` listing the user's projects and current (non-`z_`) tags.
+pub fn write_project_tags_template(projects: &[Project], tags: &[Tag]) -> std::io::Result<PathBuf> {
+    let path = project_tags_path().ok_or_else(|| std::io::Error::other("no config directory"))?;
+    let mut text = String::from(
+        "# Tags each project may use. The time entry form shows them as checkboxes.\n\
+         # Names are matched case-insensitively. Reload the app (R) after editing.\n#\n# Available tags:\n",
+    );
+    for tag in tags.iter().filter(|t| !t.name.starts_with("z_")) {
+        text.push_str(&format!("#   {}\n", tag.name));
+    }
+    text.push_str("\n[projects]\n");
+    for project in projects.iter().filter(|p| p.active) {
+        text.push_str(&format!("# {:?} = []\n", project.name));
+    }
+    std::fs::create_dir_all(path.parent().expect("has parent"))?;
+    std::fs::write(&path, text)?;
+    Ok(path)
+}
+
+// ---- Session token ------------------------------------------------------------------------
+
+fn token_path() -> Option<PathBuf> {
+    Some(config_dir()?.join("refresh_token"))
 }
 
 pub fn load_token() -> Option<String> {
