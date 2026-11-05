@@ -920,7 +920,6 @@ impl TimeChimpApp {
                     .pt(px(8.))
                     .gap(px(8.))
                     .items_center()
-                    .child(muted(theme, "Enter save · Esc cancel · Tab next field").text_xs())
                     .child(div().flex_1())
                     .when_some(self.busy, |d, b| d.child(div().text_color(theme.accent()).child(b)))
                     .child(pop(
