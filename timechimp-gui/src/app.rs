@@ -94,7 +94,6 @@ pub struct TimeChimpApp {
     /// The selected day; `week_start` is always the Monday of its week.
     pub day: NaiveDate,
     /// Week tab: show one day (true) or the whole week grouped per day (false).
-    pub day_view: bool,
     pub week_start: NaiveDate,
     pub entries: Vec<TimeEntry>,
     pub selected_entry: Option<usize>,
@@ -137,7 +136,6 @@ impl TimeChimpApp {
             tab: Tab::Week,
             tabs,
             day: today,
-            day_view: true,
             week_start: logic::monday_of(today),
             entries: Vec::new(),
             selected_entry: None,
@@ -466,9 +464,9 @@ impl TimeChimpApp {
         self.select_day(self.day + Duration::days(days), window, cx);
     }
 
-    /// The ‹/› buttons: a day in the day view, a week otherwise.
+    /// The ‹/› buttons: a day on the Week tab, a week on the Mileage tab.
     pub fn step(&mut self, direction: i64, window: &mut Window, cx: &mut Context<Self>) {
-        let by_day = self.tab == Tab::Week && self.day_view;
+        let by_day = self.tab == Tab::Week;
         self.shift_day(if by_day { direction } else { 7 * direction }, window, cx);
     }
 
@@ -499,15 +497,9 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    pub fn toggle_day_view(&mut self, cx: &mut Context<Self>) {
-        self.day_view = !self.day_view;
-        self.fix_selection();
-        cx.notify();
-    }
-
     /// Indices into `entries` of the rows currently shown on the Week tab.
     pub fn visible_entries(&self) -> Vec<usize> {
-        (0..self.entries.len()).filter(|&i| !self.day_view || self.entries[i].date.date() == self.day).collect()
+        (0..self.entries.len()).filter(|&i| self.entries[i].date.date() == self.day).collect()
     }
 
     /// Moves the selection by `delta` rows within what's visible on the current tab.
@@ -577,7 +569,7 @@ impl TimeChimpApp {
         let (shift, ctrl) = (ks.modifiers.shift, ks.modifiers.control || ks.modifiers.platform);
         let key = ks.key.as_str();
         let week_tab = self.tab == Tab::Week;
-        let by_day = week_tab && self.day_view;
+        let by_day = week_tab;
         match (key, ctrl) {
             ("q", true) => cx.quit(),
             (_, true) => return,
@@ -588,12 +580,11 @@ impl TimeChimpApp {
             ("right" | "l", _) if self.tab == Tab::Report => self.shift_month(1, window, cx),
             ("t", _) if self.tab != Tab::Projects => self.go_today(window, cx),
             (_, _) if !matches!(self.tab, Tab::Week | Tab::Mileage) => return,
-            // ←/→ move a day in the day view, a week otherwise; Shift+←/→ and [ ] always a week.
+            // ←/→ move a day on the Week tab, a week on Mileage; Shift+←/→ and [ ] always a week.
             ("left" | "h", _) if by_day && !shift => self.shift_day(-1, window, cx),
             ("right" | "l", _) if by_day && !shift => self.shift_day(1, window, cx),
             ("left" | "h" | "[", _) => self.shift_day(-7, window, cx),
             ("right" | "l" | "]", _) => self.shift_day(7, window, cx),
-            ("v", _) if week_tab => self.toggle_day_view(cx),
             ("down" | "j", _) => self.move_selection(1),
             ("up" | "k", _) => self.move_selection(-1),
             ("enter", _) if week_tab && self.selected_entry().is_some() => self.show_detail = true,

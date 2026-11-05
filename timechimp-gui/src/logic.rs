@@ -139,6 +139,23 @@ mod tests {
     }
 
     #[test]
+    fn junctions() {
+        let r = |a: &str, b: &str| (parse_time(a).unwrap().unwrap(), parse_time(b).unwrap().unwrap());
+        let tm = |s: &str| parse_time(s).unwrap().unwrap();
+        assert_eq!(range_junction(r("830", "9"), r("9", "915")), None);
+        assert_eq!(range_junction(r("830", "9"), r("930", "10")), Some(Junction::Gap { from: tm("9"), to: tm("930") }));
+        assert_eq!(
+            range_junction(r("830", "1000"), r("930", "1100")),
+            Some(Junction::Overlap { from: tm("930"), to: tm("1000") })
+        );
+        // Fully contained: the overlap is the inner entry.
+        assert_eq!(
+            range_junction(r("8", "12"), r("9", "10")),
+            Some(Junction::Overlap { from: tm("9"), to: tm("10") })
+        );
+    }
+
+    #[test]
     fn project_tags_file() {
         let file: ProjectTagsFile = toml::from_str(
             "# comment\n[projects]\n\"Tournament Software\" = [\"wbso_tournament\"]\nIntern = []\n",
@@ -173,6 +190,41 @@ pub fn local(date: NaiveDate, time: NaiveTime) -> Result<DateTime<FixedOffset>, 
         .earliest()
         .map(|t| t.fixed_offset())
         .ok_or_else(|| format!("{date} {time} does not exist in the local timezone"))
+}
+
+/// The local start and end time of an entry, from its `HH:mm-HH:mm` range.
+pub fn time_range(entry: &TimeEntry) -> Option<(NaiveTime, NaiveTime)> {
+    let (start, end) = entry.start_end.as_deref()?.split_once('-')?;
+    Some((parse_time(start).ok()??, parse_time(end).ok()??))
+}
+
+/// How two consecutive entries on a day fit together, when they don't line up exactly.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Junction {
+    /// Nothing registered between `from` and `to`.
+    Gap { from: NaiveTime, to: NaiveTime },
+    /// Both entries cover `from`–`to`.
+    Overlap { from: NaiveTime, to: NaiveTime },
+}
+
+/// Compares the end of `prev` with the start of `next` (entries without times are ignored).
+pub fn junction(prev: &TimeEntry, next: &TimeEntry) -> Option<Junction> {
+    if prev.date.date() != next.date.date() {
+        return None;
+    }
+    range_junction(time_range(prev)?, time_range(next)?)
+}
+
+/// `prev` must not start after `next` (entries are sorted by start time).
+fn range_junction((_, prev_end): (NaiveTime, NaiveTime), (next_start, next_end): (NaiveTime, NaiveTime)) -> Option<Junction> {
+    if prev_end == next_start {
+        return None;
+    }
+    Some(if prev_end < next_start {
+        Junction::Gap { from: prev_end, to: next_start }
+    } else {
+        Junction::Overlap { from: next_start, to: prev_end.min(next_end) }
+    })
 }
 
 pub fn json_strings(value: &serde_json::Value) -> Option<Vec<String>> {

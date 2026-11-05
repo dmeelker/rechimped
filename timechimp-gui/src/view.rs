@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use chrono::{Datelike, Duration, NaiveDate};
+use chrono::{Datelike, Duration};
 use gpui::{
     AnyElement, BoxShadow, point, ClickEvent, Context, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton,
     ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window, deferred, div,
@@ -180,6 +180,31 @@ fn hint(key: &'static str, label: &'static str) -> gpui::Div {
     h_stack().gap(px(4.)).items_center().child(kbd(key).small()).child(label)
 }
 
+/// A thin marker between two entries: amber for a gap, red for an overlap.
+fn junction_row(theme: &T, junction: &crate::logic::Junction) -> impl IntoElement {
+    use crate::logic::Junction;
+    let (colour, from, to, what) = match *junction {
+        Junction::Gap { from, to } => (theme.warning(), from, to, "gap"),
+        Junction::Overlap { from, to } => (theme.danger(), from, to, "overlap"),
+    };
+    let minutes = (to - from).num_minutes();
+    let duration = if minutes >= 60 { format!("{}h{:02}", minutes / 60, minutes % 60) } else { format!("{minutes} min") };
+    h_stack()
+        .w_full()
+        .px(px(10.))
+        .py(px(3.))
+        .gap(px(8.))
+        .items_center()
+        .bg(colour.opacity(0.08))
+        .border_b_1()
+        .border_color(theme.border_subtle())
+        .text_xs()
+        .text_color(colour)
+        .child(div().w(px(3.)).h(px(14.)).rounded(px(2.)).bg(colour))
+        .child(format!("{} – {} · {duration} {what}", from.format("%H:%M"), to.format("%H:%M")))
+        .child(div().flex_1().h(px(1.)).bg(colour.opacity(0.4)))
+}
+
 fn week_title(app: &TimeChimpApp) -> String {
     format!(
         "Week {} · {} – {}",
@@ -281,8 +306,7 @@ impl TimeChimpApp {
             .child(self.tabs.clone());
 
         let body: AnyElement = match self.tab {
-            Tab::Week if self.day_view => self.render_day(theme, cx).into_any_element(),
-            Tab::Week => self.render_week_grouped(theme, cx).into_any_element(),
+            Tab::Week => self.render_day(theme, cx).into_any_element(),
             Tab::Mileage => self.render_mileage(theme, cx).into_any_element(),
             Tab::Report => self.render_report(theme).into_any_element(),
             Tab::Projects => self.render_projects(theme).into_any_element(),
@@ -335,13 +359,6 @@ impl TimeChimpApp {
                 bar.child(pop(theme, nav("prev", "‹", |this, w, cx| this.step(-1, w, cx))))
                     .child(pop(theme, nav("today", "Today", |this, w, cx| this.go_today(w, cx))))
                     .child(pop(theme, nav("next", "›", |this, w, cx| this.step(1, w, cx))))
-                    .when(week_tab, |d| {
-                        d.child(pop(
-                            theme,
-                            button("view", if self.day_view { "Week view" } else { "Day view" })
-                                .on_click(cx.listener(|this, _, _, cx| this.toggle_day_view(cx))),
-                        ))
-                    })
                     .child(div().flex_1())
                     .when(week_tab, |d| {
                         let has = self.selected_entry().is_some();
@@ -390,21 +407,10 @@ impl TimeChimpApp {
             (None, Some(error)) => div().text_color(theme.danger()).child(error.clone()).into_any_element(),
             (None, None) => {
                 let hints: Vec<gpui::Div> = match self.tab {
-                    Tab::Week if self.day_view => vec![
+                    Tab::Week => vec![
                         hint("←/→", "day"),
                         hint("[ ]", "week"),
                         hint("T", "today"),
-                        hint("V", "week view"),
-                        hint("A", "add"),
-                        hint("E", "edit"),
-                        hint("C", "copy"),
-                        hint("D", "delete"),
-                        hint("Enter", "details"),
-                    ],
-                    Tab::Week => vec![
-                        hint("←/→", "week"),
-                        hint("T", "today"),
-                        hint("V", "day view"),
                         hint("A", "add"),
                         hint("E", "edit"),
                         hint("C", "copy"),
@@ -451,7 +457,7 @@ impl TimeChimpApp {
         )
     }
 
-    fn entry_row(&self, theme: &T, index: usize, e: &TimeEntry, indent: bool, cx: &mut Context<Self>) -> impl IntoElement {
+    fn entry_row(&self, theme: &T, index: usize, e: &TimeEntry, cx: &mut Context<Self>) -> impl IntoElement {
         let selected = self.selected_entry == Some(index);
         h_stack()
             .id(ElementId::NamedInteger("entry".into(), index as u64))
@@ -465,7 +471,7 @@ impl TimeChimpApp {
             .when(selected, |d| d.bg(theme.accent_bg()))
             .when(!selected, |d| d.hover(|s| s.bg(theme.surface())))
             .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| this.click_entry(index, ev.click_count(), window, cx)))
-            .child(cell(Some(110.), format!("{}{}", if indent { "   " } else { "" }, e.start_end.as_deref().unwrap_or("–"))))
+            .child(cell(Some(110.), e.start_end.clone().unwrap_or_else(|| "–".into())))
             .child(right_cell(60., format!("{:.2}", e.hours)))
             .child(cell(Some(160.), e.customer_name.clone()))
             .child(cell(None, format!("{} / {}", e.project_name, e.task_name)))
@@ -473,7 +479,22 @@ impl TimeChimpApp {
             .child(cell(Some(140.), e.tag_names.join(", ")).text_color(theme.fg_muted()))
     }
 
-    /// One day at a time: a strip with the week's days on top, the selected day's entries below.
+    /// Rows for the entries at `indices` (one day, sorted by start), with a marker between two
+    /// entries whose times don't connect: a gap, or an overlap.
+    fn entry_rows_with_gaps(&self, theme: &T, indices: &[usize], cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let mut rows = Vec::new();
+        for (n, &i) in indices.iter().enumerate() {
+            if let Some(&prev) = n.checked_sub(1).and_then(|p| indices.get(p)) {
+                if let Some(junction) = crate::logic::junction(&self.entries[prev], &self.entries[i]) {
+                    rows.push(junction_row(theme, &junction).into_any_element());
+                }
+            }
+            rows.push(self.entry_row(theme, i, &self.entries[i], cx).into_any_element());
+        }
+        rows
+    }
+
+    /// The Week tab: a strip with the week's days on top, the selected day's entries below.
     fn render_day(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         let per_day = self.hours_per_day();
         let total: f64 = per_day.iter().sum();
@@ -519,8 +540,7 @@ impl TimeChimpApp {
             .child("·")
             .child(div().text_color(hours_colour(theme, hours, target)).child(format!("{hours:.2}")))
             .child(format!("/ {target:.2}h"));
-        let rows: Vec<AnyElement> =
-            visible.iter().map(|&i| self.entry_row(theme, i, &self.entries[i], false, cx).into_any_element()).collect();
+        let rows = self.entry_rows_with_gaps(theme, &visible, cx);
 
         v_stack()
             .gap(px(12.))
@@ -536,66 +556,6 @@ impl TimeChimpApp {
                     visible.is_empty() && self.busy.is_none(),
                     |d| d.child(empty_message(theme, "No time registered on this day. Press A to add.")),
                 ),
-            )
-    }
-
-    /// The whole week, grouped per day with a header row showing each day's total.
-    fn render_week_grouped(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let per_day = self.hours_per_day();
-        let total: f64 = per_day.iter().sum();
-        let contract = self.contract_hours();
-        let mut rows: Vec<AnyElement> = Vec::new();
-        for (i, &hours) in per_day.iter().enumerate() {
-            let day = self.week_start + Duration::days(i as i64);
-            let target = self.target_for(i);
-            let day_entries: Vec<(usize, &TimeEntry)> =
-                self.entries.iter().enumerate().filter(|(_, e)| e.date.date() == day).collect();
-            // Days without entries are shown only if hours are contracted for them.
-            if day_entries.is_empty() && target == 0.0 {
-                continue;
-            }
-            rows.push(self.day_header(theme, day, hours, target).into_any_element());
-            for (index, e) in day_entries {
-                rows.push(self.entry_row(theme, index, e, true, cx).into_any_element());
-            }
-        }
-        let empty = self.entries.is_empty() && self.busy.is_none();
-        panel(
-            theme,
-            format!("{} · {total:.2} / {contract:.2}h", week_title(self)),
-            Some(muted(theme, "grey = non-billable").text_xs().into_any_element()),
-        )
-        .child(Self::entry_header(theme))
-        .children(rows)
-        .when(empty, |d| d.child(empty_message(theme, "No time registered this week. Press A to add.")))
-    }
-
-    /// Day header row: date, total hours (coloured against the target) and a progress bar.
-    fn day_header(&self, theme: &T, day: NaiveDate, hours: f64, target: f64) -> impl IntoElement {
-        let colour = hours_colour(theme, hours, target);
-        h_stack()
-            .w_full()
-            .py(px(6.))
-            .px(px(4.))
-            .items_center()
-            .bg(theme.surface_secondary())
-            .border_b_1()
-            .border_color(theme.border())
-            .child(cell(Some(110.), day.format("%a %d %b").to_string()).font_weight(FontWeight::BOLD))
-            .child(right_cell(60., format!("{hours:.2}")).font_weight(FontWeight::BOLD).text_color(colour))
-            .child(
-                h_stack().px(px(6.)).gap(px(8.)).items_center().map(|d| {
-                    if target > 0.0 {
-                        d.child(
-                            progress((hours / target).min(1.0) as f32)
-                                .width(px(120.))
-                                .variant(if hours >= target { ProgressVariant::Success } else { ProgressVariant::Default }),
-                        )
-                        .child(muted(theme, format!("of {target:.2}h")))
-                    } else {
-                        d.child(muted(theme, "no contracted hours"))
-                    }
-                }),
             )
     }
 
