@@ -868,8 +868,8 @@ impl TimeChimpApp {
                 row("Task", f.task.clone().into_any_element(), None),
                 row("Start", field(&f.start, "HH:MM", cx), None),
                 row("End", field(&f.end, "HH:MM", cx), None),
-                row("Hours", field(&f.hours, "used without start/end, e.g. 1.5", cx), None),
                 row("Notes", field(&f.notes, "What did you work on?", cx), None),
+                row("Hours", field(&f.hours, "used without start/end, e.g. 1.5", cx), None),
                 // Only projects with tags in projects.toml get the row.
                 row(
                     "Tags",
