@@ -394,6 +394,8 @@ pub struct NewTimeEntry {
     /// [`ProjectTask::task_id`].
     pub task_id: i64,
     pub date: NaiveDate,
+    /// Used for entries without start/end; with both set, the hours follow from them (see
+    /// [`NewTimeEntry::effective_hours`]).
     pub hours: f64,
     pub notes: Option<String>,
     /// Optional start/end times. Use the user's local offset (e.g. via `chrono::Local`):
@@ -426,12 +428,19 @@ impl NewTimeEntry {
         }
     }
 
-    /// Sets start and end, and derives `hours` from them (minus the pause).
+    /// Sets start and end; the hours then follow from them (minus the pause).
     pub fn with_times(mut self, start: DateTime<FixedOffset>, end: DateTime<FixedOffset>) -> Self {
-        self.hours = ((end - start).num_minutes() as f64 / 60.0 - self.pause).max(0.0);
         self.start = Some(start);
         self.end = Some(end);
         self
+    }
+
+    /// The hours sent: end − start − pause when both times are set, else `hours`.
+    pub fn effective_hours(&self) -> f64 {
+        match (self.start, self.end) {
+            (Some(start), Some(end)) => ((end - start).num_minutes() as f64 / 60.0 - self.pause).max(0.0),
+            _ => self.hours,
+        }
     }
 
     pub fn with_notes(mut self, notes: impl Into<String>) -> Self {
@@ -448,7 +457,7 @@ impl NewTimeEntry {
             "projectTaskId": self.project_task_id,
             "taskId": self.task_id,
             "date": format!("{}T00:00:00.000Z", self.date),
-            "hours": self.hours,
+            "hours": self.effective_hours(),
             "notes": self.notes.clone().unwrap_or_default(),
             "pause": self.pause,
             "tagIds": self.tag_ids,
@@ -641,5 +650,41 @@ pub struct RouteDistance {
 impl RouteDistance {
     pub fn kilometres(&self) -> f64 {
         self.meters as f64 / 1000.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry() -> NewTimeEntry {
+        NewTimeEntry {
+            user_id: 1,
+            customer_id: 2,
+            project_id: 3,
+            project_task_id: 4,
+            task_id: 5,
+            date: NaiveDate::from_ymd_opt(2026, 11, 4).unwrap(),
+            hours: 0.0,
+            notes: None,
+            start: None,
+            end: None,
+            pause: 0.0,
+            tag_ids: Vec::new(),
+            timezone: None,
+        }
+    }
+
+    fn at(h: u32, m: u32) -> DateTime<FixedOffset> {
+        DateTime::parse_from_rfc3339(&format!("2026-11-04T{h:02}:{m:02}:00+01:00")).unwrap()
+    }
+
+    #[test]
+    fn hours_follow_times_and_pause_in_any_order() {
+        let pause_first = NewTimeEntry { pause: 0.5, ..entry() }.with_times(at(9, 0), at(11, 0));
+        let pause_after = NewTimeEntry { pause: 0.5, ..entry().with_times(at(9, 0), at(11, 0)) };
+        assert_eq!(pause_first.effective_hours(), 1.5);
+        assert_eq!(pause_after.effective_hours(), 1.5);
+        assert_eq!(NewTimeEntry { hours: 2.25, ..entry() }.effective_hours(), 2.25);
     }
 }
