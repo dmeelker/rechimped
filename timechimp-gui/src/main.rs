@@ -7,10 +7,12 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod app;
+mod domain;
 mod forms;
 mod fx;
-mod logic;
+mod net;
 mod password;
+mod store;
 mod view;
 
 use std::sync::Arc;
@@ -29,7 +31,7 @@ use app::{
 
 fn main() {
     // Start the tokio runtime up front so the first request doesn't pay for it.
-    let _ = logic::runtime();
+    let _ = net::runtime();
 
     Application::with_platform(gpui_platform::current_platform(false)).with_assets(gpuikit::assets()).run(
         |cx: &mut App| {

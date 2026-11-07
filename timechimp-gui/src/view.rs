@@ -1,6 +1,5 @@
 //! Rendering of the main window: login screen, the four tabs, popups and dialogs.
 
-use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use chrono::{Datelike, Duration};
@@ -26,7 +25,8 @@ use crate::app::{
     ToggleShowcase,
 };
 use crate::forms::{Form, FormBody, RecentPicker};
-use crate::logic::{RecentItem, mileage_type_name};
+use crate::domain::mileage_type_name;
+use crate::domain::week::RecentItem;
 
 type T = Arc<Theme>;
 
@@ -209,8 +209,8 @@ fn hint(key: &'static str, label: &'static str) -> gpui::Div {
 }
 
 /// A thin marker between two entries: amber for a gap, red for an overlap.
-fn junction_row(theme: &T, junction: &crate::logic::Junction) -> impl IntoElement {
-    use crate::logic::Junction;
+fn junction_row(theme: &T, junction: &crate::domain::week::Junction) -> impl IntoElement {
+    use crate::domain::week::Junction;
     let (colour, from, to, what) = match *junction {
         Junction::Gap { from, to } => (theme.warning(), from, to, "gap"),
         Junction::Overlap { from, to } => (theme.danger(), from, to, "overlap"),
@@ -590,7 +590,7 @@ impl TimeChimpApp {
         let mut rows = Vec::new();
         for (n, &i) in indices.iter().enumerate() {
             if let Some(&prev) = n.checked_sub(1).and_then(|p| indices.get(p)) {
-                if let Some(junction) = crate::logic::junction(&self.entries[prev], &self.entries[i]) {
+                if let Some(junction) = crate::domain::week::junction(&self.entries[prev], &self.entries[i]) {
                     rows.push(junction_row(theme, &junction).into_any_element());
                 }
             }
@@ -609,7 +609,7 @@ impl TimeChimpApp {
             let day = self.week_start + Duration::days(i as i64);
             let (hours, target) = (per_day[i], self.target_for(i));
             let selected = day == self.day;
-            let is_today = day == crate::logic::today();
+            let is_today = day == crate::domain::time::today();
             let fraction = if target > 0.0 { (hours / target).min(1.0) as f32 } else { 0.0 };
             v_stack()
                 .id(ElementId::NamedInteger("day".into(), i as u64))
@@ -638,11 +638,14 @@ impl TimeChimpApp {
 
         // Week card: total against the contract, and billable hours against the contract (without
         // one, against what was logged), coloured by the billable goal.
-        let billable = crate::logic::billable_hours(&self.entries);
-        let of = if contract > 0.0 { contract } else { total };
-        let ratio = if of > 0.0 { billable / of } else { 0.0 };
-        let goal_met = of > 0.0 && ratio >= self.billable_goal;
-        let ratio_colour = if of == 0.0 { theme.fg_muted() } else if goal_met { theme.success() } else { theme.warning() };
+        let share = crate::domain::week::billable_share(&self.entries, contract);
+        let ratio = share.unwrap_or(0.0);
+        let goal_met = share.is_some_and(|s| s >= self.billable_goal);
+        let ratio_colour = match share {
+            None => theme.fg_muted(),
+            Some(_) if goal_met => theme.success(),
+            Some(_) => theme.warning(),
+        };
         let week_card = v_stack()
             .flex_1()
             .gap(px(4.))
@@ -813,23 +816,10 @@ impl TimeChimpApp {
             return panel(theme, month, None).child(empty_message(theme, "Loading report…")).into_any_element();
         }
 
-        // Group hours per project / task.
-        let mut groups: BTreeMap<(String, String), (f64, bool)> = BTreeMap::new();
-        for r in &report.time {
-            let g = groups.entry((r.project.clone(), r.task.clone())).or_insert((0.0, r.billable));
-            g.0 += r.time;
-        }
-        let mut groups: Vec<_> = groups.into_iter().collect();
-        groups.sort_by(|a, b| b.1.0.total_cmp(&a.1.0));
+        let summary = report.summary();
+        let pct = |h: f64| summary.share(h) * 100.0;
 
-        let total: f64 = report.time.iter().map(|r| r.time).sum();
-        let billable: f64 = report.time.iter().filter(|r| r.billable).map(|r| r.time).sum();
-        let km: f64 = report.mileage.iter().map(|r| r.distance).sum();
-        let amount: f64 = report.mileage.iter().filter_map(|r| r.amount).sum();
-        let days = report.time.iter().map(|r| r.date).collect::<BTreeSet<_>>().len();
-        let pct = |h: f64| h / total.max(f64::EPSILON) * 100.0;
-
-        let rows = groups.iter().map(|((project, task), (hours, billable))| {
+        let rows = summary.groups.iter().map(|g| {
             h_stack()
                 .w_full()
                 .py(px(6.))
@@ -837,12 +827,12 @@ impl TimeChimpApp {
                 .items_center()
                 .border_b_1()
                 .border_color(theme.border_subtle())
-                .when(!billable, |d| d.text_color(theme.fg_muted()))
-                .child(cell(None, project.clone()))
-                .child(cell(None, task.clone()))
-                .child(right_cell(70., format!("{hours:.2}")))
-                .child(right_cell(50., format!("{:.0}%", pct(*hours))))
-                .child(div().w(px(100.)).flex_none().px(px(6.)).child(progress((hours / total.max(f64::EPSILON)) as f32)))
+                .when(!g.billable, |d| d.text_color(theme.fg_muted()))
+                .child(cell(None, g.project.clone()))
+                .child(cell(None, g.task.clone()))
+                .child(right_cell(70., format!("{:.2}", g.hours)))
+                .child(right_cell(50., format!("{:.0}%", pct(g.hours))))
+                .child(div().w(px(100.)).flex_none().px(px(6.)).child(progress(summary.share(g.hours) as f32)))
         });
         let table = panel(theme, format!("{month} · hours per project / task"), None)
             .flex_1()
@@ -851,7 +841,7 @@ impl TimeChimpApp {
                 [cell(None, "Project"), cell(None, "Task"), right_cell(70., "Hours"), right_cell(50., "%"), cell(Some(100.), "")],
             ))
             .child(table_rows("report-rows", rows))
-            .when(groups.is_empty(), |d| d.child(empty_message(theme, "No time registered this month.")));
+            .when(summary.groups.is_empty(), |d| d.child(empty_message(theme, "No time registered this month.")));
 
         let stat = |label: &'static str, value: String| {
             h_stack()
@@ -860,21 +850,23 @@ impl TimeChimpApp {
                 .child(muted(theme, label))
                 .child(div().font_weight(FontWeight::SEMIBOLD).child(value))
         };
-        let summary = panel(theme, "Summary", None).w(px(300.)).flex_none().child(
+        let s = &summary;
+        let totals = panel(theme, "Summary", None).w(px(300.)).flex_none().child(
             v_stack()
                 .p(px(12.))
-                .child(stat("Total hours", format!("{total:.2}")))
-                .child(stat("Billable", format!("{billable:.2} ({:.0}%)", pct(billable))).when(total > 0.0, |d| {
-                    d.text_color(if billable / total >= self.billable_goal { theme.success() } else { theme.warning() })
-                }))
+                .child(stat("Total hours", format!("{:.2}", s.total)))
+                .child(stat("Billable", format!("{:.2} ({:.0}%)", s.billable, pct(s.billable))).when_some(
+                    s.billable_share(),
+                    |d, share| d.text_color(if share >= self.billable_goal { theme.success() } else { theme.warning() }),
+                ))
                 .child(stat("Billable goal", format!("{:.0}%", self.billable_goal * 100.0)))
-                .child(stat("Non-billable", format!("{:.2}", total - billable)))
-                .child(stat("Days registered", days.to_string()))
-                .child(stat("Entries", report.time.len().to_string()))
+                .child(stat("Non-billable", format!("{:.2}", s.total - s.billable)))
+                .child(stat("Days registered", s.days.to_string()))
+                .child(stat("Entries", s.entries.to_string()))
                 .child(div().h(px(1.)).my(px(8.)).bg(theme.border()))
-                .child(stat("Trips", report.mileage.len().to_string()))
-                .child(stat("Distance", format!("{km:.0} km")))
-                .child(stat("Reimbursement", format!("€ {amount:.2}"))),
+                .child(stat("Trips", s.trips.to_string()))
+                .child(stat("Distance", format!("{:.0} km", s.km)))
+                .child(stat("Reimbursement", format!("€ {:.2}", s.reimbursement))),
         );
         // Panels are at most as tall as the body (`max_h_full`), so a long table scrolls.
         h_stack()
@@ -883,7 +875,7 @@ impl TimeChimpApp {
             .items_start()
             .gap(px(12.))
             .child(table.max_h_full())
-            .child(summary.max_h_full())
+            .child(totals.max_h_full())
             .into_any_element()
     }
 

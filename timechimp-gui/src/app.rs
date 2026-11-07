@@ -20,7 +20,10 @@ use timechimp::{
 };
 
 use crate::forms::{self, Form, FormBody, MileageForm, TimeForm, TimeKind, chosen, text};
-use crate::logic::{self, MILEAGE_TYPES, Report};
+use crate::domain::report::Report;
+use crate::domain::{self, MILEAGE_TYPES};
+use crate::net;
+use crate::store::{config, token};
 use crate::password::{PasswordEvent, PasswordField};
 
 actions!(
@@ -110,7 +113,7 @@ pub struct TimeChimpApp {
     /// Entries of the last few weeks plus every week loaded since, by id; feeds `recent`.
     history: HashMap<i64, TimeEntry>,
     /// What the time form's Recent picker offers, most recent first.
-    pub recent: Vec<logic::RecentItem>,
+    pub recent: Vec<domain::week::RecentItem>,
     pub mileage: Vec<Mileage>,
     pub selected_mileage: Option<usize>,
     pub report_month: NaiveDate,
@@ -124,7 +127,7 @@ pub struct TimeChimpApp {
     /// Billable share to aim for, from `config.toml` (fraction).
     pub billable_goal: f64,
     /// `[[trips]]` from `config.toml`: buttons on the Mileage tab that open a filled-in trip form.
-    pub trip_presets: Vec<logic::TripPreset>,
+    pub trip_presets: Vec<config::TripPreset>,
     pub form: Option<Form>,
     /// The open delete confirmation, with the subscription that clears it when it closes.
     pub confirm: Option<(Entity<DialogState>, Subscription)>,
@@ -143,7 +146,7 @@ pub struct TimeChimpApp {
 
 impl TimeChimpApp {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let today = logic::today();
+        let today = domain::time::today();
         let tabs = cx.new(|_| {
             Tab::ALL.iter().fold(tabs("main-tabs"), |t, tb| t.tab(tab(tb.id(), tb.label()))).selected(Tab::Week.id())
         });
@@ -160,21 +163,21 @@ impl TimeChimpApp {
             tab: Tab::Week,
             tabs,
             day: today,
-            week_start: logic::monday_of(today),
+            week_start: domain::time::monday_of(today),
             entries: Vec::new(),
             selected_entry: None,
             history: HashMap::new(),
             recent: Vec::new(),
             mileage: Vec::new(),
             selected_mileage: None,
-            report_month: logic::first_of_month(today),
+            report_month: domain::time::first_of_month(today),
             report: Report::default(),
             projects: Vec::new(),
             tasks: Vec::new(),
             project_tasks: HashMap::new(),
             tags: Vec::new(),
             project_tags: HashMap::new(),
-            billable_goal: logic::DEFAULT_BILLABLE_GOAL,
+            billable_goal: config::DEFAULT_BILLABLE_GOAL,
             trip_presets: Vec::new(),
             form: None,
             confirm: None,
@@ -188,7 +191,7 @@ impl TimeChimpApp {
         };
 
         // Continue with a stored refresh token, if any; otherwise show the login screen.
-        match logic::load_token() {
+        match token::load_token() {
             Some(token) => {
                 app.client = Some(Client::new(Authenticator::from_refresh_token(token)));
                 app.reload(window, cx);
@@ -212,7 +215,7 @@ impl TimeChimpApp {
     ) {
         self.in_flight.push(label);
         cx.notify();
-        let handle = logic::runtime().spawn(future);
+        let handle = net::runtime().spawn(future);
         cx.spawn_in(window, async move |this, cx| {
             let result = handle.await;
             let _ = this.update_in(cx, |this, window, cx| {
@@ -359,7 +362,7 @@ impl TimeChimpApp {
     }
 
     fn logged_in(&mut self, auth: Authenticator, window: &mut Window, cx: &mut Context<Self>) {
-        let save_error = logic::save_token(auth.refresh_token()).err();
+        let save_error = token::save_token(auth.refresh_token()).err();
         self.client = Some(Client::new(auth));
         self.screen = Screen::Main;
         window.focus(&self.focus, cx);
@@ -371,7 +374,7 @@ impl TimeChimpApp {
 
     pub fn logout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.user_menu = false;
-        logic::delete_token();
+        token::delete_token();
         self.to_login(None, window, cx);
     }
 
@@ -383,14 +386,14 @@ impl TimeChimpApp {
         let (week_start, report_month, want_report) = (self.week_start, self.report_month, self.tab == Tab::Report);
         self.week_generation += 1;
         let generation = self.week_generation;
-        let today = logic::today();
+        let today = domain::time::today();
         let future = async move {
-            let base = logic::load_base(&client).await?;
+            let base = net::load_base(&client).await?;
             let user_id = base.me.id;
             // The history only feeds the Recent picker; failing to load it doesn't fail the reload.
             let (week, history) =
-                tokio::join!(logic::load_week(&client, user_id, week_start), logic::load_history(&client, user_id, today));
-            let report = if want_report { Some(logic::load_report(&client, user_id, report_month).await?) } else { None };
+                tokio::join!(net::load_week(&client, user_id, week_start), net::load_history(&client, user_id, today));
+            let report = if want_report { Some(net::load_report(&client, user_id, report_month).await?) } else { None };
             timechimp::Result::Ok((base, week?, report, history))
         };
         self.run("Loading…", future, window, cx, move |this, result, window, cx| match result {
@@ -407,7 +410,7 @@ impl TimeChimpApp {
                 match history {
                     Ok(history) => {
                         this.history = history.into_iter().map(|e| (e.id, e)).collect();
-                        this.recent = logic::recent_items(this.history.values());
+                        this.recent = domain::week::recent_items(this.history.values());
                     }
                     Err(e) => this.set_error(format!("Could not load recent entries: {e}"), window, cx),
                 }
@@ -421,10 +424,10 @@ impl TimeChimpApp {
 
     /// Reads `config.toml`, creating a starter file (listing projects and tags) if missing.
     fn load_config(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        match logic::load_config() {
-            Ok(Some(config)) => {
+        match config::path().and_then(|path| Ok((config::load(&path)?, path))) {
+            Ok((Some(config), _)) => {
                 self.billable_goal = config.billable_goal;
-                let (resolved, warning) = logic::resolve_project_tags(&config.projects, &self.projects, &self.tags);
+                let (resolved, warning) = config::resolve_project_tags(&config.projects, &self.projects, &self.tags);
                 self.project_tags = resolved;
                 let unknown: Vec<String> = config
                     .trips
@@ -442,12 +445,12 @@ impl TimeChimpApp {
                     self.set_error(warning, window, cx);
                 }
             }
-            Ok(None) => {
+            Ok((None, path)) => {
                 self.project_tags.clear();
                 self.trip_presets.clear();
-                self.billable_goal = logic::DEFAULT_BILLABLE_GOAL;
-                match logic::write_config_template(&self.projects, &self.tags) {
-                    Ok(path) => self.set_info(format!("Created {}; add the tags per project there", path.display()), window, cx),
+                self.billable_goal = config::DEFAULT_BILLABLE_GOAL;
+                match config::write_template(&path, &self.projects, &self.tags) {
+                    Ok(()) => self.set_info(format!("Created {}; add the tags per project there", path.display()), window, cx),
                     Err(e) => self.set_error(format!("Could not create config.toml: {e}"), window, cx),
                 }
             }
@@ -467,7 +470,7 @@ impl TimeChimpApp {
         let generation = self.week_generation;
         self.run(
             "Loading…",
-            async move { logic::load_week(&client, user_id, week_start).await },
+            async move { net::load_week(&client, user_id, week_start).await },
             window,
             cx,
             move |this, result, window, cx| match result {
@@ -481,13 +484,13 @@ impl TimeChimpApp {
         );
     }
 
-    fn apply_week(&mut self, week: logic::Week, select_id: Option<i64>) {
+    fn apply_week(&mut self, week: net::Week, select_id: Option<i64>) {
         self.fx.sweep += 1;
         // The week replaces what the history had for it, so saves and deletes show up in Recent.
         let week_end = self.week_start + Duration::days(7);
         self.history.retain(|_, e| !(self.week_start..week_end).contains(&e.date));
         self.history.extend(week.entries.iter().map(|e| (e.id, e.clone())));
-        self.recent = logic::recent_items(self.history.values());
+        self.recent = domain::week::recent_items(self.history.values());
 
         self.selected_entry = keep_selection(self.selected_entry, week.entries.len());
         self.selected_mileage = keep_selection(self.selected_mileage, week.mileage.len());
@@ -509,7 +512,7 @@ impl TimeChimpApp {
         let (user_id, month) = (me.id, self.report_month);
         self.run(
             "Loading…",
-            async move { logic::load_report(&client, user_id, month).await },
+            async move { net::load_report(&client, user_id, month).await },
             window,
             cx,
             |this, result, window, cx| match result {
@@ -554,7 +557,7 @@ impl TimeChimpApp {
 
     pub fn select_day(&mut self, day: NaiveDate, window: &mut Window, cx: &mut Context<Self>) {
         self.day = day;
-        let week_start = logic::monday_of(day);
+        let week_start = domain::time::monday_of(day);
         if week_start != self.week_start {
             self.week_start = week_start;
             self.load_week(None, window, cx);
@@ -565,10 +568,10 @@ impl TimeChimpApp {
 
     pub fn go_today(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.tab == Tab::Report {
-            self.report_month = logic::first_of_month(logic::today());
+            self.report_month = domain::time::first_of_month(domain::time::today());
             self.load_report(window, cx);
         } else {
-            self.select_day(logic::today(), window, cx);
+            self.select_day(domain::time::today(), window, cx);
         }
     }
 
@@ -721,12 +724,12 @@ impl TimeChimpApp {
             .projects
             .iter()
             .filter(|p| p.active)
-            .map(|p| (p.id, logic::project_label(&p.name, &p.customer_name)))
+            .map(|p| (p.id, domain::project_label(&p.name, &p.customer_name)))
             .collect();
         if let Some((id, name, customer)) = current
             && !options.iter().any(|(o, _)| *o == id)
         {
-            options.push((id, logic::project_label(name, customer)));
+            options.push((id, domain::project_label(name, customer)));
         }
         options
     }
@@ -806,7 +809,7 @@ impl TimeChimpApp {
             if !matches!(event, InputStateEvent::Blur) {
                 return;
             }
-            if let Some(expanded) = logic::expand_end(&text(&form.start, cx), &text(end, cx)) {
+            if let Some(expanded) = domain::time::expand_end(&text(&form.start, cx), &text(end, cx)) {
                 forms::set_text(end, expanded, cx);
             }
         }));
@@ -843,7 +846,7 @@ impl TimeChimpApp {
 
     /// The recent items matching the filter of the open time form, best first, at most `RECENT_ROWS`.
     /// None while the filter is empty: the list only appears once you type.
-    pub fn recent_matches(&self, cx: &gpui::App) -> Vec<&logic::RecentItem> {
+    pub fn recent_matches(&self, cx: &gpui::App) -> Vec<&domain::week::RecentItem> {
         let Some(Form { body: FormBody::Time(TimeForm { recent: Some(picker), .. }), .. }) = &self.form else {
             return Vec::new();
         };
@@ -936,7 +939,7 @@ impl TimeChimpApp {
     }
 
     /// The project a preset names (case-insensitive), among the user's projects.
-    fn preset_project(&self, preset: &logic::TripPreset) -> Option<&Project> {
+    fn preset_project(&self, preset: &config::TripPreset) -> Option<&Project> {
         self.projects.iter().find(|p| p.name.eq_ignore_ascii_case(preset.project.trim()))
     }
 
@@ -961,27 +964,27 @@ impl TimeChimpApp {
             return self.form_error("Pick a project first", cx);
         };
         let distance = text(&f.distance, cx);
-        let distance = match logic::parse_decimal(&distance) {
+        let distance = match domain::time::parse_decimal(&distance) {
             Some(km) => Some(km),
             None if distance.is_empty() => None,
             None => return self.form_error("Distance must be a number (or empty)", cx),
         };
-        let name = logic::preset_name(&from, &to, &notes);
+        let name = config::preset_name(&from, &to, &notes);
         if self.trip_presets.iter().any(|p| p.name.eq_ignore_ascii_case(&name)) {
             return self.form_error(format!("There already is a preset \"{name}\" in config.toml"), cx);
         }
-        let preset = logic::TripPreset {
+        let preset = config::TripPreset {
             name: name.clone(),
             project: project.name.clone(),
             from,
             to,
             distance,
             return_trip: f.editing.is_none() && f.return_trip.read(cx).is_on(),
-            mileage_type: chosen(&f.mileage_type, cx).and_then(logic::mileage_type_key),
+            mileage_type: chosen(&f.mileage_type, cx).and_then(config::mileage_type_key),
             billable: f.billable.read(cx).is_on(),
             notes: Some(notes).filter(|n| !n.is_empty()),
         };
-        match logic::append_trip_preset(&preset) {
+        match config::path().and_then(|path| config::append_trip_preset(&path, &preset)) {
             Ok(_) => {
                 if let Some(form) = &mut self.form {
                     form.error = None;
@@ -998,7 +1001,7 @@ impl TimeChimpApp {
     fn open_mileage_form(
         &mut self,
         editing: Option<Box<Mileage>>,
-        preset: Option<&logic::TripPreset>,
+        preset: Option<&config::TripPreset>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1168,7 +1171,7 @@ impl TimeChimpApp {
                     this.close_form(window, cx);
                     // Jump to the day of the saved item and select it.
                     this.day = date;
-                    this.week_start = logic::monday_of(date);
+                    this.week_start = domain::time::monday_of(date);
                     this.report = Report::default();
                     this.load_week(Some(id), window, cx);
                     this.set_info(message, window, cx);
@@ -1197,7 +1200,7 @@ impl TimeChimpApp {
 
         let request = match &form.body {
             FormBody::Mileage(f) => {
-                let distance = logic::parse_decimal(&text(&f.distance, cx))
+                let distance = domain::time::parse_decimal(&text(&f.distance, cx))
                     .ok_or("Distance must be a number (Ctrl+D calculates it)")?;
                 let (from, to) = (text(&f.from, cx), text(&f.to, cx));
                 if from.is_empty() || to.is_empty() {
@@ -1266,17 +1269,17 @@ impl TimeChimpApp {
                 let tz = self.timezone(own_timezone);
                 entry.timezone = Some(tz.name().to_owned());
 
-                let start = logic::parse_time(&text(&f.start, cx))?;
-                let end = logic::parse_end(start, &text(&f.end, cx))?;
+                let start = domain::time::parse_time(&text(&f.start, cx))?;
+                let end = domain::time::parse_end(start, &text(&f.end, cx))?;
                 let entry = match (start, end) {
                     (Some(start), Some(end)) => {
                         if end <= start {
                             return Err("End must be after start".into());
                         }
-                        entry.with_times(logic::local(date, start, tz)?, logic::local(date, end, tz)?)
+                        entry.with_times(domain::time::local(date, start, tz)?, domain::time::local(date, end, tz)?)
                     }
                     (None, None) => {
-                        let hours = logic::parse_decimal(&text(&f.hours, cx))
+                        let hours = domain::time::parse_decimal(&text(&f.hours, cx))
                             .ok_or("Enter start and end, or a number of hours")?;
                         if hours <= 0.0 {
                             return Err("Hours must be positive".into());
@@ -1375,7 +1378,7 @@ impl TimeChimpApp {
             DeleteTarget::Mileage(id) => async move { client.delete_mileage(id).await }.boxed(),
             // A preset only lives in config.toml; no request needed.
             DeleteTarget::Preset(name) => {
-                match logic::remove_trip_preset(&name) {
+                match config::path().and_then(|path| config::remove_trip_preset(&path, &name)) {
                     Ok(_) => {
                         self.load_config(window, cx);
                         self.set_info("Preset deleted from config.toml", window, cx);
@@ -1411,7 +1414,7 @@ impl TimeChimpApp {
     fn timezone(&self, own: Option<&str>) -> chrono_tz::Tz {
         let account = self.me.as_ref().and_then(|m| m.timezone.as_deref());
         let entries = self.entries.iter().map(|e| e.timezone.as_deref());
-        logic::timezone([own, account].into_iter().chain(entries))
+        domain::time::timezone([own, account].into_iter().chain(entries))
     }
 
     fn saved_addresses(&self) -> Vec<String> {
@@ -1419,7 +1422,7 @@ impl TimeChimpApp {
             .me
             .as_ref()
             .and_then(|m| m.extra.get("mileageAddresses"))
-            .and_then(logic::json_strings)
+            .and_then(domain::json_strings)
             .unwrap_or_default();
         for m in &self.mileage {
             for a in [&m.from_address, &m.to_address].into_iter().flatten() {
@@ -1433,14 +1436,7 @@ impl TimeChimpApp {
 
     /// Hours registered per day of the current week, Monday first.
     pub fn hours_per_day(&self) -> [f64; 7] {
-        let mut totals = [0.0; 7];
-        for e in &self.entries {
-            let offset = (e.date - self.week_start).num_days();
-            if (0..7).contains(&offset) {
-                totals[offset as usize] += e.hours;
-            }
-        }
-        totals
+        domain::week::hours_per_day(&self.entries, self.week_start)
     }
 
     /// Contracted hours for a day of the week (0 = Monday).
