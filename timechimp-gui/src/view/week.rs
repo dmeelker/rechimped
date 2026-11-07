@@ -60,10 +60,10 @@ impl TimeChimpApp {
         let mut rows = Vec::new();
         for (n, &i) in indices.iter().enumerate() {
             if let Some(&prev) = n.checked_sub(1).and_then(|p| indices.get(p))
-                && let Some(junction) = crate::domain::week::junction(&self.session.entries[prev], &self.session.entries[i]) {
+                && let Some(junction) = crate::domain::week::junction(&self.session.entries()[prev], &self.session.entries()[i]) {
                     rows.push(junction_row(theme, &junction).into_any_element());
                 }
-            rows.push(self.entry_row(theme, i, &self.session.entries[i], cx).into_any_element());
+            rows.push(self.entry_row(theme, i, &self.session.entries()[i], cx).into_any_element());
         }
         rows
     }
@@ -108,7 +108,7 @@ impl TimeChimpApp {
         // Week card: total against the contract, and billable hours against the contract (without
         // one, against what was logged), coloured by the billable goal; leave left out of both.
         let crate::domain::week::WeekCard { hours: total, contract, share, .. } =
-            crate::domain::week::week_card(&self.session.entries, self.session.contract_hours());
+            crate::domain::week::week_card(self.session.entries(), self.session.contract_hours());
         let ratio = share.unwrap_or(0.0);
         let goal_met = share.is_some_and(|s| s >= self.session.settings.billable_goal);
         let ratio_colour = goal_colour(theme, share, self.session.settings.billable_goal);

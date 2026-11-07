@@ -167,7 +167,7 @@ impl TimeChimpApp {
         // Continue with a stored refresh token, if any; otherwise show the login screen.
         match token::load_token() {
             Some(token) => {
-                app.session.client = Some(Client::new(Authenticator::from_refresh_token(token)));
+                app.session = Session::new(Some(Client::new(Authenticator::from_refresh_token(token))), domain::time::today());
                 app.reload(window, cx);
                 window.focus(&app.focus, cx);
             }

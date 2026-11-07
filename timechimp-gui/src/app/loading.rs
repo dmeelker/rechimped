@@ -12,7 +12,7 @@ use super::{Tab, TimeChimpApp};
 impl TimeChimpApp {
     /// Loads everything.
     pub fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(client) = self.session.client.clone() else { return };
+        let Some(client) = self.session.client().cloned() else { return };
         let (report_month, want_report) = (self.session.report_month(), self.tab == Tab::Report);
         // The report is stale from here on; the Report tab loads it again when shown.
         self.session.invalidate_report();
@@ -66,7 +66,7 @@ impl TimeChimpApp {
             }
             Ok((None, path)) => {
                 self.session.apply_config(None);
-                match config::write_template(&path, &self.session.projects, &self.session.tags) {
+                match config::write_template(&path, self.session.projects(), self.session.tags()) {
                     Ok(()) => self.set_info(format!("Created {}; add the tags per project there", path.display()), window, cx),
                     Err(e) => self.set_error(format!("Could not create config.toml: {e}"), window, cx),
                 }
@@ -80,7 +80,7 @@ impl TimeChimpApp {
 
     /// Loads the current week; afterwards selects the item with `select_id`, if given.
     pub(super) fn load_week(&mut self, select_id: Option<i64>, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(client), Some(me)) = (self.session.client.clone(), self.session.me.as_ref()) else { return };
+        let (Some(client), Some(me)) = (self.session.client().cloned(), self.session.me()) else { return };
         let user_id = me.id;
         let (generation, week_start) = self.session.begin_week_load();
         self.run(
@@ -106,7 +106,7 @@ impl TimeChimpApp {
     }
 
     pub(super) fn load_report(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(client), Some(me)) = (self.session.client.clone(), self.session.me.as_ref()) else { return };
+        let (Some(client), Some(me)) = (self.session.client().cloned(), self.session.me()) else { return };
         let (user_id, month) = (me.id, self.session.report_month());
         self.run(
             "Loading…",

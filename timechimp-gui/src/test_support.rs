@@ -1,9 +1,13 @@
 //! Builders for the API models in unit tests. Dates are in November 2026 (the 2nd is a Monday);
 //! fields not given get plain defaults and can be changed on the result.
 
+use std::collections::HashMap;
+
 use chrono::NaiveDate;
 use serde_json::json;
 use timechimp::{CurrentUser, Mileage, Project, ProjectTask, Tag, TimeEntry, TimeReportRow};
+
+use crate::session::Base;
 
 /// November `day`, 2026.
 pub fn date(day: u32) -> NaiveDate {
@@ -81,4 +85,9 @@ pub fn report_row(project: &str, task: &str, day: u32, hours: f64, billable: boo
         "status": 0, "clientStatus": 0, "invoiceId": null,
     }))
     .unwrap()
+}
+
+/// Base data for `Session::apply_base`: `user()` with these projects, project tasks and tags.
+pub fn base(projects: Vec<Project>, project_tasks: HashMap<i64, Vec<ProjectTask>>, tags: Vec<Tag>) -> Base {
+    Base { me: user(), projects, tasks: Vec::new(), project_tasks, tags }
 }

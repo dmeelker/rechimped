@@ -17,7 +17,7 @@ use super::widgets::*;
 
 impl TimeChimpApp {
     pub(super) fn render_main(&mut self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let title = match &self.session.me {
+        let title = match self.session.me() {
             Some(me) => format!("{} @ {}", me.display_name, me.company_name),
             None => String::new(),
         };

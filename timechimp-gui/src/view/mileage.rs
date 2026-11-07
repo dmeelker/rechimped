@@ -38,11 +38,11 @@ impl TimeChimpApp {
     /// The Mileage tab: the week's trips grouped per day (`net::load_week` sorts them by day),
     /// each day under a header with its total.
     pub(super) fn render_mileage(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let total: f64 = self.session.mileage.iter().map(|m| m.distance).sum();
+        let total: f64 = self.session.mileage().iter().map(|m| m.distance).sum();
         let actions = self.selection_actions(theme, cx);
         let mut rows: Vec<AnyElement> = Vec::new();
         let mut start = 0;
-        for (n, day) in self.session.mileage.chunk_by(|a, b| a.date == b.date).enumerate() {
+        for (n, day) in self.session.mileage().chunk_by(|a, b| a.date == b.date).enumerate() {
             let km: f64 = day.iter().map(|m| m.distance).sum();
             let trips = if day.len() == 1 { "1 trip".to_owned() } else { format!("{} trips", day.len()) };
             rows.push(
@@ -65,7 +65,7 @@ impl TimeChimpApp {
             }
             start += day.len();
         }
-        let empty = self.session.mileage.is_empty() && self.busy().is_none();
+        let empty = self.session.mileage().is_empty() && self.busy().is_none();
         let message = if self.session.week_loaded() { "No mileage this week. Press A to add." } else { NOT_LOADED };
         panel(theme, format!("Trips · {} km", plain_number(total)), Some(actions))
             .child(header_row(

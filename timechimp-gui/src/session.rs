@@ -15,14 +15,10 @@ use crate::store::config::{self, Config, Settings, TimePreset, TripPreset};
 pub struct Session {
     /// Unique per session; `TimeChimpApp::run` drops results that arrive for an older one.
     pub epoch: u64,
-    /// None until logged in.
-    pub client: Option<Client>,
-    /// None until the first load is in.
-    pub me: Option<CurrentUser>,
-    pub projects: Vec<Project>,
-    pub tasks: Vec<Task>,
-    pub project_tasks: HashMap<i64, Vec<ProjectTask>>,
-    pub tags: Vec<Tag>,
+    /// None on the login screen; a login starts a new `Session` with it.
+    client: Option<Client>,
+    /// The user, projects, tasks and tags; None until the first load is in.
+    base: Option<Base>,
 
     /// Tags each project may use, from `config.toml` (project id → tags).
     pub project_tags: HashMap<i64, Vec<Tag>>,
@@ -41,10 +37,10 @@ pub struct Session {
     /// The week `entries` and `mileage` belong to; None until it is loaded. Moving to another week
     /// empties them right away, so nothing of the week left shows under the new one's title.
     loaded_week: Option<NaiveDate>,
-    pub entries: Vec<TimeEntry>,
+    entries: Vec<TimeEntry>,
     /// Id of the selected entry (one of the selected day's, if it has any).
     selected_entry: Option<i64>,
-    pub mileage: Vec<Mileage>,
+    mileage: Vec<Mileage>,
     /// Id of the selected trip.
     selected_mileage: Option<i64>,
     /// Bumped on every week load, so a slow response for a week we already left is dropped.
@@ -83,11 +79,7 @@ impl Session {
         Self {
             epoch: NEXT_EPOCH.fetch_add(1, Ordering::Relaxed),
             client,
-            me: None,
-            projects: Vec::new(),
-            tasks: Vec::new(),
-            project_tasks: HashMap::new(),
-            tags: Vec::new(),
+            base: None,
             project_tags: HashMap::new(),
             settings: Settings::default(),
             trip_presets: Vec::new(),
@@ -107,14 +99,46 @@ impl Session {
         }
     }
 
+    pub fn client(&self) -> Option<&Client> {
+        self.client.as_ref()
+    }
+
+    /// The logged-in user; None until the first load is in.
+    pub fn me(&self) -> Option<&CurrentUser> {
+        self.base.as_ref().map(|b| &b.me)
+    }
+
+    pub fn projects(&self) -> &[Project] {
+        self.base.as_ref().map_or(&[], |b| &b.projects)
+    }
+
+    pub fn tasks(&self) -> &[Task] {
+        self.base.as_ref().map_or(&[], |b| &b.tasks)
+    }
+
+    /// The tasks of project `project_id`.
+    pub fn project_tasks(&self, project_id: i64) -> &[ProjectTask] {
+        self.base.as_ref().and_then(|b| b.project_tasks.get(&project_id)).map_or(&[], Vec::as_slice)
+    }
+
+    pub fn tags(&self) -> &[Tag] {
+        self.base.as_ref().map_or(&[], |b| &b.tags)
+    }
+
+    /// The selected week's entries; empty until it is loaded (see `week_loaded`).
+    pub fn entries(&self) -> &[TimeEntry] {
+        &self.entries
+    }
+
+    /// The selected week's trips, in (date, id) order; empty until it is loaded.
+    pub fn mileage(&self) -> &[Mileage] {
+        &self.mileage
+    }
+
     /// Takes in what a full reload fetched. `history` leaves out the loaded week, whose `entries`
     /// are added here (and shown through `apply_week`).
     pub fn apply_base(&mut self, base: Base, history: Option<Vec<TimeEntry>>, entries: &[TimeEntry]) {
-        self.me = Some(base.me);
-        self.projects = base.projects;
-        self.tasks = base.tasks;
-        self.project_tasks = base.project_tasks;
-        self.tags = base.tags;
+        self.base = Some(base);
         if let Some(history) = history {
             self.history = history.into_iter().chain(entries.iter().cloned()).map(|e| (e.id, e)).collect();
             self.recent = domain::week::recent_items(self.history.values());
@@ -132,7 +156,7 @@ impl Session {
             return None;
         };
         self.settings = config.settings;
-        let (resolved, warning) = config::resolve_project_tags(&config.projects, &self.projects, &self.tags);
+        let (resolved, warning) = config::resolve_project_tags(&config.projects, self.projects(), self.tags());
         self.project_tags = resolved;
         let mut unknown: Vec<String> = config
             .trips
@@ -318,7 +342,7 @@ impl Session {
     /// at hand) when it isn't among them.
     pub fn project_options(&self, current: Option<(i64, &str, &str)>) -> Vec<(i64, String)> {
         let mut options: Vec<(i64, String)> = self
-            .projects
+            .projects()
             .iter()
             .filter(|p| p.active)
             .map(|p| (p.id, domain::project_label(&p.name, &p.customer_name)))
@@ -335,8 +359,7 @@ impl Session {
     /// among them.
     pub fn task_options(&self, project_id: Option<i64>, entry: Option<&TimeEntry>) -> Vec<(i64, String)> {
         let mut tasks: Vec<(i64, String)> = project_id
-            .and_then(|id| self.project_tasks.get(&id))
-            .map(|ts| ts.iter().filter(|t| t.active).map(|t| (t.id, t.name.clone())).collect())
+            .map(|id| self.project_tasks(id).iter().filter(|t| t.active).map(|t| (t.id, t.name.clone())).collect())
             .unwrap_or_default();
         if let Some(e) = entry.filter(|e| Some(e.project_id) == project_id)
             && !tasks.iter().any(|(id, _)| *id == e.project_task_id) {
@@ -354,18 +377,18 @@ impl Session {
 
     /// The project a preset names (case-insensitive), among the user's projects.
     pub fn project_named(&self, name: &str) -> Option<&Project> {
-        self.projects.iter().find(|p| same_name(&p.name, name))
+        self.projects().iter().find(|p| same_name(&p.name, name))
     }
 
     /// The user's project with this id.
     pub fn project(&self, id: i64) -> Option<&Project> {
-        self.projects.iter().find(|p| p.id == id)
+        self.projects().iter().find(|p| p.id == id)
     }
 
     /// The ids a time preset's names stand for; Err names the project or task that matches nothing.
     pub fn resolve_time_preset(&self, preset: &TimePreset) -> Result<ResolvedTimePreset, String> {
         let project = self.project_named(&preset.project).ok_or_else(|| format!("project \"{}\"", preset.project))?;
-        let tasks = self.project_tasks.get(&project.id).map(Vec::as_slice).unwrap_or_default();
+        let tasks = self.project_tasks(project.id);
         let project_task_id = match &preset.task {
             Some(name) => Some(
                 tasks
@@ -378,7 +401,7 @@ impl Session {
         };
         let (mut tag_ids, mut unknown_tags) = (Vec::new(), Vec::new());
         for name in &preset.tags {
-            match self.tags.iter().find(|t| same_name(&t.name, name)) {
+            match self.tags().iter().find(|t| same_name(&t.name, name)) {
                 Some(tag) => tag_ids.push(tag.id),
                 None => unknown_tags.push(name.clone()),
             }
@@ -398,14 +421,14 @@ impl Session {
     /// The timezone for an entry's start/end: `own` (an edited entry's), else the account's, else
     /// what this week's entries were registered in.
     pub fn timezone(&self, own: Option<&str>) -> chrono_tz::Tz {
-        let account = self.me.as_ref().and_then(|m| m.timezone.as_deref());
+        let account = self.me().and_then(|m| m.timezone.as_deref());
         let entries = self.entries.iter().map(|e| e.timezone.as_deref());
         domain::time::timezone([own, account].into_iter().chain(entries))
     }
 
     /// The user's saved addresses, then the ones on this week's trips.
     pub fn saved_addresses(&self) -> Vec<String> {
-        let mut addresses: Vec<String> = self.me.as_ref().map(|m| m.mileage_addresses.clone()).unwrap_or_default();
+        let mut addresses: Vec<String> = self.me().map(|m| m.mileage_addresses.clone()).unwrap_or_default();
         for m in &self.mileage {
             for a in [&m.from_address, &m.to_address].into_iter().flatten() {
                 if !addresses.contains(a) {
@@ -425,7 +448,7 @@ impl Session {
 
     /// Contracted hours for a day of the week (0 = Monday).
     pub fn target_for(&self, day: usize) -> f64 {
-        self.me.as_ref().and_then(|m| m.user_availability.as_ref()).and_then(|a| a.for_day(day)).unwrap_or(0.0)
+        self.me().and_then(|m| m.user_availability.as_ref()).and_then(|a| a.for_day(day)).unwrap_or(0.0)
     }
 
     /// The days of the current week the Week tab shows (0 = Monday): `domain::week::shows_day`.
@@ -435,7 +458,7 @@ impl Session {
     }
 
     pub fn contract_hours(&self) -> f64 {
-        self.me.as_ref().and_then(|m| m.contract_hours).unwrap_or(0.0)
+        self.me().and_then(|m| m.contract_hours).unwrap_or(0.0)
     }
 }
 
@@ -582,9 +605,7 @@ mod tests {
     #[test]
     fn time_presets() {
         let mut s = Session::new(None, date(4));
-        s.projects = vec![project(3, "Intern")];
-        s.project_tasks = HashMap::from([(3, vec![task(4, 3, "Meeting")])]);
-        s.tags = vec![tag(7, "Daily")];
+        s.apply_base(base(vec![project(3, "Intern")], HashMap::from([(3, vec![task(4, 3, "Meeting")])]), vec![tag(7, "Daily")]), None, &[]);
         let preset = |task: Option<&str>, tags: &[&str]| TimePreset {
             project: "intern".into(),
             task: task.map(Into::into),

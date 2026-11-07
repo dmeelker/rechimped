@@ -114,7 +114,7 @@ impl TimeChimpApp {
         cx: &mut Context<Self>,
         request: impl FnOnce(Client) -> BoxFuture<'static, timechimp::Result<()>>,
     ) {
-        let Some(client) = self.session.client.clone() else { return };
+        let Some(client) = self.session.client().cloned() else { return };
         self.run("Deleting…", request(client), window, cx, |this, result, window, cx| match result {
             Ok(()) => {
                 this.session.invalidate_report();

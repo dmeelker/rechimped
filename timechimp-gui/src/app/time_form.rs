@@ -15,7 +15,7 @@ use super::{Overlay, Tab, TimeChimpApp};
 
 impl TimeChimpApp {
     pub fn add(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.session.me.is_none() {
+        if self.session.me().is_none() {
             return;
         }
         if self.tab == Tab::Mileage {
@@ -196,7 +196,7 @@ impl TimeChimpApp {
     /// project, task, notes and tags of `preset`.
     pub fn open_time_preset(&mut self, preset: TimePreset, window: &mut Window, cx: &mut Context<Self>) {
         self.menu = None;
-        if self.session.me.is_none() || self.overlay_open() {
+        if self.session.me().is_none() || self.overlay_open() {
             return;
         }
         let resolved = match self.session.resolve_time_preset(&preset) {

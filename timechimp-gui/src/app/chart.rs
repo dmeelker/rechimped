@@ -20,7 +20,7 @@ impl TimeChimpApp {
     /// Opens the chart for the selected week and the ones before it, fetched afresh (the weeks
     /// may lie outside what is loaded already).
     pub fn open_chart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(client), Some(me)) = (self.session.client.clone(), self.session.me.as_ref()) else { return };
+        let (Some(client), Some(me)) = (self.session.client().cloned(), self.session.me()) else { return };
         let (user_id, contract) = (me.id, self.session.contract_hours());
         let mondays = week::weeks_up_to(self.session.week_start(), CHART_WEEKS);
         if !self.open_overlay(Overlay::Chart(BillabilityChart { mondays: mondays.clone(), weeks: None }), cx) {

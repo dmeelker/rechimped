@@ -15,8 +15,7 @@ impl TimeChimpApp {
     pub(super) fn show_login(&mut self, error: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         let email = self
             .session
-            .me
-            .as_ref()
+            .me()
             .map(|m| m.user_name.clone())
             .or_else(|| std::env::var("TIMECHIMP_EMAIL").ok())
             .unwrap_or_default();
@@ -107,7 +106,8 @@ impl TimeChimpApp {
 
     fn logged_in(&mut self, auth: Authenticator, window: &mut Window, cx: &mut Context<Self>) {
         let save_error = token::save_token(auth.refresh_token()).err();
-        self.session.client = Some(Client::new(auth));
+        // A new session (new epoch) for the logged-in account.
+        self.session = Session::new(Some(Client::new(auth)), domain::time::today());
         self.screen = Screen::Main;
         window.focus(&self.focus, cx);
         self.reload(window, cx);

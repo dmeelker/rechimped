@@ -48,7 +48,7 @@ impl TimeChimpApp {
             return;
         }
         let form_id = self.form().map(|f| f.id);
-        let Some(client) = self.session.client.clone() else { return };
+        let Some(client) = self.session.client().cloned() else { return };
         let (date, request) = match self.build_save(cx) {
             Ok(r) => r,
             Err(message) => return self.form_error(message, cx),

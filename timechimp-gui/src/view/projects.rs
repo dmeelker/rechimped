@@ -10,14 +10,14 @@ use super::widgets::*;
 
 impl TimeChimpApp {
     pub(super) fn render_projects(&self, theme: &T) -> impl IntoElement {
-        let projects = panel(theme, format!("My projects ({})", self.session.projects.len()), None)
+        let projects = panel(theme, format!("My projects ({})", self.session.projects().len()), None)
             .flex_1()
             .child(header_row(
                 theme,
                 [cell(None, "Customer"), cell(None, "Project"), right_cell(60., "Tasks"), cell(Some(70.), "Active")],
             ))
-            .child(table_rows("project-rows", self.session.projects.iter().map(|p| {
-                let tasks = self.session.project_tasks.get(&p.id).map_or(0, |t| t.len());
+            .child(table_rows("project-rows", self.session.projects().iter().map(|p| {
+                let tasks = self.session.project_tasks(p.id).len();
                 h_stack()
                     .w_full()
                     .py(px(6.))
@@ -30,11 +30,11 @@ impl TimeChimpApp {
                     .child(right_cell(60., tasks.to_string()))
                     .child(cell(Some(70.), if p.active { "yes" } else { "no" }))
             })));
-        let tasks = panel(theme, format!("Tasks ({})", self.session.tasks.len()), None)
+        let tasks = panel(theme, format!("Tasks ({})", self.session.tasks().len()), None)
             .w(px(360.))
             .flex_none()
             .child(header_row(theme, [cell(None, "Task"), cell(Some(80.), "Billable")]))
-            .child(table_rows("task-rows", self.session.tasks.iter().map(|t| {
+            .child(table_rows("task-rows", self.session.tasks().iter().map(|t| {
                 h_stack()
                     .w_full()
                     .py(px(6.))

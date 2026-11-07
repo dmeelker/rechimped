@@ -88,7 +88,7 @@ pub fn tags(session: &Session, project_id: Option<i64>, checked: &[i64]) -> Vec<
 pub fn time_form(session: &Session, entry: Option<&TimeEntry>, copy: bool) -> TimeSeed {
     let projects = session.project_options(entry.map(|e| (e.project_id, &*e.project_name, &*e.customer_name)));
     // New entries default to the project/task/tag of the most recently modified entry.
-    let template = entry.or_else(|| session.entries.iter().max_by_key(|e| e.modified));
+    let template = entry.or_else(|| session.entries().iter().max_by_key(|e| e.modified));
     let project_id = template.map(|e| e.project_id).or(projects.first().map(|(id, _)| *id));
     let project = ProjectSeed {
         tasks: session.task_options(project_id, entry),
@@ -147,7 +147,7 @@ pub fn time_fill(session: &Session, fill: TimeFill, from: Option<&TimeEntry>) ->
 pub fn project_changed(session: &Session, project_id: Option<i64>, kept_tag_ids: &[i64]) -> ProjectSeed {
     // Pre-check the tags the project's most recently modified entry had, and the kept tags this
     // project has a checkbox for; the rest stays kept.
-    let last = session.entries.iter().filter(|e| Some(e.project_id) == project_id).max_by_key(|e| e.modified);
+    let last = session.entries().iter().filter(|e| Some(e.project_id) == project_id).max_by_key(|e| e.modified);
     let mut checked: Vec<i64> = last.map_or(&[][..], |e| &e.tag_ids).to_vec();
     checked.extend(kept_tag_ids);
     ProjectSeed {
@@ -161,7 +161,7 @@ pub fn project_changed(session: &Session, project_id: Option<i64>, kept_tag_ids:
 /// The trip form: for a new trip filled in from `preset`, or empty (project, type and billable
 /// from the last trip); or filled in with `editing`.
 pub fn trip_form(session: &Session, editing: Option<&Mileage>, preset: Option<&TripPreset>) -> TripSeed {
-    let template = editing.or(session.mileage.last());
+    let template = editing.or(session.mileage().last());
     let addresses = session.saved_addresses();
     let projects = session.project_options(editing.map(|m| (m.project_id, &*m.project_name, &*m.customer_name)));
     let (mut project_id, mut mileage_type, mut billable, mut return_trip) = (
@@ -207,6 +207,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
+    use crate::session::Base;
     use crate::store::config::TripPreset;
     use crate::test_support::*;
 
@@ -217,9 +218,8 @@ mod tests {
         let mut s = Session::new(None, date(4));
         let mut me = user();
         me.mileage_addresses = vec!["Home".into(), "Office".into()];
-        s.me = Some(me);
-        s.projects = vec![project(3, "P"), project(6, "Other")];
-        s.project_tasks = HashMap::from([(3, vec![task(4, 3, "Dev")]), (6, vec![task(7, 6, "Ops")])]);
+        let tasks = HashMap::from([(3, vec![task(4, 3, "Dev")]), (6, vec![task(7, 6, "Ops")])]);
+        s.apply_base(Base { me, ..base(vec![project(3, "P"), project(6, "Other")], tasks, Vec::new()) }, None, &[]);
         s.project_tags = HashMap::from([(3, vec![tag(10, "a")]), (6, vec![tag(20, "b")])]);
         let mut first = entry(1, 4, "09:00-10:00");
         first.tag_ids = vec![10, 20, 99];
@@ -249,7 +249,7 @@ mod tests {
     #[test]
     fn edited_entry_keeps_tags_without_a_checkbox() {
         let s = session();
-        let first = s.entries[0].clone();
+        let first = s.entries()[0].clone();
         let seed = time_form(&s, Some(&first), false);
         assert!(matches!(seed.kind, TimeKind::Edit { id: 1, .. }));
         assert_eq!((seed.start.as_str(), seed.end.as_str(), seed.hours.as_str()), ("09:00", "10:00", "1"));
@@ -310,7 +310,7 @@ mod tests {
             (Some(6), Some(MileageType::HomeWork), false, true)
         );
 
-        let edited = trip_form(&s, Some(&s.mileage[0]), None);
+        let edited = trip_form(&s, Some(&s.mileage()[0]), None);
         assert_eq!((edited.date, edited.from.as_str(), edited.distance.as_str()), (date(3), "A", "10"));
     }
 }

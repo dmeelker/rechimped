@@ -16,7 +16,7 @@ impl TimeChimpApp {
     /// from `preset`.
     pub fn open_trip_preset(&mut self, preset: config::TripPreset, window: &mut Window, cx: &mut Context<Self>) {
         self.menu = None;
-        if self.session.me.is_none() || self.overlay_open() {
+        if self.session.me().is_none() || self.overlay_open() {
             return;
         }
         self.open_mileage_form(None, Some(&preset), window, cx);
@@ -156,7 +156,7 @@ impl TimeChimpApp {
     }
 
     pub fn calculate_distance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(form), Some(client)) = (self.mileage_form(), self.session.client.clone()) else { return };
+        let (Some(form), Some(client)) = (self.mileage_form(), self.session.client().cloned()) else { return };
         let (form_id, from, to) = (self.form().map(|f| f.id), text(&form.from, cx), text(&form.to, cx));
         if from.is_empty() || to.is_empty() {
             return self.form_error("Fill in both addresses first", cx);

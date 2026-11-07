@@ -64,13 +64,13 @@ fn date_and_customer(date: &str, project_id: Option<i64>, session: &Session) -> 
     let customer_id = session
         .project(project_id)
         .map(|p| p.customer_id)
-        .or(session.entries.iter().find(|e| e.project_id == project_id).map(|e| e.customer_id))
+        .or(session.entries().iter().find(|e| e.project_id == project_id).map(|e| e.customer_id))
         .ok_or("Unknown project")?;
     Ok((date, project_id, customer_id))
 }
 
 fn user_id(session: &Session) -> Result<i64, String> {
-    Ok(session.me.as_ref().ok_or("Not logged in")?.id)
+    Ok(session.me().ok_or("Not logged in")?.id)
 }
 
 fn optional(text: &str) -> Option<String> {
@@ -83,9 +83,9 @@ pub fn time_entry(v: &TimeValues, session: &Session) -> Result<(NaiveDate, SaveR
     let (date, project_id, customer_id) = date_and_customer(&v.date, v.project_id, session)?;
     let project_task_id = v.project_task_id.ok_or("Pick a task")?;
     let task_id = session
-        .project_tasks
-        .get(&project_id)
-        .and_then(|ts| ts.iter().find(|t| t.id == project_task_id))
+        .project_tasks(project_id)
+        .iter()
+        .find(|t| t.id == project_task_id)
         .map(|t| t.task_id)
         // An edited entry's task may no longer be listed; it keeps its own.
         .or(match &v.kind {
@@ -201,13 +201,13 @@ pub fn time_preset(v: &TimeValues, session: &Session) -> Result<TimePreset, Stri
     let project = v.project_id.and_then(|id| session.project(id)).ok_or("Pick a project first")?;
     let task = v
         .project_task_id
-        .and_then(|id| session.project_tasks.get(&project.id)?.iter().find(|t| t.id == id))
+        .and_then(|id| session.project_tasks(project.id).iter().find(|t| t.id == id))
         .ok_or("Pick a task first")?;
     let preset = TimePreset {
         project: project.name.clone(),
         task: Some(task.name.clone()),
         notes: optional(&v.notes),
-        tags: v.tag_ids.iter().filter_map(|id| session.tags.iter().find(|t| t.id == *id)).map(|t| t.name.clone()).collect(),
+        tags: v.tag_ids.iter().filter_map(|id| session.tags().iter().find(|t| t.id == *id)).map(|t| t.name.clone()).collect(),
     };
     let same = |p: &TimePreset| {
         same_name(&p.project, &preset.project)
@@ -244,13 +244,11 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::test_support::{date, project, tag, task, user};
+    use crate::test_support::{base, date, project, tag, task};
 
     fn session() -> Session {
         let mut s = Session::new(None, date(4));
-        s.me = Some(user());
-        s.projects = vec![project(3, "Intern")];
-        s.project_tasks = HashMap::from([(3, vec![task(4, 3, "Dev")])]);
+        s.apply_base(base(vec![project(3, "Intern")], HashMap::from([(3, vec![task(4, 3, "Dev")])]), vec![tag(7, "Daily")]), None, &[]);
         s
     }
 
@@ -356,7 +354,6 @@ mod tests {
     #[test]
     fn time_presets() {
         let mut s = session();
-        s.tags = vec![tag(7, "Daily")];
         let v = TimeValues { notes: "Standup".into(), ..time("9", "10", "") };
         let p = time_preset(&v, &s).unwrap();
         assert_eq!(
