@@ -14,7 +14,7 @@ use super::widgets::*;
 
 impl TimeChimpApp {
     pub(super) fn trip_row(&self, theme: &T, i: usize, m: &timechimp::Mileage, cx: &mut Context<Self>) -> impl IntoElement {
-        let selected = self.session.selected_mileage == Some(i);
+        let selected = self.session.selected_mileage_index() == Some(i);
         h_stack()
             .id(ElementId::NamedInteger("trip".into(), i as u64))
             .w_full()
@@ -66,6 +66,7 @@ impl TimeChimpApp {
             start += day.len();
         }
         let empty = self.session.mileage.is_empty() && self.busy().is_none();
+        let message = if self.session.week_loaded() { "No mileage this week. Press A to add." } else { NOT_LOADED };
         panel(theme, format!("Trips · {} km", trim_hours(total)), Some(actions))
             .child(header_row(
                 theme,
@@ -79,6 +80,6 @@ impl TimeChimpApp {
                 ],
             ))
             .child(table_rows("trip-rows", rows))
-            .when(empty, |d| d.child(empty_message(theme, "No mileage this week. Press A to add.")))
+            .when(empty, |d| d.child(empty_message(theme, message)))
     }
 }

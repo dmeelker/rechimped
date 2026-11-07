@@ -34,7 +34,7 @@ impl TimeChimpApp {
         if form.date().picker.is_some() {
             return;
         }
-        let date = form.date().parsed(cx).unwrap_or(self.session.day);
+        let date = form.date().parsed(cx).unwrap_or(self.session.day());
         let input = form.date().input.clone();
         let calendar = cx.new(|cx| {
             Calendar::new("form-calendar", forms::to_calendar_date(date), cx)
@@ -101,7 +101,7 @@ impl TimeChimpApp {
         let Some(picker) = &field.picker else {
             return if days == 7 { self.open_calendar(window, cx) } else { cx.propagate() };
         };
-        let current = field.parsed(cx).unwrap_or(self.session.day);
+        let current = field.parsed(cx).unwrap_or(self.session.day());
         let shifted = match months {
             0 => Some(current),
             m if m > 0 => current.checked_add_months(Months::new(m.unsigned_abs())),

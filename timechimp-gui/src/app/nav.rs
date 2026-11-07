@@ -16,7 +16,7 @@ impl TimeChimpApp {
         self.tab = tab;
         self.fx.sweep += 1;
         self.tabs.update(cx, |t, cx| t.set_selected(tab.id().into(), cx));
-        if tab == Tab::Report && self.session.report.month != Some(self.session.report_month) {
+        if tab == Tab::Report && self.session.report().is_none() {
             self.load_report(window, cx);
         }
         window.focus(&self.focus, cx);
@@ -25,7 +25,7 @@ impl TimeChimpApp {
 
     /// Moves the selected day; loads data only when the week changes.
     pub fn shift_day(&mut self, days: i64, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_day(self.session.day + Duration::days(days), window, cx);
+        self.select_day(self.session.day() + Duration::days(days), window, cx);
     }
 
     /// The ‹/› buttons: a day on the Week tab, a week on the Mileage tab.
@@ -43,7 +43,7 @@ impl TimeChimpApp {
 
     pub fn go_today(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.tab == Tab::Report {
-            self.session.report_month = domain::time::first_of_month(domain::time::today());
+            self.session.set_report_month(domain::time::today());
             self.load_report(window, cx);
         } else {
             self.select_day(domain::time::today(), window, cx);
@@ -52,7 +52,8 @@ impl TimeChimpApp {
 
     pub fn shift_month(&mut self, months: i32, window: &mut Window, cx: &mut Context<Self>) {
         let delta = Months::new(months.unsigned_abs());
-        self.session.report_month = if months < 0 { self.session.report_month - delta } else { self.session.report_month + delta };
+        let month = self.session.report_month();
+        self.session.set_report_month(if months < 0 { month - delta } else { month + delta });
         self.load_report(window, cx);
         cx.notify();
     }
@@ -68,10 +69,7 @@ impl TimeChimpApp {
 
     /// Clicking a row: select it; a double click opens it for editing.
     pub fn click_entry(&mut self, index: usize, clicks: usize, window: &mut Window, cx: &mut Context<Self>) {
-        self.session.selected_entry = Some(index);
-        if let Some(day) = self.session.entries.get(index).map(|e| e.date) {
-            self.session.day = day;
-        }
+        self.session.select_entry(index);
         window.focus(&self.focus, cx);
         if clicks >= 2 {
             self.edit_selected(window, cx);
@@ -80,7 +78,7 @@ impl TimeChimpApp {
     }
 
     pub fn click_mileage(&mut self, index: usize, clicks: usize, window: &mut Window, cx: &mut Context<Self>) {
-        self.session.selected_mileage = Some(index);
+        self.session.select_mileage(index);
         window.focus(&self.focus, cx);
         if clicks >= 2 {
             self.edit_selected(window, cx);

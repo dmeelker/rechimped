@@ -98,7 +98,7 @@ pub fn time_form(session: &Session, entry: Option<&TimeEntry>, copy: bool) -> Ti
     };
 
     let editing = entry.filter(|_| !copy);
-    let date = editing.map(|e| e.date).unwrap_or(session.day);
+    let date = editing.map(|e| e.date).unwrap_or(session.day());
     let (start, end) = editing
         .and_then(|e| e.start_end.as_deref())
         .and_then(|s| s.split_once('-'))
@@ -178,7 +178,7 @@ pub fn trip_form(session: &Session, editing: Option<&Mileage>, preset: Option<&T
     }
     let (date, from, to, distance, notes) = match (editing, preset) {
         (None, Some(p)) => (
-            session.day,
+            session.day(),
             p.from.clone(),
             p.to.clone(),
             p.distance.map(|d| format!("{d}")).unwrap_or_default(),
@@ -192,7 +192,7 @@ pub fn trip_form(session: &Session, editing: Option<&Mileage>, preset: Option<&T
             m.notes.clone().unwrap_or_default(),
         ),
         (None, None) => (
-            session.day,
+            session.day(),
             addresses.first().cloned().unwrap_or_default(),
             addresses.get(1).cloned().unwrap_or_default(),
             String::new(),
@@ -207,7 +207,6 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::net;
     use crate::store::config::TripPreset;
     use crate::test_support::*;
 
@@ -227,7 +226,7 @@ mod tests {
         first.modified = date(3).and_hms_opt(12, 0, 0).unwrap();
         let mut second = entry(2, 4, "10:00-11:30");
         (second.project_id, second.project_task_id, second.tag_ids) = (6, 7, vec![20]);
-        s.apply_week(net::Week { entries: vec![first, second], mileage: vec![trip(5, 3)] }, None);
+        s.apply_week(crate::session::Week { start: date(2), entries: vec![first, second], mileage: vec![trip(5, 3)] }, None);
         s
     }
 

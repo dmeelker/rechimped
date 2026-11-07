@@ -11,11 +11,11 @@ use super::widgets::*;
 
 impl TimeChimpApp {
     pub(super) fn render_report(&self, theme: &T) -> impl IntoElement {
-        let month = self.session.report_month.format("%B %Y").to_string();
-        let report = &self.session.report;
-        if report.month != Some(self.session.report_month) {
-            return panel(theme, month, None).child(empty_message(theme, "Loading report…")).into_any_element();
-        }
+        let month = self.session.report_month().format("%B %Y").to_string();
+        let Some(report) = self.session.report() else {
+            let message = if self.busy().is_some() { "Loading report…" } else { NOT_LOADED };
+            return panel(theme, month, None).child(empty_message(theme, message)).into_any_element();
+        };
 
         let summary = report.summary();
         let pct = |h: f64| summary.share(h) * 100.0;

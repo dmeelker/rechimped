@@ -1,37 +1,20 @@
 //! Network loading: what each screen needs, fetched on the tokio runtime that reqwest needs.
 
-use std::collections::HashMap;
 use std::future::Future;
 use std::sync::OnceLock;
 
 use chrono::{Duration, NaiveDate};
 use futures::{StreamExt, TryStreamExt};
-use timechimp::{
-    Client, CurrentUser, Mileage, MileageReportRow, Project, ProjectTask, QueryResult, Tag, TagType, Task, TimeEntry,
-    TimeReportRow,
-};
+use timechimp::{Client, MileageReportRow, ProjectTask, QueryResult, TagType, TimeEntry, TimeReportRow};
 
 use crate::domain::report::Report;
 use crate::domain::time::{last_of_month, monday_of};
+use crate::session::{Base, Week};
 
 /// The tokio runtime the HTTP client runs on; gpui has its own executor that reqwest can't use.
 pub fn runtime() -> &'static tokio::runtime::Runtime {
     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("tokio runtime"))
-}
-
-/// Everything that only changes on a full reload.
-pub struct Base {
-    pub me: CurrentUser,
-    pub projects: Vec<Project>,
-    pub tasks: Vec<Task>,
-    pub project_tasks: HashMap<i64, Vec<ProjectTask>>,
-    pub tags: Vec<Tag>,
-}
-
-pub struct Week {
-    pub entries: Vec<TimeEntry>,
-    pub mileage: Vec<Mileage>,
 }
 
 pub async fn load_base(client: &Client) -> timechimp::Result<Base> {
@@ -67,7 +50,7 @@ pub async fn load_week(client: &Client, user_id: i64, week_start: NaiveDate) -> 
     // Per day in the order they were registered (outbound before return), so the Mileage tab can
     // group consecutive rows by day and ↑/↓ follow what's on screen.
     mileage.sort_by_key(|m| (m.date, m.id));
-    Ok(Week { entries, mileage })
+    Ok(Week { start: week_start, entries, mileage })
 }
 
 /// How many weeks (this one included) the Recent picker in the time form looks back.

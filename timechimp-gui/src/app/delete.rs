@@ -5,7 +5,6 @@ use futures::FutureExt;
 use gpui::{AppContext, Context, Window};
 use gpuikit::elements::dialog::{DialogClosed, DialogState, dialog};
 
-use crate::domain::report::Report;
 use crate::session;
 use crate::store::config;
 
@@ -119,7 +118,7 @@ impl TimeChimpApp {
         };
         self.run("Deleting…", future, window, cx, |this, result, window, cx| match result {
             Ok(()) => {
-                this.session.report = Report::default();
+                this.session.invalidate_report();
                 this.load_week(None, window, cx);
                 this.set_info("Deleted.", window, cx);
             }

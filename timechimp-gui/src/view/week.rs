@@ -30,7 +30,7 @@ impl TimeChimpApp {
     }
 
     pub(super) fn entry_row(&self, theme: &T, index: usize, e: &TimeEntry, cx: &mut Context<Self>) -> impl IntoElement {
-        let selected = self.session.selected_entry == Some(index);
+        let selected = self.session.selected_entry_index() == Some(index);
         h_stack()
             .id(ElementId::NamedInteger("entry".into(), index as u64))
             .w_full()
@@ -72,9 +72,9 @@ impl TimeChimpApp {
         let contract = self.session.contract_hours();
 
         let strip = h_stack().flex_none().gap(px(8.)).children((0..7).map(|i| {
-            let day = self.session.week_start + Duration::days(i as i64);
+            let day = self.session.week_start() + Duration::days(i as i64);
             let (hours, target) = (per_day[i], self.session.target_for(i));
-            let selected = day == self.session.day;
+            let selected = day == self.session.day();
             let is_today = day == crate::domain::time::today();
             let fraction = if target > 0.0 { (hours / target).min(1.0) as f32 } else { 0.0 };
             v_stack()
@@ -144,16 +144,18 @@ impl TimeChimpApp {
             );
         let strip = strip.child(week_card);
 
-        let index = (self.session.day - self.session.week_start).num_days() as usize;
+        let index = (self.session.day() - self.session.week_start()).num_days() as usize;
         let (hours, target) = (self.session.hours_per_day()[index], self.session.target_for(index));
         let visible = self.session.visible_entries();
         let title = h_stack()
             .gap(px(4.))
-            .child(self.session.day.format("%A %-d %B").to_string())
+            .child(self.session.day().format("%A %-d %B").to_string())
             .child("·")
             .child(div().text_color(hours_colour(theme, hours, target)).child(trim_hours(hours)))
             .child(format!("/ {}h", trim_hours(target)));
         let rows = self.entry_rows_with_gaps(theme, &visible, cx);
+        let message =
+            if self.session.week_loaded() { "No time registered on this day. Press A to add." } else { NOT_LOADED };
 
         v_stack()
             .flex_1()
@@ -166,7 +168,7 @@ impl TimeChimpApp {
                     .child(table_rows("entry-rows", rows))
                     .when(
                     visible.is_empty() && self.busy().is_none(),
-                    |d| d.child(empty_message(theme, "No time registered on this day. Press A to add.")),
+                    |d| d.child(empty_message(theme, message)),
                 ),
             )
     }

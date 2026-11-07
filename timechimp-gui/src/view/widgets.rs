@@ -85,6 +85,9 @@ pub(super) fn muted(theme: &T, text: impl Into<SharedString>) -> gpui::Div {
     div().text_color(theme.fg_muted()).child(text.into())
 }
 
+/// The empty message of a table whose data failed to load (the error toast says why).
+pub(super) const NOT_LOADED: &str = "Not loaded. Press R to try again.";
+
 pub(super) fn empty_message(theme: &T, text: &'static str) -> gpui::Div {
     div().w_full().py(px(32.)).flex().justify_center().text_color(theme.fg_muted()).child(text)
 }
@@ -268,7 +271,7 @@ pub(super) fn trim_hours(hours: f64) -> String {
 /// "Week 45 · 2–8 Nov 2026", "Week 44 · 26 Oct – 1 Nov 2026", "Week 1 · 29 Dec 2025 – 4 Jan 2026".
 /// The shown week as (date range, "Week 45").
 pub(super) fn week_title(app: &TimeChimpApp) -> (String, String) {
-    let (start, end) = (app.session.week_start, app.session.week_start + Duration::days(6));
+    let (start, end) = (app.session.week_start(), app.session.week_start() + Duration::days(6));
     let range = if start.year() != end.year() {
         format!("{} – {}", start.format("%-d %b %Y"), end.format("%-d %b %Y"))
     } else if start.month() != end.month() {

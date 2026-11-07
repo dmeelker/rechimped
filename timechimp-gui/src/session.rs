@@ -10,7 +10,6 @@ use timechimp::{Client, CurrentUser, Mileage, Project, ProjectTask, Tag, Task, T
 
 use crate::domain::report::Report;
 use crate::domain::{self, week::RecentItem};
-use crate::net;
 use crate::store::config::{self, Config, TimePreset, TripPreset};
 
 pub struct Session {
@@ -36,22 +35,44 @@ pub struct Session {
     pub time_presets: Vec<TimePreset>,
 
     /// The selected day.
-    pub day: NaiveDate,
+    day: NaiveDate,
     /// Always the Monday of `day`'s week.
-    pub week_start: NaiveDate,
+    week_start: NaiveDate,
+    /// The week `entries` and `mileage` belong to; None until it is loaded. Moving to another week
+    /// empties them right away, so nothing of the week left shows under the new one's title.
+    loaded_week: Option<NaiveDate>,
     pub entries: Vec<TimeEntry>,
-    pub selected_entry: Option<usize>,
+    selected_entry: Option<usize>,
     pub mileage: Vec<Mileage>,
-    pub selected_mileage: Option<usize>,
+    selected_mileage: Option<usize>,
     /// Bumped on every week load, so a slow response for a week we already left is dropped.
-    pub week_generation: u64,
+    week_generation: u64,
     /// Entries of the last few weeks plus every week loaded since, by id; feeds `recent`.
     history: HashMap<i64, TimeEntry>,
     /// What the time form's Recent picker offers, most recent first.
     pub recent: Vec<RecentItem>,
 
-    pub report_month: NaiveDate,
-    pub report: Report,
+    /// The month the Report tab shows (its first day).
+    report_month: NaiveDate,
+    /// The report last loaded; for another month than `report_month` (or none) until it's in.
+    report: Report,
+}
+
+/// Everything that only changes on a full reload (`net::load_base`).
+pub struct Base {
+    pub me: CurrentUser,
+    pub projects: Vec<Project>,
+    pub tasks: Vec<Task>,
+    pub project_tasks: HashMap<i64, Vec<ProjectTask>>,
+    pub tags: Vec<Tag>,
+}
+
+/// One week's entries and trips (`net::load_week`).
+pub struct Week {
+    /// The Monday.
+    pub start: NaiveDate,
+    pub entries: Vec<TimeEntry>,
+    pub mileage: Vec<Mileage>,
 }
 
 impl Session {
@@ -71,6 +92,7 @@ impl Session {
             time_presets: Vec::new(),
             day: today,
             week_start: domain::time::monday_of(today),
+            loaded_week: None,
             entries: Vec::new(),
             selected_entry: None,
             mileage: Vec::new(),
@@ -85,7 +107,7 @@ impl Session {
 
     /// Takes in what a full reload fetched. `history` leaves out the loaded week, whose `entries`
     /// are added here (and shown through `apply_week`).
-    pub fn apply_base(&mut self, base: net::Base, history: Option<Vec<TimeEntry>>, entries: &[TimeEntry]) {
+    pub fn apply_base(&mut self, base: Base, history: Option<Vec<TimeEntry>>, entries: &[TimeEntry]) {
         self.me = Some(base.me);
         self.projects = base.projects;
         self.tasks = base.tasks;
@@ -134,13 +156,33 @@ impl Session {
         }
     }
 
+    /// Starts loading the current week: returns the generation `apply_week` will be called with
+    /// and the Monday to load.
+    pub fn begin_week_load(&mut self) -> (u64, NaiveDate) {
+        self.week_generation += 1;
+        (self.week_generation, self.week_start)
+    }
+
+    /// Whether `generation` (from `begin_week_load`) is the latest week load, so its result is
+    /// still wanted.
+    pub fn is_latest_week_load(&self, generation: u64) -> bool {
+        generation == self.week_generation
+    }
+
+    /// Whether `entries` and `mileage` are those of the selected week (false while it loads or
+    /// after loading it failed).
+    pub fn week_loaded(&self) -> bool {
+        self.loaded_week == Some(self.week_start)
+    }
+
     /// Shows a loaded week; afterwards selects the item with `select_id`, if given.
-    pub fn apply_week(&mut self, week: net::Week, select_id: Option<i64>) {
+    pub fn apply_week(&mut self, week: Week, select_id: Option<i64>) {
         // The week replaces what the history had for it, so saves and deletes show up in Recent.
-        let week_end = self.week_start + Duration::days(7);
-        self.history.retain(|_, e| !(self.week_start..week_end).contains(&e.date));
+        let week_end = week.start + Duration::days(7);
+        self.history.retain(|_, e| !(week.start..week_end).contains(&e.date));
         self.history.extend(week.entries.iter().map(|e| (e.id, e.clone())));
         self.recent = domain::week::recent_items(self.history.values());
+        self.loaded_week = Some(week.start);
 
         self.selected_entry = keep_selection(self.selected_entry, week.entries.len());
         self.selected_mileage = keep_selection(self.selected_mileage, week.mileage.len());
@@ -162,9 +204,53 @@ impl Session {
         self.day = day;
         let week_start = domain::time::monday_of(day);
         let moved = week_start != self.week_start;
-        self.week_start = week_start;
+        if moved {
+            self.week_start = week_start;
+            self.entries.clear();
+            self.mileage.clear();
+            self.selected_mileage = None;
+        }
         self.fix_selection();
         moved
+    }
+
+    pub fn day(&self) -> NaiveDate {
+        self.day
+    }
+
+    pub fn week_start(&self) -> NaiveDate {
+        self.week_start
+    }
+
+    // ---- Report ------------------------------------------------------------------------------
+
+    pub fn report_month(&self) -> NaiveDate {
+        self.report_month
+    }
+
+    /// Shows the month of `day` on the Report tab (which then needs loading).
+    pub fn set_report_month(&mut self, day: NaiveDate) {
+        self.report_month = domain::time::first_of_month(day);
+    }
+
+    /// The report, if it is loaded for the month shown.
+    pub fn report(&self) -> Option<&Report> {
+        (self.report.month == Some(self.report_month)).then_some(&self.report)
+    }
+
+    /// Takes in a loaded report, unless it is for another month than the one shown now (the
+    /// user moved on meanwhile).
+    pub fn apply_report(&mut self, report: Report) -> bool {
+        let current = report.month == Some(self.report_month);
+        if current {
+            self.report = report;
+        }
+        current
+    }
+
+    /// Forgets the report, after a change that affects it (or before a reload).
+    pub fn invalidate_report(&mut self) {
+        self.report = Report::default();
     }
 
     // ---- Selection ---------------------------------------------------------------------------
@@ -197,6 +283,28 @@ impl Session {
         if len > 0 {
             self.selected_mileage = Some(self.selected_mileage.map_or(0, |i| i.saturating_add_signed(delta).min(len - 1)));
         }
+    }
+
+    /// Selects entry `index` (and its day, in this week).
+    pub fn select_entry(&mut self, index: usize) {
+        if let Some(day) = self.entries.get(index).map(|e| e.date) {
+            self.selected_entry = Some(index);
+            self.day = day;
+        }
+    }
+
+    pub fn select_mileage(&mut self, index: usize) {
+        if index < self.mileage.len() {
+            self.selected_mileage = Some(index);
+        }
+    }
+
+    pub fn selected_entry_index(&self) -> Option<usize> {
+        self.selected_entry
+    }
+
+    pub fn selected_mileage_index(&self) -> Option<usize> {
+        self.selected_mileage
     }
 
     pub fn selected_entry(&self) -> Option<&TimeEntry> {
@@ -382,7 +490,7 @@ mod tests {
     fn week_and_selection() {
         let mut s = Session::new(None, date(4)); // a Wednesday
         assert_eq!(s.week_start, date(2));
-        let week = |entries| net::Week { entries, mileage: Vec::new() };
+        let week = |entries| Week { start: date(2), entries, mileage: Vec::new() };
         s.apply_week(week(vec![entry(1, 3, "09:00-10:00"), entry(2, 4, "09:00-10:00"), entry(3, 4, "10:00-11:30")]), None);
         assert_eq!(s.visible_entries(), [1, 2]);
         assert_eq!(s.selected_entry().map(|e| e.id), Some(2), "the first entry of the selected day");
@@ -397,8 +505,32 @@ mod tests {
 
         assert!(!s.select_day(date(8)), "Sunday is still this week");
         assert_eq!(s.selected_entry, None);
+        assert!(s.week_loaded());
         assert!(s.select_day(date(9)));
         assert_eq!(s.week_start, date(9));
+        assert!(!s.week_loaded() && s.entries.is_empty(), "the week left doesn't show under the new one");
+
+        // A load that was overtaken by a newer one is not wanted any more.
+        let (first, _) = s.begin_week_load();
+        let (second, monday) = s.begin_week_load();
+        assert_eq!(monday, date(9));
+        assert!(!s.is_latest_week_load(first) && s.is_latest_week_load(second));
+    }
+
+    #[test]
+    fn report_follows_the_month() {
+        let mut s = Session::new(None, date(4));
+        assert!(s.report().is_none());
+        let report = |month| Report { month: Some(month), ..Report::default() };
+        assert!(!s.apply_report(report(date(1) - Duration::days(1))), "October's report arrives too late");
+        assert!(s.apply_report(report(date(1))));
+        assert!(s.report().is_some());
+        s.set_report_month(date(1) - Duration::days(1));
+        assert!(s.report().is_none(), "another month");
+        s.set_report_month(date(30));
+        assert!(s.report().is_some());
+        s.invalidate_report();
+        assert!(s.report().is_none());
     }
 
     #[test]

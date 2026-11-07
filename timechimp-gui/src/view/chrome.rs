@@ -88,9 +88,9 @@ impl TimeChimpApp {
         match self.tab {
             Tab::Week | Tab::Mileage => {
                 let (unit, at_today) = if self.tab == Tab::Week {
-                    ("day", self.session.day == today)
+                    ("day", self.session.day() == today)
                 } else {
-                    let start = self.session.week_start;
+                    let start = self.session.week_start();
                     ("week", start <= today && today < start + chrono::Duration::days(7))
                 };
                 let (range, week) = week_title(self);
@@ -111,9 +111,9 @@ impl TimeChimpApp {
                     ("prev-month", "Previous month (←)", on(|this, w, cx| this.shift_month(-1, w, cx))),
                     ("this-month", "This month", on(|this, w, cx| this.go_today(w, cx))),
                     ("next-month", "Next month (→)", on(|this, w, cx| this.shift_month(1, w, cx))),
-                    self.session.report_month == domain::time::first_of_month(today),
+                    self.session.report_month() == domain::time::first_of_month(today),
                 ))
-                .child(period_title(theme, self.session.report_month.format("%B %Y").to_string(), None))
+                .child(period_title(theme, self.session.report_month().format("%B %Y").to_string(), None))
                 .child(div().flex_1())
                 .child(pop(theme, nav("reload", "Reload", |this, w, cx| this.reload(w, cx)))),
             Tab::Projects => bar

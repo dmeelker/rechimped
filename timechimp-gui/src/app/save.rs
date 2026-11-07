@@ -6,8 +6,6 @@ use timechimp::NewMileage;
 
 use crate::forms::{Form, FormBody};
 use crate::validate::{self, SaveRequest};
-use crate::domain::report::Report;
-use crate::domain;
 use crate::session;
 use crate::store::config;
 
@@ -92,9 +90,8 @@ impl TimeChimpApp {
             };
             this.close_form(window, cx);
             // Jump to the day of the saved item and select it.
-            this.session.day = date;
-            this.session.week_start = domain::time::monday_of(date);
-            this.session.report = Report::default();
+            this.session.select_day(date);
+            this.session.invalidate_report();
             this.load_week(Some(id), window, cx);
             match outcome {
                 Ok(message) => this.set_info(message, window, cx),
