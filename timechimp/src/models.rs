@@ -36,6 +36,12 @@ fn null_default<'de, D: Deserializer<'de>, T: Default + Deserialize<'de>>(d: D) 
     Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
 }
 
+/// A list of strings, leniently: null is empty, and items that aren't strings are left out.
+fn strings<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    let items: Option<Vec<Value>> = Option::deserialize(d)?;
+    Ok(items.unwrap_or_default().into_iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CurrentUser {
@@ -68,6 +74,9 @@ pub struct CurrentUser {
     pub user_availability: Option<UserAvailability>,
     #[serde(default, deserialize_with = "null_default")]
     pub manager_of_team_ids: Vec<i64>,
+    /// The addresses saved for trips (the web app's suggestions); anything but a string is skipped.
+    #[serde(default, deserialize_with = "strings")]
+    pub mileage_addresses: Vec<String>,
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
 }
@@ -779,7 +788,7 @@ mod tests {
         assert_eq!(me.user_availability.as_ref().and_then(|a| a.for_day(0)), Some(8.0));
         assert_eq!(me.user_availability.as_ref().and_then(|a| a.for_day(4)), None);
         assert!(me.company_apps.is_empty());
-        assert!(me.extra.contains_key("mileageAddresses"));
+        assert_eq!(me.mileage_addresses, ["Home street 1, Town", "Office lane 2, City"]);
     }
 
     #[test]

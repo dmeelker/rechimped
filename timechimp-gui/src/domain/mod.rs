@@ -15,10 +15,6 @@ pub fn project_label(project: &str, customer: &str) -> String {
     format!("{project} — {customer}")
 }
 
-pub fn json_strings(value: &serde_json::Value) -> Option<Vec<String>> {
-    Some(value.as_array()?.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
-}
-
 pub fn mileage_type_name(mileage_type: MileageType) -> String {
     MILEAGE_TYPES
         .iter()

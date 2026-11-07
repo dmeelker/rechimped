@@ -177,10 +177,19 @@ impl Authenticator {
     }
 }
 
+/// The kind of code an [`MfaChallenge`] asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MfaKind {
+    /// Sent by SMS (`SMS_MFA`).
+    Sms,
+    /// From an authenticator app (`SOFTWARE_TOKEN_MFA`).
+    Totp,
+}
+
 impl MfaChallenge {
-    /// `SOFTWARE_TOKEN_MFA` (authenticator app) or `SMS_MFA`.
-    pub fn kind(&self) -> &str {
-        &self.challenge_name
+    /// Where the code comes from.
+    pub fn kind(&self) -> MfaKind {
+        if self.challenge_name == "SMS_MFA" { MfaKind::Sms } else { MfaKind::Totp }
     }
 
     pub async fn respond(self, code: &str) -> Result<Authenticator> {

@@ -295,12 +295,7 @@ impl Session {
 
     /// The user's saved addresses, then the ones on this week's trips.
     pub fn saved_addresses(&self) -> Vec<String> {
-        let mut addresses: Vec<String> = self
-            .me
-            .as_ref()
-            .and_then(|m| m.extra.get("mileageAddresses"))
-            .and_then(domain::json_strings)
-            .unwrap_or_default();
+        let mut addresses: Vec<String> = self.me.as_ref().map(|m| m.mileage_addresses.clone()).unwrap_or_default();
         for m in &self.mileage {
             for a in [&m.from_address, &m.to_address].into_iter().flatten() {
                 if !addresses.contains(a) {

@@ -9,6 +9,8 @@ use gpuikit::elements::text_field::text_field;
 use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::Themeable;
 
+use timechimp::MfaKind;
+
 use crate::app::{Confirm, Screen, TimeChimpApp};
 
 use super::widgets::*;
@@ -23,7 +25,7 @@ impl TimeChimpApp {
             (None, Some(error)) => div().text_color(theme.danger()).child(error.clone()),
             (None, None) => muted(theme, "Tab: switch field · Enter: log in"),
         };
-        let mfa_label = login.mfa.as_ref().map(|m| if m.kind() == "SMS_MFA" { "SMS code" } else { "Authenticator code" });
+        let mfa_label = login.mfa.as_ref().map(|m| if m.kind() == MfaKind::Sms { "SMS code" } else { "Authenticator code" });
 
         let card = v_stack()
                 .id("login")
