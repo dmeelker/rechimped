@@ -19,8 +19,7 @@ pub fn runtime() -> &'static tokio::runtime::Runtime {
 
 pub async fn load_base(client: &Client) -> timechimp::Result<Base> {
     let me = client.current_user().await?;
-    let (projects, tasks, tags) =
-        tokio::try_join!(client.projects_for_user(me.id), client.tasks_for_time(me.id), client.tags(TagType::Time))?;
+    let (projects, tags) = tokio::try_join!(client.projects_for_user(me.id), client.tags(TagType::Time))?;
     // One request per project, but not all at once.
     // The stream owns everything it uses: borrowed ids or client trip up the Send check of the
     // spawned future (a higher-ranked lifetime).
@@ -38,7 +37,6 @@ pub async fn load_base(client: &Client) -> timechimp::Result<Base> {
         project_tasks: projects.iter().map(|p| p.id).zip(project_tasks).collect(),
         me,
         projects,
-        tasks,
         tags: tags.into_iter().filter(|t| t.active).collect(),
     })
 }

@@ -164,12 +164,12 @@ fn browse_command(key: &str, shift: bool, ctrl: bool, tab: Tab, has_entry: bool)
     Some(match (key, ctrl) {
         ("q", true) => Command::Quit,
         (_, true) => return None,
-        ("1" | "2" | "3" | "4", _) => Command::SwitchTab(key.parse::<usize>().expect("digit") - 1),
+        ("1" | "2" | "3", _) => Command::SwitchTab(key.parse::<usize>().expect("digit") - 1),
         ("r", _) => Command::Reload,
         ("l", _) if shift => Command::Logout,
         ("left" | "h", _) if tab == Tab::Report => Command::ShiftMonth(-1),
         ("right" | "l", _) if tab == Tab::Report => Command::ShiftMonth(1),
-        ("t", _) if tab != Tab::Projects => Command::Today,
+        ("t", _) => Command::Today,
         (_, _) if !matches!(tab, Tab::Week | Tab::Mileage) => return None,
         // ←/→ move a day on the Week tab, a week on Mileage; Shift+←/→ and [ ] always a week.
         ("left" | "h", _) if week_tab && !shift => Command::Step(-1),
@@ -204,7 +204,6 @@ mod tests {
         assert_eq!(key("]", Tab::Week), Some(ShiftDay(7)));
         assert_eq!(key("right", Tab::Mileage), Some(ShiftDay(7)), "a week on Mileage");
         assert_eq!(key("l", Tab::Report), Some(ShiftMonth(1)), "a month on Report");
-        assert_eq!(key("left", Tab::Projects), None);
     }
 
     #[test]
@@ -216,11 +215,11 @@ mod tests {
 
     #[test]
     fn modifiers_and_tab_independent_keys() {
-        assert_eq!(browse_command("q", false, true, Tab::Projects, false), Some(Quit));
+        assert_eq!(browse_command("q", false, true, Tab::Report, false), Some(Quit));
         assert_eq!(browse_command("r", false, true, Tab::Week, true), None, "Ctrl+R isn't R");
         assert_eq!(browse_command("l", true, false, Tab::Report, false), Some(Logout), "Shift+L before the month keys");
         assert_eq!(key("3", Tab::Week), Some(SwitchTab(2)));
-        assert_eq!(key("t", Tab::Projects), None);
+        assert_eq!(key("4", Tab::Week), None, "three tabs");
         assert_eq!(key("c", Tab::Mileage), None, "copy is for time entries");
         assert_eq!(key("d", Tab::Report), None);
     }

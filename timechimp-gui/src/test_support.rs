@@ -89,5 +89,5 @@ pub fn report_row(project: &str, task: &str, day: u32, hours: f64, billable: boo
 
 /// Base data for `Session::apply_base`: `user()` with these projects, project tasks and tags.
 pub fn base(projects: Vec<Project>, project_tasks: HashMap<i64, Vec<ProjectTask>>, tags: Vec<Tag>) -> Base {
-    Base { me: user(), projects, tasks: Vec::new(), project_tasks, tags }
+    Base { me: user(), projects, project_tasks, tags }
 }

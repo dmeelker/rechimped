@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::{Duration, NaiveDate};
-use timechimp::{Client, CurrentUser, Mileage, Project, ProjectTask, Tag, Task, TimeEntry};
+use timechimp::{Client, CurrentUser, Mileage, Project, ProjectTask, Tag, TimeEntry};
 
 use crate::domain::report::Report;
 use crate::domain::{self, same_name, week::RecentItem};
@@ -17,7 +17,7 @@ pub struct Session {
     pub epoch: u64,
     /// None on the login screen; a login starts a new `Session` with it.
     client: Option<Client>,
-    /// The user, projects, tasks and tags; None until the first load is in.
+    /// The user, projects, project tasks and tags; None until the first load is in.
     base: Option<Base>,
 
     /// Tags each project may use, from `config.toml` (project id → tags).
@@ -60,7 +60,6 @@ pub struct Session {
 pub struct Base {
     pub me: CurrentUser,
     pub projects: Vec<Project>,
-    pub tasks: Vec<Task>,
     pub project_tasks: HashMap<i64, Vec<ProjectTask>>,
     pub tags: Vec<Tag>,
 }
@@ -110,10 +109,6 @@ impl Session {
 
     pub fn projects(&self) -> &[Project] {
         self.base.as_ref().map_or(&[], |b| &b.projects)
-    }
-
-    pub fn tasks(&self) -> &[Task] {
-        self.base.as_ref().map_or(&[], |b| &b.tasks)
     }
 
     /// The tasks of project `project_id`.

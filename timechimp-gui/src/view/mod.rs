@@ -6,7 +6,6 @@ mod chrome;
 mod login;
 mod mileage;
 mod popups;
-mod projects;
 mod report;
 mod settings;
 mod week;

@@ -42,7 +42,6 @@ impl TimeChimpApp {
             Tab::Week => self.render_day(theme, cx).into_any_element(),
             Tab::Mileage => self.render_mileage(theme, cx).into_any_element(),
             Tab::Report => self.render_report(theme).into_any_element(),
-            Tab::Projects => self.render_projects(theme).into_any_element(),
         };
 
         let browse = v_stack()
@@ -132,9 +131,6 @@ impl TimeChimpApp {
                     self.session.report_month() == domain::time::first_of_month(today),
                 ))
                 .child(period_title(theme, self.session.report_month().format("%B %Y").to_string(), None))
-                .child(div().flex_1())
-                .child(pop(theme, nav("reload", "Reload", |this, w, cx| this.reload(w, cx)))),
-            Tab::Projects => bar
                 .child(div().flex_1())
                 .child(pop(theme, nav("reload", "Reload", |this, w, cx| this.reload(w, cx)))),
         }
@@ -326,12 +322,11 @@ impl TimeChimpApp {
                         hint("D", "delete"),
                     ],
                     Tab::Report => vec![hint("←/→", "month"), hint("T", "this month")],
-                    Tab::Projects => vec![hint("Shift+L", "log out")],
                 };
                 h_stack()
                     .gap(px(12.))
                     .children(hints)
-                    .child(hint("1–4", "tabs"))
+                    .child(hint("1–3", "tabs"))
                     .child(hint("R", "reload"))
                     .into_any_element()
             }

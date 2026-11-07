@@ -53,18 +53,16 @@ pub enum Tab {
     Week,
     Mileage,
     Report,
-    Projects,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 4] = [Tab::Week, Tab::Mileage, Tab::Report, Tab::Projects];
+    pub const ALL: [Tab; 3] = [Tab::Week, Tab::Mileage, Tab::Report];
 
     pub fn id(self) -> &'static str {
         match self {
             Tab::Week => "week",
             Tab::Mileage => "mileage",
             Tab::Report => "report",
-            Tab::Projects => "projects",
         }
     }
 
@@ -73,7 +71,6 @@ impl Tab {
             Tab::Week => "Time",
             Tab::Mileage => "Mileage",
             Tab::Report => "Report",
-            Tab::Projects => "Projects",
         }
     }
 
