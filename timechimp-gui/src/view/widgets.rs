@@ -117,7 +117,7 @@ pub(super) fn primary_button(
     label: impl Into<SharedString>,
     disabled: bool,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut gpui::App) + 'static,
-) -> impl IntoElement {
+) -> gpui::Stateful<gpui::Div> {
     let m = theme.control(ControlSize::Medium);
     let accent = theme.accent();
     let darker = |by: f32| gpui::hsla(accent.h, accent.s, (accent.l - by).max(0.), accent.a);

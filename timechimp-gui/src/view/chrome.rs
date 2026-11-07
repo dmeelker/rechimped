@@ -1,14 +1,14 @@
 //! The main screen around the tabs: header, user menu, toolbar, footer and the row actions.
 
 use gpui::{
-    AnyElement, ClickEvent, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    AnyElement, ClickEvent, Context, ElementId, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window, deferred, div, prelude::FluentBuilder, px,
 };
 use gpuikit::elements::button::{ButtonVariant, button};
 use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::Themeable;
 
-use crate::app::{Tab, TimeChimpApp};
+use crate::app::{Menu, Tab, TimeChimpApp};
 
 use super::widgets::*;
 
@@ -29,7 +29,7 @@ impl TimeChimpApp {
             .child(self.tabs.clone())
             .child(div().flex_1())
             .child(div().relative().mb(px(6.)).child(self.render_user_button(theme, title, cx)).when(
-                self.user_menu,
+                self.menu == Some(Menu::User),
                 |d| d.child(self.render_user_menu(theme, cx)),
             ));
 
@@ -70,7 +70,7 @@ impl TimeChimpApp {
                 }
             })
             .child(browse)
-            .when(self.user_menu, |d| d.child(self.render_user_menu_backdrop(cx)))
+            .when(self.menu.is_some(), |d| d.child(self.render_menu_backdrop(cx)))
             .when(self.show_detail, |d| d.child(self.render_detail(theme, cx)))
             .when_some(self.form.as_ref(), |d, form| d.child(self.render_form(form, theme, cx)))
     }
@@ -88,13 +88,10 @@ impl TimeChimpApp {
                     .child(pop(theme, nav("next", "›", |this, w, cx| this.step(1, w, cx))))
                     .child(div().pl(px(8.)).font_weight(FontWeight::SEMIBOLD).child(week_title(self)))
                     .child(div().flex_1())
-                    .child(primary_button(
-                        theme,
-                        "add",
-                        if week_tab { "+ Add time" } else { "+ Add trip" },
-                        false,
-                        cx.listener(|this, _, w, cx| this.add(w, cx)),
-                    ))
+                    .when(week_tab, |d| {
+                        d.child(primary_button(theme, "add", "+ Add time", false, cx.listener(|this, _, w, cx| this.add(w, cx))))
+                    })
+                    .when(!week_tab, |d| d.child(self.render_add_trip(theme, cx)))
             }
             Tab::Report => bar
                 .child(pop(theme, nav("prev-month", "‹", |this, w, cx| this.shift_month(-1, w, cx))))
@@ -120,52 +117,100 @@ impl TimeChimpApp {
             .py(px(4.))
             .rounded(px(6.))
             .cursor_pointer()
-            .when(self.user_menu, |d| d.bg(theme.surface()))
+            .when(self.menu == Some(Menu::User), |d| d.bg(theme.surface()))
             .hover(|s| s.bg(theme.surface()))
             .child(div().size(px(12.)).rounded_full().bg(theme.accent()))
             .child(muted(theme, title))
             .child(muted(theme, "▾"))
             .on_click(cx.listener(|this, _, _, cx| {
-                this.user_menu = !this.user_menu;
+                this.menu = if this.menu == Some(Menu::User) { None } else { Some(Menu::User) };
                 cx.notify();
             }))
     }
 
-    /// Transparent, window-wide layer under the open user menu: any click outside closes it.
-    pub(super) fn render_user_menu_backdrop(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// "+ Add trip" as a split button: the left part opens a blank trip form, the ▾ opens a
+    /// dropdown with the trip presets (`render_add_trip_menu`).
+    pub(super) fn render_add_trip(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
+        let open = self.menu == Some(Menu::AddTrip);
+        let main = primary_button(theme, "add", "+ Add trip", false, cx.listener(|this, _, w, cx| this.add(w, cx)))
+            .rounded_r(px(0.));
+        let caret = primary_button(
+            theme,
+            "add-trip-presets",
+            "▾",
+            false,
+            cx.listener(|this, _, _, cx| {
+                this.menu = if this.menu == Some(Menu::AddTrip) { None } else { Some(Menu::AddTrip) };
+                cx.notify();
+            }),
+        )
+        .rounded_l(px(0.))
+        .px(px(8.))
+        .border_l_1()
+        .border_color(gpui::white().opacity(0.35));
+        div()
+            .relative()
+            .child(h_stack().child(main).child(caret))
+            .when(open, |d| d.child(self.render_add_trip_menu(theme, cx)))
+    }
+
+    /// The `[[trips]]` presets from `config.toml`, under the ▾ of "+ Add trip". Clicking one opens
+    /// the trip form for the selected day, filled in; its × asks to delete it.
+    pub(super) fn render_add_trip_menu(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
+        let danger = theme.danger();
+        let items = self.session.trip_presets.iter().enumerate().map(|(i, preset)| {
+            let remove = div()
+                .id(ElementId::NamedInteger("add-trip-preset-delete".into(), i as u64))
+                .px(px(6.))
+                .rounded(px(4.))
+                .cursor_pointer()
+                .text_size(px(16.))
+                .text_color(theme.fg_muted())
+                .hover(move |s| s.text_color(danger))
+                .child("×")
+                .on_click(cx.listener(move |this, _, w, cx| {
+                    this.menu = None;
+                    this.ask_delete_preset(i, w, cx);
+                }));
+            h_stack()
+                .items_center()
+                .gap(px(4.))
+                .rounded(px(4.))
+                .hover(|s| s.bg(theme.accent_bg()))
+                .child(
+                    menu_item(theme, ElementId::NamedInteger("add-trip-preset".into(), i as u64), preset.name.clone())
+                        .flex_1()
+                        .on_click(cx.listener(move |this, _, w, cx| this.open_preset(i, w, cx))),
+                )
+                .child(remove)
+        });
+        let menu = menu_panel(theme, "add-trip-menu").children(items).when(self.session.trip_presets.is_empty(), |d| {
+            d.child(
+                div()
+                    .max_w(px(260.))
+                    .px(px(12.))
+                    .py(px(6.))
+                    .child(muted(theme, "No presets yet: use \"Save as preset\" in the trip form, or add [[trips]] to config.toml")),
+            )
+        });
+        deferred(div().absolute().top_full().right_0().mt(px(4.)).child(menu)).with_priority(2)
+    }
+
+    /// Transparent, window-wide layer under an open dropdown: any click outside closes it.
+    pub(super) fn render_menu_backdrop(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let close = cx.listener(|this, _: &gpui::MouseDownEvent, _, cx| {
-            this.user_menu = false;
+            this.menu = None;
             cx.stop_propagation();
             cx.notify();
         });
-        deferred(div().id("user-menu-backdrop").absolute().inset_0().occlude().on_mouse_down(MouseButton::Left, close))
+        deferred(div().id("menu-backdrop").absolute().inset_0().occlude().on_mouse_down(MouseButton::Left, close))
             .with_priority(1)
     }
 
     /// The dropdown under the user name (a child of its `relative()` wrapper).
     pub(super) fn render_user_menu(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let item = |id: &'static str, label: &'static str| {
-            div()
-                .id(id)
-                .px(px(12.))
-                .py(px(6.))
-                .rounded(px(4.))
-                .cursor_pointer()
-                .hover(|s| s.bg(theme.accent_bg()))
-                .child(label)
-        };
-        let menu = v_stack()
-            .id("user-menu")
-            .occlude()
-            .min_w(px(160.))
-            .p(px(4.))
-            .rounded(px(6.))
-            .border_1()
-            .border_color(theme.border())
-            .bg(theme.surface())
-            .shadow_lg()
-            .text_color(theme.fg())
-            .child(item("user-menu-logout", "Log out").on_click(cx.listener(|this, _, w, cx| this.logout(w, cx))));
+        let menu = menu_panel(theme, "user-menu")
+            .child(menu_item(theme, "user-menu-logout", "Log out").on_click(cx.listener(|this, _, w, cx| this.logout(w, cx))));
         deferred(div().absolute().top_full().right_0().mt(px(4.)).child(menu)).with_priority(2)
     }
 
@@ -238,4 +283,31 @@ impl TimeChimpApp {
             .text_color(theme.fg_muted())
             .child(left)
     }
+}
+
+/// The box of a dropdown menu; its items are `menu_item`s.
+fn menu_panel(theme: &T, id: &'static str) -> gpui::Stateful<gpui::Div> {
+    v_stack()
+        .id(id)
+        .occlude()
+        .min_w(px(160.))
+        .p(px(4.))
+        .rounded(px(6.))
+        .border_1()
+        .border_color(theme.border())
+        .bg(theme.surface())
+        .shadow_lg()
+        .text_color(theme.fg())
+}
+
+fn menu_item(theme: &T, id: impl Into<ElementId>, label: impl Into<SharedString>) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .px(px(12.))
+        .py(px(6.))
+        .rounded(px(4.))
+        .cursor_pointer()
+        .whitespace_nowrap()
+        .hover(|s| s.bg(theme.accent_bg()))
+        .child(label.into())
 }

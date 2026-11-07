@@ -96,6 +96,15 @@ pub enum Screen {
     Main,
 }
 
+/// A dropdown open on the main screen.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Menu {
+    /// Under the user name in the header (Log out).
+    User,
+    /// Under the ▾ next to "+ Add trip" (the trip presets).
+    AddTrip,
+}
+
 pub struct TimeChimpApp {
     /// Focus target of the main (browse) view; its key handler drives the keyboard shortcuts.
     pub focus: FocusHandle,
@@ -108,8 +117,8 @@ pub struct TimeChimpApp {
     /// The open delete confirmation, with the subscription that clears it when it closes.
     pub confirm: Option<(Entity<DialogState>, Subscription)>,
     pub show_detail: bool,
-    /// The dropdown under the user name in the header is open.
-    pub user_menu: bool,
+    /// The open dropdown, if any.
+    pub menu: Option<Menu>,
     pub error: Option<String>,
     /// Labels of the tasks `run` has in flight, oldest first, with the session they belong to.
     in_flight: Vec<(u64, &'static str)>,
@@ -137,7 +146,7 @@ impl TimeChimpApp {
             form: None,
             confirm: None,
             show_detail: false,
-            user_menu: false,
+            menu: None,
             error: None,
             in_flight: Vec::new(),
             fx: crate::fx::Fx::new(),
@@ -240,7 +249,7 @@ impl TimeChimpApp {
         self.form = None;
         self.confirm = None;
         self.show_detail = false;
-        self.user_menu = false;
+        self.menu = None;
         self.error = None;
         self.screen = Screen::Login(Box::new(Login {
             email: email_input,
@@ -324,7 +333,7 @@ impl TimeChimpApp {
     }
 
     pub fn logout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.user_menu = false;
+        self.menu = None;
         token::delete_token();
         self.show_login(None, window, cx);
     }
@@ -520,8 +529,8 @@ impl TimeChimpApp {
         if !matches!(self.screen, Screen::Main) || self.form.is_some() {
             return;
         }
-        if self.user_menu || self.show_detail {
-            self.user_menu = false;
+        if self.menu.is_some() || self.show_detail {
+            self.menu = None;
             self.show_detail = false;
             cx.stop_propagation();
             cx.notify();
@@ -781,6 +790,7 @@ impl TimeChimpApp {
         if self.session.me.is_none() || self.form.is_some() {
             return;
         }
+        self.menu = None;
         if let Some(preset) = self.session.trip_presets.get(index).cloned() {
             self.open_mileage_form(None, Some(&preset), window, cx);
         }

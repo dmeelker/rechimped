@@ -1,12 +1,10 @@
-//! The Mileage tab: preset buttons and the week's trips per day.
+//! The Mileage tab: the week's trips per day.
 
 use gpui::{
     AnyElement, ClickEvent, Context, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
 };
-use gpuikit::elements::button::button;
-use gpuikit::elements::context_menu::{context_menu, menu_item};
-use gpuikit::layout::{h_stack, v_stack};
+use gpuikit::layout::h_stack;
 use gpuikit::theme::Themeable;
 
 use crate::app::TimeChimpApp;
@@ -68,7 +66,7 @@ impl TimeChimpApp {
             start += day.len();
         }
         let empty = self.session.mileage.is_empty() && self.busy().is_none();
-        let trips = panel(theme, format!("Trips · {} km", trim_hours(total)), Some(actions))
+        panel(theme, format!("Trips · {} km", trim_hours(total)), Some(actions))
             .child(header_row(
                 theme,
                 [
@@ -81,37 +79,6 @@ impl TimeChimpApp {
                 ],
             ))
             .child(table_rows("trip-rows", rows))
-            .when(empty, |d| d.child(empty_message(theme, "No mileage this week. Press A to add.")));
-        v_stack().min_h_0().gap(px(10.)).child(self.render_presets(theme, cx)).child(trips)
-    }
-
-    /// One button per `[[trips]]` preset in `config.toml`; each opens the trip form for the
-    /// selected day, filled in, so adding a regular trip is a click plus Save. Right-click for
-    /// a menu with Delete.
-    pub(super) fn render_presets(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let this = cx.weak_entity();
-        let buttons = self.session.trip_presets.iter().enumerate().map(|(i, preset)| {
-            let trigger = pop(
-                theme,
-                button(ElementId::NamedInteger("preset".into(), i as u64), preset.name.clone())
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_preset(i, window, cx))),
-            );
-            let this = this.clone();
-            context_menu(ElementId::NamedInteger("preset-menu".into(), i as u64), trigger).menu(move |menu, _, _| {
-                let this = this.clone();
-                menu.item(menu_item("Delete").destructive().on_click(move |window, cx| {
-                    let _ = this.update(cx, |this, cx| this.ask_delete_preset(i, window, cx));
-                }))
-            })
-        });
-        h_stack()
-            .flex_wrap()
-            .gap(px(8.))
-            .items_center()
-            .child(muted(theme, "Presets"))
-            .children(buttons)
-            .when(self.session.trip_presets.is_empty(), |d| {
-                d.child(muted(theme, "none yet: use \"Save as preset\" in the trip form, or add [[trips]] to config.toml"))
-            })
+            .when(empty, |d| d.child(empty_message(theme, "No mileage this week. Press A to add.")))
     }
 }
