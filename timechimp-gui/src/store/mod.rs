@@ -1,7 +1,4 @@
-//! Files in the config directory: `config.toml` and the session token.
-//!
-//! The directory is `timechimp-tui` for historical reasons (the former terminal UI); keeping the
-//! path means existing sessions stay valid.
+//! Files in the config directory (`%APPDATA%\rechimped`): `config.toml` and the session token.
 
 pub mod config;
 pub mod token;
@@ -13,5 +10,5 @@ pub fn config_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from))
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("timechimp-tui"))
+    Some(base.join("rechimped"))
 }

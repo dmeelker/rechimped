@@ -1,7 +1,7 @@
 //! Rechimped: desktop GUI for TimeChimp, built with gpui + gpuikit: log in, browse your time entries per
 //! day or week, register/edit/copy/delete time and mileage, and see a monthly report.
 //!
-//! The session is stored in `%APPDATA%\timechimp-tui\refresh_token`, so you only log in once.
+//! The session is stored in `%APPDATA%\rechimped\refresh_token`, so you only log in once.
 //! `TIMECHIMP_REFRESH_TOKEN` overrides it.
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
