@@ -22,7 +22,7 @@ use crate::validate::{self, SaveRequest, TimeKind};
 use crate::domain::report::Report;
 use crate::domain::{self, MILEAGE_TYPES};
 use crate::net;
-use crate::session::Session;
+use crate::session::{self, Session};
 use crate::store::{config, token};
 use crate::password::{PasswordEvent, PasswordField};
 
@@ -103,6 +103,8 @@ pub enum Menu {
     User,
     /// Under the ▾ next to "+ Add trip" (the trip presets).
     AddTrip,
+    /// Under the ▾ next to "+ Add time" (the time presets).
+    AddTime,
 }
 
 pub struct TimeChimpApp {
@@ -607,7 +609,7 @@ impl TimeChimpApp {
         let project_id = template.map(|e| e.project_id).or(projects.first().map(|(id, _)| *id));
         let tasks = self.session.task_options(project_id, entry);
 
-        let tags = self.tag_checkboxes(project_id, template, cx);
+        let tags = self.tag_checkboxes(project_id, template.map_or(&[], |e| &e.tag_ids), cx);
         let kept_tag_ids = entry.map(|e| self.session.unconfigured_tags(&e.tag_ids)).unwrap_or_default();
 
         let editing = entry.filter(|_| !copy);
@@ -733,15 +735,30 @@ impl TimeChimpApp {
     /// Fills the open time form with the project, task, notes and tags of `entry` (a recent item);
     /// date and times stay. Focus moves on to the times.
     pub fn pick_recent(&mut self, entry: TimeEntry, window: &mut Window, cx: &mut Context<Self>) {
-        let projects = self.session.project_options(Some((entry.project_id, &entry.project_name, &entry.customer_name)));
-        let project = forms::choice(cx, "form-project", "Project", projects, Some(entry.project_id));
-        let tasks = self.session.task_options(Some(entry.project_id), Some(&entry));
-        let task = forms::choice(cx, "form-task", "Task", tasks, Some(entry.project_task_id));
-        let tags = self.tag_checkboxes(Some(entry.project_id), Some(&entry), cx);
-        let kept_tag_ids = self.session.unconfigured_tags(&entry.tag_ids);
+        let fill = TimeFill {
+            project_id: entry.project_id,
+            project_task_id: Some(entry.project_task_id),
+            notes: entry.notes.clone().unwrap_or_default(),
+            tag_ids: entry.tag_ids.clone(),
+        };
+        self.fill_time_form(fill, Some(&entry), window, cx);
+    }
+
+    /// Fills the open time form with `fill` (`entry`: where it comes from, so its project and
+    /// task are offered even when no longer active); date and times stay. Focus moves on to the
+    /// times.
+    fn fill_time_form(&mut self, fill: TimeFill, entry: Option<&TimeEntry>, window: &mut Window, cx: &mut Context<Self>) {
+        let projects = self.session.project_options(entry.map(|e| (e.project_id, &*e.project_name, &*e.customer_name)));
+        let project = forms::choice(cx, "form-project", "Project", projects, Some(fill.project_id));
+        let tasks = self.session.task_options(Some(fill.project_id), entry);
+        let task = forms::choice(cx, "form-task", "Task", tasks, fill.project_task_id);
+        let tags = self.tag_checkboxes(Some(fill.project_id), &fill.tag_ids, cx);
+        let configured: Vec<i64> = tags.iter().map(|t| t.tag_id).collect();
+        // Tags the form can't show as checkboxes (not configured for this project) are kept.
+        let kept_tag_ids = fill.tag_ids.iter().copied().filter(|id| !configured.contains(id)).collect();
         let project_sub = self.subscribe_project(&project, window, cx);
         let Some(Form { body: FormBody::Time(form), error, .. }) = &mut self.form else { return };
-        forms::set_text(&form.notes, entry.notes.clone().unwrap_or_default(), cx);
+        forms::set_text(&form.notes, fill.notes, cx);
         form.project = project;
         form.task = task;
         form.tags = tags;
@@ -761,7 +778,7 @@ impl TimeChimpApp {
         let task = forms::choice(cx, "form-task", "Task", options, None);
         // Pre-check the tags the project's most recently modified entry had.
         let last = self.session.entries.iter().filter(|e| Some(e.project_id) == project_id).max_by_key(|e| e.modified).cloned();
-        let tags = self.tag_checkboxes(project_id, last.as_ref(), cx);
+        let tags = self.tag_checkboxes(project_id, last.as_ref().map_or(&[], |e| &e.tag_ids), cx);
         if let Some(Form { body: FormBody::Time(form), .. }) = &mut self.form {
             form.task = task;
             form.tags = tags;
@@ -769,24 +786,15 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// Checkboxes for the tags configured for `project_id`, checked where `from` has the tag.
-    fn tag_checkboxes(
-        &self,
-        project_id: Option<i64>,
-        from: Option<&TimeEntry>,
-        cx: &mut Context<Self>,
-    ) -> Vec<forms::TagCheckbox> {
+    /// Checkboxes for the tags configured for `project_id`, checked where `checked` has the tag.
+    fn tag_checkboxes(&self, project_id: Option<i64>, checked: &[i64], cx: &mut Context<Self>) -> Vec<forms::TagCheckbox> {
         let tags = project_id.and_then(|id| self.session.project_tags.get(&id)).cloned().unwrap_or_default();
-        tags.into_iter()
-            .map(|t| {
-                let checked = from.is_some_and(|e| e.tag_ids.contains(&t.id));
-                forms::tag_checkbox(cx, t.id, t.name, checked)
-            })
-            .collect()
+        tags.into_iter().map(|t| forms::tag_checkbox(cx, t.id, t.name, checked.contains(&t.id))).collect()
     }
 
-    /// A preset button: the trip form for the selected day, filled in from preset `index`.
-    pub fn open_preset(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    /// A trip preset in the "+ Add trip" dropdown: the trip form for the selected day, filled in
+    /// from preset `index`.
+    pub fn open_trip_preset(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         if self.session.me.is_none() || self.form.is_some() {
             return;
         }
@@ -796,16 +804,41 @@ impl TimeChimpApp {
         }
     }
 
-    /// "Save as preset" in the trip form: appends its trip to `config.toml`.
-    pub fn save_as_preset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(Form { body: FormBody::Mileage(f), .. }) = &self.form else { return };
-        let preset = match validate::preset(&f.values(cx), &self.session) {
-            Ok(preset) => preset,
-            Err(e) => return self.form_error(e, cx),
+    /// A time preset in the "+ Add time" dropdown: a new time entry on the selected day, with the
+    /// project, task, notes and tags of preset `index`.
+    pub fn open_time_preset(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.session.me.is_none() || self.form.is_some() {
+            return;
+        }
+        self.menu = None;
+        let Some(preset) = self.session.time_presets.get(index).cloned() else { return };
+        let resolved = match self.session.resolve_time_preset(&preset) {
+            Ok(resolved) => resolved,
+            Err(unknown) => return self.set_error(format!("Preset: unknown {unknown}"), window, cx),
         };
-        let name = preset.name.clone();
-        match config::path().and_then(|path| config::append_trip_preset(&path, &preset)) {
-            Ok(_) => {
+        self.open_time_form(None, false, window, cx);
+        let fill = TimeFill {
+            project_id: resolved.project_id,
+            project_task_id: resolved.project_task_id,
+            notes: preset.notes.unwrap_or_default(),
+            tag_ids: resolved.tag_ids,
+        };
+        self.fill_time_form(fill, None, window, cx);
+    }
+
+    /// "Save as preset" in the time or trip form: appends it to `config.toml`.
+    pub fn save_as_preset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let saved = match &self.form {
+            Some(Form { body: FormBody::Mileage(f), .. }) => validate::preset(&f.values(cx), &self.session)
+                .and_then(|p| config::path().and_then(|path| config::append_preset(&path, &p)).map(|_| p.name)),
+            Some(Form { body: FormBody::Time(f), .. }) => validate::time_preset(&f.values(cx), &self.session).and_then(|p| {
+                let label = session::time_preset_label(&p).to_owned();
+                config::path().and_then(|path| config::append_preset(&path, &p)).map(|_| label)
+            }),
+            None => return,
+        };
+        match saved {
+            Ok(name) => {
                 if let Some(form) = &mut self.form {
                     form.error = None;
                 }
@@ -837,7 +870,7 @@ impl TimeChimpApp {
             false,
         );
         if let Some(p) = preset {
-            project = self.session.preset_project(p).map(|p| p.id).or(project);
+            project = self.session.project_named(&p.project).map(|p| p.id).or(project);
             mileage_type = p.trip_type();
             billable = p.billable;
             return_trip = p.return_trip;
@@ -1046,12 +1079,24 @@ impl TimeChimpApp {
         self.confirm_delete(target, question, label, window, cx);
     }
 
-    /// The preset buttons' right-click Delete: removes preset `index` from `config.toml`, after
-    /// confirmation.
-    pub fn ask_delete_preset(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    /// The × of a trip preset in the "+ Add trip" dropdown: removes preset `index` from
+    /// `config.toml`, after confirmation.
+    pub fn ask_delete_trip_preset(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.menu = None;
         let Some(preset) = self.session.trip_presets.get(index) else { return };
         let label = format!("\"{}\": {} → {}", preset.name, preset.from, preset.to);
-        let target = DeleteTarget::Preset(preset.name.clone());
+        let target = DeleteTarget::TripPreset(preset.clone());
+        self.confirm_delete(target, "Delete preset?", label, window, cx);
+    }
+
+    /// The × of a time preset in the "+ Add time" dropdown: removes preset `index` from
+    /// `config.toml`, after confirmation.
+    pub fn ask_delete_time_preset(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.menu = None;
+        let Some(preset) = self.session.time_presets.get(index) else { return };
+        let task = preset.task.as_deref().map(|t| format!(" / {t}")).unwrap_or_default();
+        let label = format!("\"{}\": {}{task}", session::time_preset_label(preset), preset.project);
+        let target = DeleteTarget::TimePreset(preset.clone());
         self.confirm_delete(target, "Delete preset?", label, window, cx);
     }
 
@@ -1084,12 +1129,17 @@ impl TimeChimpApp {
 
     fn delete(&mut self, target: DeleteTarget, window: &mut Window, cx: &mut Context<Self>) {
         let Some(client) = self.session.client.clone() else { return };
-        let future = match target {
-            DeleteTarget::Time(id) => async move { client.delete_time_entry(id).await }.boxed(),
-            DeleteTarget::Mileage(id) => async move { client.delete_mileage(id).await }.boxed(),
+        let future = match &target {
+            &DeleteTarget::Time(id) => async move { client.delete_time_entry(id).await }.boxed(),
+            &DeleteTarget::Mileage(id) => async move { client.delete_mileage(id).await }.boxed(),
             // A preset only lives in config.toml; no request needed.
-            DeleteTarget::Preset(name) => {
-                match config::path().and_then(|path| config::remove_trip_preset(&path, &name)) {
+            DeleteTarget::TripPreset(_) | DeleteTarget::TimePreset(_) => {
+                let removed = config::path().and_then(|path| match &target {
+                    DeleteTarget::TripPreset(p) => config::remove_preset(&path, p),
+                    DeleteTarget::TimePreset(p) => config::remove_preset(&path, p),
+                    _ => unreachable!(),
+                });
+                match removed {
                     Ok(_) => {
                         self.load_config(window, cx);
                         self.set_info("Preset deleted from config.toml", window, cx);
@@ -1117,8 +1167,18 @@ impl TimeChimpApp {
 enum DeleteTarget {
     Time(i64),
     Mileage(i64),
-    /// A `[[trips]]` preset in `config.toml`, by name.
-    Preset(String),
+    /// A `[[trips]]` preset in `config.toml`.
+    TripPreset(config::TripPreset),
+    /// A `[[time_entries]]` preset in `config.toml`.
+    TimePreset(config::TimePreset),
+}
+
+/// What `fill_time_form` puts in the open time form.
+struct TimeFill {
+    project_id: i64,
+    project_task_id: Option<i64>,
+    notes: String,
+    tag_ids: Vec<i64>,
 }
 
 /// Rows the Recent picker shows at most.

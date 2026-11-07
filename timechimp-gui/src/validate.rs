@@ -7,7 +7,7 @@ use timechimp::{Mileage, MileageType, NewMileage, NewTimeEntry};
 
 use crate::domain::time::{local, parse_decimal, parse_end, parse_time};
 use crate::session::Session;
-use crate::store::config::{self, TripPreset};
+use crate::store::config::{self, TimePreset, TripPreset};
 
 /// Whether the time form creates an entry or edits one.
 #[derive(Clone, Debug)]
@@ -195,6 +195,31 @@ pub fn preset(v: &MileageValues, session: &Session) -> Result<TripPreset, String
     })
 }
 
+/// "Save as preset" in the time form: the `[[time_entries]]` entry for it (project, task, notes
+/// and tags; the date and times differ per day).
+pub fn time_preset(v: &TimeValues, session: &Session) -> Result<TimePreset, String> {
+    let project = v.project_id.and_then(|id| session.projects.iter().find(|p| p.id == id)).ok_or("Pick a project first")?;
+    let task = v
+        .project_task_id
+        .and_then(|id| session.project_tasks.get(&project.id)?.iter().find(|t| t.id == id))
+        .ok_or("Pick a task first")?;
+    let preset = TimePreset {
+        project: project.name.clone(),
+        task: Some(task.name.clone()),
+        notes: optional(&v.notes),
+        tags: v.tag_ids.iter().filter_map(|id| session.tags.iter().find(|t| t.id == *id)).map(|t| t.name.clone()).collect(),
+    };
+    let same = |p: &TimePreset| {
+        p.project.eq_ignore_ascii_case(&preset.project)
+            && p.task.as_deref().is_some_and(|t| t.eq_ignore_ascii_case(&task.name))
+            && p.notes.as_deref().map(str::trim) == preset.notes.as_deref()
+    };
+    if session.time_presets.iter().any(same) {
+        return Err("There already is a preset for this project, task and description in config.toml".into());
+    }
+    Ok(preset)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -332,5 +357,21 @@ mod tests {
         assert_eq!(preset(&bad, &s).unwrap_err(), "Distance must be a number (or empty)");
         let no_project = MileageValues { project_id: None, notes: "Other".into(), ..trip_values() };
         assert_eq!(preset(&no_project, &s).unwrap_err(), "Pick a project first");
+    }
+
+    #[test]
+    fn time_presets() {
+        let mut s = session();
+        s.tags = vec![serde_json::from_value(json!({ "id": 7, "companyId": 1, "name": "Daily", "active": true, "type": 1 })).unwrap()];
+        let v = TimeValues { notes: "Standup".into(), ..time("9", "10", "") };
+        let p = time_preset(&v, &s).unwrap();
+        assert_eq!(
+            p,
+            TimePreset { project: "Intern".into(), task: Some("Dev".into()), notes: Some("Standup".into()), tags: vec!["Daily".into()] }
+        );
+        s.time_presets.push(p);
+        assert!(time_preset(&v, &s).unwrap_err().starts_with("There already is a preset"));
+        assert!(time_preset(&TimeValues { notes: "Other".into(), ..v.clone() }, &s).is_ok());
+        assert_eq!(time_preset(&TimeValues { project_task_id: None, ..v }, &s).unwrap_err(), "Pick a task first");
     }
 }

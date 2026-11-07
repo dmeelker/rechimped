@@ -1,7 +1,7 @@
 //! The main screen around the tabs: header, user menu, toolbar, footer and the row actions.
 
 use gpui::{
-    AnyElement, ClickEvent, Context, ElementId, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, SharedString,
+    AnyElement, ClickEvent, Context, ElementId, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, Window, deferred, div, prelude::FluentBuilder, px,
 };
 use gpuikit::elements::button::{ButtonVariant, button};
@@ -9,6 +9,7 @@ use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::Themeable;
 
 use crate::app::{Menu, Tab, TimeChimpApp};
+use crate::session;
 
 use super::widgets::*;
 
@@ -82,16 +83,12 @@ impl TimeChimpApp {
         let bar = h_stack().w_full().px(px(16.)).py(px(12.)).gap(px(8.)).items_center();
         match self.tab {
             Tab::Week | Tab::Mileage => {
-                let week_tab = self.tab == Tab::Week;
                 bar.child(pop(theme, nav("prev", "‹", |this, w, cx| this.step(-1, w, cx))))
                     .child(pop(theme, nav("today", "Today", |this, w, cx| this.go_today(w, cx))))
                     .child(pop(theme, nav("next", "›", |this, w, cx| this.step(1, w, cx))))
                     .child(div().pl(px(8.)).font_weight(FontWeight::SEMIBOLD).child(week_title(self)))
                     .child(div().flex_1())
-                    .when(week_tab, |d| {
-                        d.child(primary_button(theme, "add", "+ Add time", false, cx.listener(|this, _, w, cx| this.add(w, cx))))
-                    })
-                    .when(!week_tab, |d| d.child(self.render_add_trip(theme, cx)))
+                    .child(self.render_add(theme, cx))
             }
             Tab::Report => bar
                 .child(pop(theme, nav("prev-month", "‹", |this, w, cx| this.shift_month(-1, w, cx))))
@@ -128,19 +125,22 @@ impl TimeChimpApp {
             }))
     }
 
-    /// "+ Add trip" as a split button: the left part opens a blank trip form, the ▾ opens a
-    /// dropdown with the trip presets (`render_add_trip_menu`).
-    pub(super) fn render_add_trip(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let open = self.menu == Some(Menu::AddTrip);
-        let main = primary_button(theme, "add", "+ Add trip", false, cx.listener(|this, _, w, cx| this.add(w, cx)))
-            .rounded_r(px(0.));
+    /// "+ Add time" / "+ Add trip" as a split button: the left part opens an empty form, the ▾ a
+    /// dropdown with the presets of that kind (`render_presets_menu`).
+    pub(super) fn render_add(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
+        let (label, kind) = match self.tab {
+            Tab::Week => ("+ Add time", Menu::AddTime),
+            _ => ("+ Add trip", Menu::AddTrip),
+        };
+        let main =
+            primary_button(theme, "add", label, false, cx.listener(|this, _, w, cx| this.add(w, cx))).rounded_r(px(0.));
         let caret = primary_button(
             theme,
-            "add-trip-presets",
+            "add-presets",
             "▾",
             false,
-            cx.listener(|this, _, _, cx| {
-                this.menu = if this.menu == Some(Menu::AddTrip) { None } else { Some(Menu::AddTrip) };
+            cx.listener(move |this, _, _, cx| {
+                this.menu = if this.menu == Some(kind) { None } else { Some(kind) };
                 cx.notify();
             }),
         )
@@ -151,16 +151,42 @@ impl TimeChimpApp {
         div()
             .relative()
             .child(h_stack().child(main).child(caret))
-            .when(open, |d| d.child(self.render_add_trip_menu(theme, cx)))
+            .when(self.menu == Some(kind), |d| d.child(self.render_presets_menu(theme, kind, cx)))
     }
 
-    /// The `[[trips]]` presets from `config.toml`, under the ▾ of "+ Add trip". Clicking one opens
-    /// the trip form for the selected day, filled in; its × asks to delete it.
-    pub(super) fn render_add_trip_menu(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The presets from `config.toml` under the ▾ of "+ Add time" (`[[time_entries]]`, shown as
+    /// description over project) or "+ Add trip" (`[[trips]]`, by name). Clicking one opens the
+    /// form for the selected day, filled in; its × asks to delete it.
+    fn render_presets_menu(&self, theme: &T, kind: Menu, cx: &mut Context<Self>) -> impl IntoElement {
+        type Act = fn(&mut TimeChimpApp, usize, &mut Window, &mut Context<TimeChimpApp>);
+        let (labels, open, delete, empty): (Vec<AnyElement>, Act, Act, &str) = match kind {
+            Menu::AddTime => (
+                self.session
+                    .time_presets
+                    .iter()
+                    .map(|p| {
+                        v_stack()
+                            .child(session::time_preset_label(p).to_owned())
+                            .child(div().text_xs().text_color(theme.fg_muted()).child(p.project.clone()))
+                            .into_any_element()
+                    })
+                    .collect(),
+                Self::open_time_preset,
+                Self::ask_delete_time_preset,
+                "No presets yet: use \"Save as preset\" in the time form",
+            ),
+            _ => (
+                self.session.trip_presets.iter().map(|p| p.name.clone().into_any_element()).collect(),
+                Self::open_trip_preset,
+                Self::ask_delete_trip_preset,
+                "No presets yet: use \"Save as preset\" in the trip form",
+            ),
+        };
         let danger = theme.danger();
-        let items = self.session.trip_presets.iter().enumerate().map(|(i, preset)| {
+        let is_empty = labels.is_empty();
+        let rows = labels.into_iter().enumerate().map(|(i, label)| {
             let remove = div()
-                .id(ElementId::NamedInteger("add-trip-preset-delete".into(), i as u64))
+                .id(ElementId::NamedInteger("preset-delete".into(), i as u64))
                 .px(px(6.))
                 .rounded(px(4.))
                 .cursor_pointer()
@@ -168,31 +194,24 @@ impl TimeChimpApp {
                 .text_color(theme.fg_muted())
                 .hover(move |s| s.text_color(danger))
                 .child("×")
-                .on_click(cx.listener(move |this, _, w, cx| {
-                    this.menu = None;
-                    this.ask_delete_preset(i, w, cx);
-                }));
+                .on_click(cx.listener(move |this, _, w, cx| delete(this, i, w, cx)));
             h_stack()
                 .items_center()
                 .gap(px(4.))
                 .rounded(px(4.))
                 .hover(|s| s.bg(theme.accent_bg()))
                 .child(
-                    menu_item(theme, ElementId::NamedInteger("add-trip-preset".into(), i as u64), preset.name.clone())
+                    menu_item(theme, ElementId::NamedInteger("preset".into(), i as u64), label)
                         .flex_1()
-                        .on_click(cx.listener(move |this, _, w, cx| this.open_preset(i, w, cx))),
+                        .on_click(cx.listener(move |this, _, w, cx| open(this, i, w, cx))),
                 )
                 .child(remove)
         });
-        let menu = menu_panel(theme, "add-trip-menu").children(items).when(self.session.trip_presets.is_empty(), |d| {
-            d.child(
-                div()
-                    .max_w(px(260.))
-                    .px(px(12.))
-                    .py(px(6.))
-                    .child(muted(theme, "No presets yet: use \"Save as preset\" in the trip form, or add [[trips]] to config.toml")),
-            )
-        });
+        let menu = menu_panel(theme, "presets-menu")
+            .max_h(px(420.))
+            .overflow_y_scroll()
+            .children(rows)
+            .when(is_empty, |d| d.child(div().w(px(280.)).px(px(12.)).py(px(6.)).child(muted(theme, empty))));
         deferred(div().absolute().top_full().right_0().mt(px(4.)).child(menu)).with_priority(2)
     }
 
@@ -300,7 +319,7 @@ fn menu_panel(theme: &T, id: &'static str) -> gpui::Stateful<gpui::Div> {
         .text_color(theme.fg())
 }
 
-fn menu_item(theme: &T, id: impl Into<ElementId>, label: impl Into<SharedString>) -> gpui::Stateful<gpui::Div> {
+fn menu_item(theme: &T, id: impl Into<ElementId>, label: impl IntoElement) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .px(px(12.))
@@ -309,5 +328,5 @@ fn menu_item(theme: &T, id: impl Into<ElementId>, label: impl Into<SharedString>
         .cursor_pointer()
         .whitespace_nowrap()
         .hover(|s| s.bg(theme.accent_bg()))
-        .child(label.into())
+        .child(label)
 }

@@ -11,7 +11,7 @@ use timechimp::{Client, CurrentUser, Mileage, Project, ProjectTask, Tag, Task, T
 use crate::domain::report::Report;
 use crate::domain::{self, week::RecentItem};
 use crate::net;
-use crate::store::config::{self, Config, TripPreset};
+use crate::store::config::{self, Config, TimePreset, TripPreset};
 
 pub struct Session {
     /// Unique per session; `TimeChimpApp::run` drops results that arrive for an older one.
@@ -29,8 +29,11 @@ pub struct Session {
     pub project_tags: HashMap<i64, Vec<Tag>>,
     /// Billable share to aim for, from `config.toml` (fraction).
     pub billable_goal: f64,
-    /// `[[trips]]` from `config.toml`: buttons on the Mileage tab that open a filled-in trip form.
+    /// `[[trips]]` from `config.toml`: the "+ Add trip" dropdown, each opening a filled-in trip form.
     pub trip_presets: Vec<TripPreset>,
+    /// `[[time_entries]]` from `config.toml`: the "+ Add time" dropdown, each opening a filled-in
+    /// time form.
+    pub time_presets: Vec<TimePreset>,
 
     /// The selected day.
     pub day: NaiveDate,
@@ -65,6 +68,7 @@ impl Session {
             project_tags: HashMap::new(),
             billable_goal: config::DEFAULT_BILLABLE_GOAL,
             trip_presets: Vec::new(),
+            time_presets: Vec::new(),
             day: today,
             week_start: domain::time::monday_of(today),
             entries: Vec::new(),
@@ -99,19 +103,30 @@ impl Session {
         let Some(config) = config else {
             self.project_tags.clear();
             self.trip_presets.clear();
+            self.time_presets.clear();
             self.billable_goal = config::DEFAULT_BILLABLE_GOAL;
             return None;
         };
         self.billable_goal = config.billable_goal;
         let (resolved, warning) = config::resolve_project_tags(&config.projects, &self.projects, &self.tags);
         self.project_tags = resolved;
-        let unknown: Vec<String> = config
+        let mut unknown: Vec<String> = config
             .trips
             .iter()
-            .filter(|t| self.preset_project(t).is_none())
+            .filter(|t| self.project_named(&t.project).is_none())
             .map(|t| format!("project \"{}\" (trip \"{}\")", t.project, t.name))
             .collect();
+        for preset in &config.time_entries {
+            let what = time_preset_label(preset);
+            match self.resolve_time_preset(preset) {
+                Err(name) => unknown.push(format!("{name} (time entry \"{what}\")")),
+                Ok(resolved) => unknown.extend(
+                    resolved.unknown_tags.iter().map(|t| format!("tag \"{t}\" (time entry \"{what}\")")),
+                ),
+            }
+        }
         self.trip_presets = config.trips;
+        self.time_presets = config.time_entries;
         match (warning, unknown.is_empty()) {
             (w, true) => w,
             (None, false) => Some(format!("config.toml: unknown {}", unknown.join(", "))),
@@ -231,8 +246,32 @@ impl Session {
     }
 
     /// The project a preset names (case-insensitive), among the user's projects.
-    pub fn preset_project(&self, preset: &TripPreset) -> Option<&Project> {
-        self.projects.iter().find(|p| p.name.eq_ignore_ascii_case(preset.project.trim()))
+    pub fn project_named(&self, name: &str) -> Option<&Project> {
+        self.projects.iter().find(|p| p.name.eq_ignore_ascii_case(name.trim()))
+    }
+
+    /// The ids a time preset's names stand for; Err names the project or task that matches nothing.
+    pub fn resolve_time_preset(&self, preset: &TimePreset) -> Result<ResolvedTimePreset, String> {
+        let project = self.project_named(&preset.project).ok_or_else(|| format!("project \"{}\"", preset.project))?;
+        let tasks = self.project_tasks.get(&project.id).map(Vec::as_slice).unwrap_or_default();
+        let project_task_id = match &preset.task {
+            Some(name) => Some(
+                tasks
+                    .iter()
+                    .find(|t| t.name.eq_ignore_ascii_case(name.trim()))
+                    .ok_or_else(|| format!("task \"{name}\" of project \"{}\"", project.name))?
+                    .id,
+            ),
+            None => None,
+        };
+        let (mut tag_ids, mut unknown_tags) = (Vec::new(), Vec::new());
+        for name in &preset.tags {
+            match self.tags.iter().find(|t| t.name.eq_ignore_ascii_case(name.trim())) {
+                Some(tag) => tag_ids.push(tag.id),
+                None => unknown_tags.push(name.clone()),
+            }
+        }
+        Ok(ResolvedTimePreset { project_id: project.id, project_task_id, tag_ids, unknown_tags })
     }
 
     /// End time of the last entry on `date`, so a new entry continues where the day left off.
@@ -285,6 +324,27 @@ impl Session {
     pub fn contract_hours(&self) -> f64 {
         self.me.as_ref().and_then(|m| m.contract_hours).unwrap_or(0.0)
     }
+}
+
+/// A time preset's names as ids of the user's data.
+#[derive(Debug, PartialEq)]
+pub struct ResolvedTimePreset {
+    pub project_id: i64,
+    /// None: the preset names no task, so the form picks the project's first.
+    pub project_task_id: Option<i64>,
+    pub tag_ids: Vec<i64>,
+    /// Tag names that match no tag; left out.
+    pub unknown_tags: Vec<String>,
+}
+
+/// How a time preset is shown: its notes, else its task, else its project.
+pub fn time_preset_label(preset: &TimePreset) -> &str {
+    [&preset.notes, &preset.task]
+        .into_iter()
+        .flatten()
+        .map(|s| s.trim())
+        .find(|s| !s.is_empty())
+        .unwrap_or(&preset.project)
 }
 
 fn keep_selection(selected: Option<usize>, len: usize) -> Option<usize> {
@@ -361,11 +421,51 @@ mod tests {
                 billable: false,
                 notes: None,
             }],
+            time_entries: vec![TimePreset { project: "Gone".into(), task: None, notes: Some("Standup".into()), tags: Vec::new() }],
         };
         let warning = s.apply_config(Some(config)).unwrap();
         assert!(warning.contains("project \"Nope\"") && warning.contains("trip \"Trip\""), "{warning}");
-        assert_eq!((s.billable_goal, s.trip_presets.len()), (0.8, 1));
+        assert!(warning.contains("(time entry \"Standup\")"), "{warning}");
+        assert_eq!((s.billable_goal, s.trip_presets.len(), s.time_presets.len()), (0.8, 1, 1));
         assert_eq!(s.apply_config(None), None);
-        assert_eq!((s.billable_goal, s.trip_presets.len()), (config::DEFAULT_BILLABLE_GOAL, 0));
+        assert_eq!((s.billable_goal, s.trip_presets.len(), s.time_presets.len()), (config::DEFAULT_BILLABLE_GOAL, 0, 0));
+    }
+
+    #[test]
+    fn time_presets() {
+        let mut s = Session::new(None, date(4));
+        s.projects = vec![
+            serde_json::from_value(serde_json::json!({
+                "id": 3, "name": "Intern", "customerId": 2, "customerName": "Us",
+                "intern": true, "unspecified": false, "active": true,
+            }))
+            .unwrap(),
+        ];
+        s.project_tasks = HashMap::from([(
+            3,
+            vec![
+                serde_json::from_value(serde_json::json!({
+                    "id": 4, "name": "Meeting", "billable": false, "active": true, "projectId": 3, "taskId": 5,
+                }))
+                .unwrap(),
+            ],
+        )]);
+        s.tags = vec![serde_json::from_value(serde_json::json!({ "id": 7, "companyId": 1, "name": "Daily", "active": true, "type": 1 })).unwrap()];
+        let preset = |task: Option<&str>, tags: &[&str]| TimePreset {
+            project: "intern".into(),
+            task: task.map(Into::into),
+            notes: None,
+            tags: tags.iter().map(|t| t.to_string()).collect(),
+        };
+        assert_eq!(
+            s.resolve_time_preset(&preset(Some("meeting"), &["daily", "gone"])),
+            Ok(ResolvedTimePreset { project_id: 3, project_task_id: Some(4), tag_ids: vec![7], unknown_tags: vec!["gone".into()] })
+        );
+        assert_eq!(s.resolve_time_preset(&preset(None, &[])).unwrap().project_task_id, None);
+        assert!(s.resolve_time_preset(&preset(Some("Nap"), &[])).unwrap_err().starts_with("task \"Nap\""));
+
+        assert_eq!(time_preset_label(&preset(Some("Meeting"), &[])), "Meeting");
+        assert_eq!(time_preset_label(&TimePreset { notes: Some(" Standup ".into()), ..preset(None, &[]) }), "Standup");
+        assert_eq!(time_preset_label(&preset(None, &[])), "intern");
     }
 }

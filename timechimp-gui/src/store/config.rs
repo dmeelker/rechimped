@@ -1,5 +1,5 @@
 //! `config.toml`: the billable goal, the tags each project may use (shown as checkboxes in the
-//! time form) and preset trips. Earlier versions called it `projects.toml`; that file is renamed
+//! time form), preset trips and preset time entries. Earlier versions called it `projects.toml`; that file is renamed
 //! on first load.
 
 use std::collections::HashMap;
@@ -26,10 +26,27 @@ struct ConfigFile {
     projects: HashMap<String, Vec<String>>,
     #[serde(default)]
     trips: Vec<TripPreset>,
+    #[serde(default)]
+    time_entries: Vec<TimePreset>,
+}
+
+/// A kind of preset: an array of tables in `config.toml`, appended to and removed from as text so
+/// the rest of the file (comments included) stays as it is.
+pub trait Preset: serde::Serialize {
+    /// The `[[KEY]]` the presets are listed under.
+    const KEY: &'static str;
+    /// The comment written above the first one.
+    const COMMENT: &'static str;
+    /// Whether `table` (one of the `[[KEY]]` entries) is this preset.
+    fn is(&self, table: &toml_edit::Table) -> bool;
+}
+
+fn str_field<'a>(table: &'a toml_edit::Table, key: &str) -> Option<&'a str> {
+    table.get(key).and_then(|v| v.as_str())
 }
 
 /// A `[[trips]]` entry in `config.toml`: a trip made often (a commute, a regular client visit),
-/// offered as a button on the Mileage tab that opens the trip form filled in.
+/// offered in the dropdown of "+ Add trip", which opens the trip form filled in.
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug, PartialEq)]
 pub struct TripPreset {
     pub name: String,
@@ -49,6 +66,43 @@ pub struct TripPreset {
     pub billable: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+}
+
+impl Preset for TripPreset {
+    const KEY: &'static str = "trips";
+    const COMMENT: &'static str = TRIPS_COMMENT;
+    /// Trips are known by name.
+    fn is(&self, table: &toml_edit::Table) -> bool {
+        str_field(table, "name").is_some_and(|n| n.eq_ignore_ascii_case(&self.name))
+    }
+}
+
+/// A `[[time_entries]]` entry in `config.toml`: work done often (a standup, a regular project),
+/// offered in the dropdown of "+ Add time", which opens the time form filled in.
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug, PartialEq)]
+pub struct TimePreset {
+    /// Project name, matched case-insensitively.
+    pub project: String,
+    /// Task name (case-insensitive); left out, the project's first task.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<String>,
+    /// The entry's description.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    /// Tag names (case-insensitive).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+}
+
+impl Preset for TimePreset {
+    const KEY: &'static str = "time_entries";
+    const COMMENT: &'static str = TIME_ENTRIES_COMMENT;
+    /// Time presets have no name; project, task and notes tell them apart.
+    fn is(&self, table: &toml_edit::Table) -> bool {
+        str_field(table, "project") == Some(&self.project)
+            && str_field(table, "task") == self.task.as_deref()
+            && str_field(table, "notes") == self.notes.as_deref()
+    }
 }
 
 impl TripPreset {
@@ -83,6 +137,7 @@ pub struct Config {
     /// Project name → tag names.
     pub projects: HashMap<String, Vec<String>>,
     pub trips: Vec<TripPreset>,
+    pub time_entries: Vec<TimePreset>,
 }
 
 fn parse_config(text: &str) -> Result<Config, String> {
@@ -103,77 +158,70 @@ fn parse_config(text: &str) -> Result<Config, String> {
             ));
         }
     }
-    Ok(Config { billable_goal, projects: file.projects, trips: file.trips })
+    Ok(Config { billable_goal, projects: file.projects, trips: file.trips, time_entries: file.time_entries })
 }
 
-/// The `[[trips]]` block for `preset`, as appended to `config.toml`.
-fn preset_toml(preset: &TripPreset) -> Result<String, String> {
-    #[derive(serde::Serialize)]
-    struct Trips<'a> {
-        trips: [&'a TripPreset; 1],
-    }
-    toml::to_string(&Trips { trips: [preset] }).map_err(|e| e.to_string())
+/// The `[[KEY]]` block for `preset`, as appended to `config.toml`.
+fn preset_toml<P: Preset>(preset: &P) -> Result<String, String> {
+    toml::to_string(&std::collections::BTreeMap::from([(P::KEY, [preset])])).map_err(|e| e.to_string())
 }
 
 /// Adds `preset` to the end of `config.toml` (as text, so the comments stay).
-pub fn append_trip_preset(path: &Path, preset: &TripPreset) -> Result<(), String> {
+pub fn append_preset<P: Preset>(path: &Path, preset: &P) -> Result<(), String> {
     let block = preset_toml(preset)?;
     let mut text = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(e) => return Err(format!("Could not read {}: {e}", path.display())),
     };
-    // Make sure the result still parses before touching the file.
-    let had_trips = parse_config(&text).map(|c| !c.trips.is_empty()).unwrap_or(false);
+    let had_any = text.parse::<toml_edit::DocumentMut>().is_ok_and(|doc| doc.contains_key(P::KEY));
     if !text.is_empty() && !text.ends_with('\n') {
         text.push('\n');
     }
-    if !had_trips {
-        text.push_str(&format!("\n{TRIPS_COMMENT}"));
+    if !had_any {
+        text.push_str(&format!("\n{}", P::COMMENT));
     }
     text.push('\n');
     text.push_str(&block);
+    // Make sure the result still parses before touching the file.
     parse_config(&text).map_err(|e| format!("Error in {}: {e}", path.display()))?;
     std::fs::create_dir_all(path.parent().expect("has parent")).map_err(|e| e.to_string())?;
     std::fs::write(path, text).map_err(|e| format!("Could not write {}: {e}", path.display()))
 }
 
-/// Removes the `[[trips]]` preset called `name` from `config.toml`, leaving the rest of the file
-/// (comments included) as it is.
-pub fn remove_trip_preset(path: &Path, name: &str) -> Result<(), String> {
+/// Removes `preset` from `config.toml`, leaving the rest of the file (comments included) as it is.
+pub fn remove_preset<P: Preset>(path: &Path, preset: &P) -> Result<(), String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
-    let text = without_trip(&text, name).map_err(|e| format!("{}: {e}", path.display()))?;
+    let text = without(&text, preset).map_err(|e| format!("{}: {e}", path.display()))?;
     std::fs::write(path, text).map_err(|e| format!("Could not write {}: {e}", path.display()))
 }
 
-fn without_trip(text: &str, name: &str) -> Result<String, String> {
+fn without<P: Preset>(text: &str, preset: &P) -> Result<String, String> {
     let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| e.to_string())?;
-    let trips = doc
-        .get_mut("trips")
-        .and_then(toml_edit::Item::as_array_of_tables_mut)
-        .ok_or_else(|| format!("no preset \"{name}\""))?;
-    let index = trips
-        .iter()
-        .position(|t| t.get("name").and_then(|n| n.as_str()).is_some_and(|n| n.eq_ignore_ascii_case(name)))
-        .ok_or_else(|| format!("no preset \"{name}\""))?;
+    let not_found = || "preset not found (was it changed in the meantime?)".to_owned();
+    let presets = doc.get_mut(P::KEY).and_then(toml_edit::Item::as_array_of_tables_mut).ok_or_else(not_found)?;
+    let index = presets.iter().position(|t| preset.is(t)).ok_or_else(not_found)?;
     // The comment above the first preset explains the section; hand it to the next one.
-    let prefix = trips.get(index).and_then(|t| t.decor().prefix()).and_then(|p| p.as_str()).map(str::to_owned);
-    trips.remove(index);
-    if let (Some(prefix), Some(next)) = (prefix, trips.get_mut(index))
+    let prefix = presets.get(index).and_then(|t| t.decor().prefix()).and_then(|p| p.as_str()).map(str::to_owned);
+    presets.remove(index);
+    if let (Some(prefix), Some(next)) = (prefix, presets.get_mut(index))
         && index == 0
     {
         let own = next.decor().prefix().and_then(|p| p.as_str()).unwrap_or("").to_owned();
         next.decor_mut().set_prefix(format!("{prefix}{own}"));
     }
-    if trips.is_empty() {
-        doc.remove("trips");
+    if presets.is_empty() {
+        doc.remove(P::KEY);
     }
     Ok(doc.to_string())
 }
 
-const TRIPS_COMMENT: &str = "# Preset trips, shown as buttons on the Mileage tab. Fields: name, project, from, to,\n\
-     # distance (km, one way; optional), return_trip, type (\"business\" or \"home-work\"),\n\
-     # billable, notes (optional).\n";
+const TRIPS_COMMENT: &str = "# Preset trips, in the dropdown of \"+ Add trip\" on the Mileage tab. Fields: name,\n\
+     # project, from, to, distance (km, one way; optional), return_trip, type (\"business\" or\n\
+     # \"home-work\"), billable, notes (optional).\n";
+
+const TIME_ENTRIES_COMMENT: &str = "# Preset time entries, in the dropdown of \"+ Add time\" on the Week tab. Fields: project,\n\
+     # task (optional; the project's first task), notes (optional), tags (optional list of names).\n";
 
 /// Reads `config.toml`. `Ok(None)` if the file doesn't exist.
 pub fn load(path: &Path) -> Result<Option<Config>, String> {
@@ -245,6 +293,10 @@ pub fn write_template(path: &Path, projects: &[Project], tags: &[Tag]) -> std::i
          # [[trips]]\n# name = \"Commute\"\n# project = \"Intern\"\n# from = \"Home street 1, Town\"\n\
          # to = \"Office lane 2, City\"\n# distance = 23\n# return_trip = true\n# type = \"home-work\"\n"
     ));
+    text.push_str(&format!(
+        "\n{TIME_ENTRIES_COMMENT}# \"Save as preset\" in the time form adds one here. Example:\n#\n\
+         # [[time_entries]]\n# project = \"Intern\"\n# task = \"Meeting\"\n# notes = \"Standup\"\n"
+    ));
     std::fs::create_dir_all(path.parent().expect("has parent"))?;
     std::fs::write(path, text)
 }
@@ -295,19 +347,37 @@ mod tests {
             billable: false,
             notes: None,
         };
-        append_trip_preset(&path, &preset).unwrap();
+        append_preset(&path, &preset).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("# Percentage of your hours") && text.contains("# Preset trips"), "comments stay");
-        assert_eq!(load(&path).unwrap().unwrap().trips, [preset]);
+        assert_eq!(load(&path).unwrap().unwrap().trips, std::slice::from_ref(&preset));
 
-        remove_trip_preset(&path, "commute").unwrap();
-        assert!(load(&path).unwrap().unwrap().trips.is_empty());
-        assert!(remove_trip_preset(&path, "commute").is_err());
+        let standup = TimePreset {
+            project: "Intern".into(),
+            task: Some("Meeting".into()),
+            notes: Some("Standup".into()),
+            tags: vec!["daily".into()],
+        };
+        let bare = TimePreset { notes: None, tags: Vec::new(), ..standup.clone() };
+        append_preset(&path, &standup).unwrap();
+        append_preset(&path, &bare).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(text.matches("# Preset time entries").count(), 1, "section comment once");
+        let config = load(&path).unwrap().unwrap();
+        assert_eq!((config.trips.len(), &config.time_entries[..]), (1, &[standup.clone(), bare.clone()][..]));
+
+        remove_preset(&path, &TripPreset { name: "commute".into(), ..preset.clone() }).unwrap();
+        remove_preset(&path, &standup).unwrap();
+        let config = load(&path).unwrap().unwrap();
+        assert!(config.trips.is_empty());
+        assert_eq!(config.time_entries, [bare]);
+        assert!(remove_preset(&path, &preset).is_err());
+        assert!(remove_preset(&path, &standup).is_err());
 
         // A broken file is reported, not overwritten.
         std::fs::write(&path, "billable_goal = [").unwrap();
         assert!(load(&path).is_err());
-        assert!(append_trip_preset(&path, &TripPreset { name: "X".into(), ..preset_named("X") }).is_err());
+        assert!(append_preset(&path, &preset_named("X")).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "billable_goal = [");
     }
 
@@ -332,7 +402,7 @@ mod tests {
         write_template(&path, &[], &[]).unwrap();
         let config = load(&path).unwrap().unwrap();
         assert_eq!(config.billable_goal, DEFAULT_BILLABLE_GOAL);
-        assert!(config.projects.is_empty() && config.trips.is_empty());
+        assert!(config.projects.is_empty() && config.trips.is_empty() && config.time_entries.is_empty());
     }
 
     #[test]
@@ -378,7 +448,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_preset() {
+    fn remove_presets() {
         let trip = |name: &str| format!("[[trips]]\nname = \"{name}\"\nproject = \"p\"\nfrom = \"a\"\nto = \"b\"\n");
         let text = format!(
             "# top\nbillable_goal = 70\n\n[projects]\n# keep me\nIntern = []\n\n# about trips\n{}\n# second\n{}\n{}",
@@ -388,21 +458,21 @@ mod tests {
         );
         let names = |t: &str| parse_config(t).unwrap().trips.into_iter().map(|t| t.name).collect::<Vec<_>>();
 
-        let first_gone = without_trip(&text, "commute").unwrap();
+        let first_gone = without(&text, &preset_named("commute")).unwrap();
         assert_eq!(names(&first_gone), ["Client", "Gym"]);
         assert!(first_gone.contains("# top") && first_gone.contains("# keep me"));
         assert!(first_gone.contains("# about trips"), "section comment moves to the next preset");
         assert!(first_gone.contains("# second"), "and the next preset keeps its own");
 
-        let middle_gone = without_trip(&text, "Client").unwrap();
+        let middle_gone = without(&text, &preset_named("Client")).unwrap();
         assert_eq!(names(&middle_gone), ["Commute", "Gym"]);
         assert!(middle_gone.contains("# about trips"));
 
-        let all_gone = ["Commute", "Client", "Gym"].iter().fold(text.clone(), |t, n| without_trip(&t, n).unwrap());
+        let all_gone = ["Commute", "Client", "Gym"].iter().fold(text.clone(), |t, n| without(&t, &preset_named(n)).unwrap());
         assert!(names(&all_gone).is_empty());
         assert!(all_gone.contains("Intern = []"));
 
-        assert!(without_trip(&text, "Nope").is_err());
-        assert!(without_trip("billable_goal = 70\n", "Commute").is_err());
+        assert!(without(&text, &preset_named("Nope")).is_err());
+        assert!(without("billable_goal = 70\n", &preset_named("Commute")).is_err());
     }
 }

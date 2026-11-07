@@ -203,14 +203,11 @@ impl TimeChimpApp {
                     .pt(px(8.))
                     .gap(px(8.))
                     .items_center()
-                    // Any trip form, so an existing trip can become a preset too.
-                    .when(matches!(&form.body, FormBody::Mileage(_)), |d| {
-                        d.child(pop(
-                            theme,
-                            button("form-preset", "Save as preset")
-                                .on_click(cx.listener(|this, _, w, cx| this.save_as_preset(w, cx))),
-                        ))
-                    })
+                    // Any form, so an existing entry or trip can become a preset too.
+                    .child(pop(
+                        theme,
+                        button("form-preset", "Save as preset").on_click(cx.listener(|this, _, w, cx| this.save_as_preset(w, cx))),
+                    ))
                     .child(div().flex_1())
                     .when_some(self.busy(), |d, b| d.child(div().text_color(theme.accent()).child(b)))
                     .child(pop(
