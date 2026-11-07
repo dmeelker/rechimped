@@ -96,9 +96,11 @@ impl TimeChimpApp {
         if !matches!(self.screen, Screen::Main) || self.form.is_some() || self.settings.is_some() {
             return;
         }
-        if self.menu.is_some() || self.show_detail {
+        // Any key closes a menu or a read-only popup.
+        if self.menu.is_some() || self.show_detail || self.chart.is_some() {
             self.menu = None;
             self.show_detail = false;
+            self.chart = None;
             cx.stop_propagation();
             cx.notify();
             return;

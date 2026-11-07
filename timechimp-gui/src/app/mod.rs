@@ -3,6 +3,7 @@
 
 mod actions;
 mod auth;
+mod chart;
 mod date_field;
 mod delete;
 mod loading;
@@ -13,6 +14,7 @@ mod time_form;
 mod trip_form;
 
 pub use actions::*;
+pub use chart::BillabilityChart;
 
 use std::future::Future;
 
@@ -105,6 +107,8 @@ pub struct TimeChimpApp {
     /// The open delete confirmation, with the subscription that clears it when it closes.
     pub confirm: Option<(Entity<DialogState>, Subscription)>,
     pub show_detail: bool,
+    /// The open billability chart (from the Week card).
+    pub chart: Option<BillabilityChart>,
     /// The open dropdown, if any.
     pub menu: Option<Menu>,
     pub error: Option<String>,
@@ -137,6 +141,7 @@ impl TimeChimpApp {
             settings: None,
             confirm: None,
             show_detail: false,
+            chart: None,
             menu: None,
             error: None,
             in_flight: Vec::new(),

@@ -6,11 +6,14 @@ use gpui::{
     StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
 };
 use gpuikit::elements::progress::{ProgressVariant, progress};
+use gpuikit::elements::tooltip::tooltip;
+use gpuikit::icons::Icons;
 use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::Themeable;
 use timechimp::TimeEntry;
 
 use crate::app::TimeChimpApp;
+use crate::domain::week::CHART_WEEKS;
 
 use super::widgets::*;
 
@@ -104,7 +107,7 @@ impl TimeChimpApp {
 
         // Week card: total against the contract, and billable hours against the contract (without
         // one, against what was logged), coloured by the billable goal; leave left out of both.
-        let crate::domain::week::WeekCard { hours: total, contract, share } =
+        let crate::domain::week::WeekCard { hours: total, contract, share, .. } =
             crate::domain::week::week_card(&self.session.entries, self.session.contract_hours());
         let ratio = share.unwrap_or(0.0);
         let goal_met = share.is_some_and(|s| s >= self.session.settings.billable_goal);
@@ -126,10 +129,19 @@ impl TimeChimpApp {
                     .justify_between()
                     .child(div().font_weight(FontWeight::SEMIBOLD).child("Week"))
                     .child(
-                        div()
-                            .text_xs()
-                            .text_color(ratio_colour)
-                            .child(format!("{:.0}% billable", ratio * 100.0)),
+                        // Opens the billability chart of this week and the ones before.
+                        h_stack()
+                            .id("open-billability-chart")
+                            .gap(px(4.))
+                            .items_center()
+                            .px(px(4.))
+                            .rounded(px(4.))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(theme.accent_bg()))
+                            .tooltip(tooltip(format!("Billability of the last {CHART_WEEKS} weeks")))
+                            .on_click(cx.listener(|this, _, window, cx| this.open_chart(window, cx)))
+                            .child(div().text_xs().text_color(ratio_colour).child(format!("{:.0}% billable", ratio * 100.0)))
+                            .child(Icons::bar_chart().size(px(12.)).text_color(theme.fg_muted())),
                     ),
             )
             .child(

@@ -68,10 +68,14 @@ pub async fn load_history(
     loaded: NaiveDate,
 ) -> timechimp::Result<Vec<TimeEntry>> {
     let this_week = monday_of(today);
-    let weeks = (0..HISTORY_WEEKS)
-        .map(|k| this_week - Duration::weeks(k))
-        .filter(|monday| *monday != loaded)
-        .map(|monday| client.time_entries_for_week(user_id, monday));
+    let mondays: Vec<NaiveDate> =
+        (0..HISTORY_WEEKS).map(|k| this_week - Duration::weeks(k)).filter(|monday| *monday != loaded).collect();
+    load_weeks(client, user_id, &mondays).await
+}
+
+/// The user's entries of the weeks starting on `mondays`.
+pub async fn load_weeks(client: &Client, user_id: i64, mondays: &[NaiveDate]) -> timechimp::Result<Vec<TimeEntry>> {
+    let weeks = mondays.iter().map(|&monday| client.time_entries_for_week(user_id, monday));
     Ok(futures::future::try_join_all(weeks).await?.into_iter().flatten().collect())
 }
 

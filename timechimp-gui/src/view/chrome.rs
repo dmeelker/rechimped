@@ -89,6 +89,7 @@ impl TimeChimpApp {
             .child(browse)
             .when(self.menu.is_some(), |d| d.child(self.render_menu_backdrop(cx)))
             .when(self.show_detail, |d| d.child(self.render_detail(theme, cx)))
+            .when_some(self.chart.as_ref(), |d, chart| d.child(self.render_chart(chart, theme, cx)))
             .when_some(self.form.as_ref(), |d, form| d.child(self.render_form(form, theme, cx)))
             .when_some(self.settings.as_ref(), |d, form| d.child(self.render_settings(form, theme, cx)))
     }

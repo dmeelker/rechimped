@@ -70,6 +70,8 @@ pub fn is_leave(entry: &TimeEntry) -> bool {
 pub struct WeekCard {
     /// Hours logged, leave excluded.
     pub hours: f64,
+    /// The billable ones among `hours`.
+    pub billable: f64,
     /// The contract hours minus the leave taken (never below 0).
     pub contract: f64,
     /// The billable hours as a fraction of `contract`, or (without one) of `hours`; None when
@@ -83,8 +85,29 @@ pub fn week_card(entries: &[TimeEntry], contract_hours: f64) -> WeekCard {
     let hours = worked.iter().fold(0.0, |total, e| total + e.hours);
     let leave = entries.iter().filter(|e| is_leave(e)).fold(0.0, |total, e| total + e.hours);
     let contract = (contract_hours - leave).max(0.0);
+    let billable = billable_hours(&worked);
     let of = if contract > 0.0 { contract } else { hours };
-    WeekCard { hours, contract, share: (of > 0.0).then(|| billable_hours(&worked) / of) }
+    WeekCard { hours, billable, contract, share: (of > 0.0).then(|| billable / of) }
+}
+
+/// How many weeks the billability chart shows, the selected one included.
+pub const CHART_WEEKS: i64 = 5;
+
+/// The Mondays of the `count` weeks up to and including the one starting on `monday`, oldest first.
+pub fn weeks_up_to(monday: NaiveDate, count: i64) -> Vec<NaiveDate> {
+    (0..count).rev().map(|k| monday - chrono::Duration::weeks(k)).collect()
+}
+
+/// The Week card's figures for each week starting on one of `mondays`, from the entries of all of them.
+pub fn week_cards(entries: &[TimeEntry], mondays: &[NaiveDate], contract_hours: f64) -> Vec<(NaiveDate, WeekCard)> {
+    mondays
+        .iter()
+        .map(|&monday| {
+            let week = monday..monday + chrono::Duration::days(7);
+            let in_week: Vec<TimeEntry> = entries.iter().filter(|e| week.contains(&e.date)).cloned().collect();
+            (monday, week_card(&in_week, contract_hours))
+        })
+        .collect()
 }
 
 /// Whether the Week tab shows `day`: a work day (`work_days`, Monday first), today, or the selected
@@ -198,11 +221,28 @@ mod tests {
         (meeting.project_name, meeting.task_name, meeting.billable, meeting.hours) = ("Intern".into(), "Meeting".into(), false, 2.0);
         let entries = [entry(1, 2, "9:00-10:00"), leave.clone(), meeting];
         assert!(is_leave(&leave));
-        assert_eq!(week_card(&entries, 40.0), WeekCard { hours: 3.0, contract: 32.0, share: Some(1.0 / 32.0) });
+        assert_eq!(week_card(&entries, 40.0), WeekCard { hours: 3.0, billable: 1.0, contract: 32.0, share: Some(1.0 / 32.0) });
         assert_eq!(week_card(&entries, 0.0).share, Some(1.0 / 3.0), "of the hours logged, leave excluded");
         let card = week_card(&[leave], 8.0);
         assert_eq!((card.hours, card.contract, card.share), (0.0, 0.0, None));
         assert!(card.hours.is_sign_positive(), "not -0");
+    }
+
+    #[test]
+    fn cards_per_week() {
+        use crate::test_support::{date, entry};
+        // 2 Nov 2026 is a Monday.
+        let mondays = weeks_up_to(date(9), 3);
+        assert_eq!(mondays, [date(9) - chrono::Duration::weeks(2), date(2), date(9)]);
+        let mut unbilled = entry(3, 8, "");
+        unbilled.billable = false;
+        let entries = [entry(1, 2, ""), entry(2, 8, ""), unbilled, entry(4, 9, "")];
+        let shares: Vec<_> = week_cards(&entries, &mondays, 4.0).into_iter().map(|(m, c)| (m, c.hours, c.share)).collect();
+        assert_eq!(
+            shares,
+            [(mondays[0], 0.0, Some(0.0)), (date(2), 3.0, Some(2.0 / 4.0)), (date(9), 1.0, Some(1.0 / 4.0))],
+            "Sunday the 8th counts for the week of the 2nd"
+        );
     }
 
     #[test]

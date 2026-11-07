@@ -36,6 +36,7 @@ impl TimeChimpApp {
         self.settings = None;
         self.confirm = None;
         self.show_detail = false;
+        self.chart = None;
         self.menu = None;
         self.error = None;
         self.screen = Screen::Login(Box::new(Login {
