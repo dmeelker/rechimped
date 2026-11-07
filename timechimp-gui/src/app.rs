@@ -1241,37 +1241,45 @@ impl TimeChimpApp {
             let e = |e: timechimp::Error| e.to_string();
             match request {
                 SaveRequest::Time { id: Some(id), entry } => {
-                    Ok((client.update_time_entry(id, &entry).await.map_err(e)?.id, "Time entry updated."))
+                    Ok(Saved::Done(client.update_time_entry(id, &entry).await.map_err(e)?.id, "Time entry updated."))
                 }
                 SaveRequest::Time { id: None, entry } => {
-                    Ok((client.create_time_entry(&entry).await.map_err(e)?.id, "Time entry saved."))
+                    Ok(Saved::Done(client.create_time_entry(&entry).await.map_err(e)?.id, "Time entry saved."))
                 }
                 SaveRequest::Mileage { trip, editing: Some(original), .. } => {
-                    Ok((client.update_mileage(&original, &trip).await.map_err(e)?.id, "Trip updated."))
+                    Ok(Saved::Done(client.update_mileage(&original, &trip).await.map_err(e)?.id, "Trip updated."))
                 }
                 SaveRequest::Mileage { trip, return_trip, editing: None } => {
                     let id = client.create_mileage(&trip).await.map_err(e)?.id;
                     if !return_trip {
-                        return Ok((id, "Mileage saved."));
+                        return Ok(Saved::Done(id, "Mileage saved."));
                     }
                     let back = NewMileage { from_address: trip.to_address.clone(), to_address: trip.from_address.clone(), ..trip };
-                    client.create_mileage(&back).await.map_err(e)?;
-                    Ok((id, "Mileage saved (return trip included)."))
+                    match client.create_mileage(&back).await {
+                        Ok(_) => Ok(Saved::Done(id, "Mileage saved (return trip included).")),
+                        // The outbound trip is in: closing the form keeps Save from adding it twice.
+                        Err(error) => Ok(Saved::Partial(id, e(error))),
+                    }
                 }
             }
         };
-        self.run("Saving…", future, window, cx, move |this, result: Result<(i64, &str), String>, window, cx| {
+        self.run("Saving…", future, window, cx, move |this, result: Result<Saved, String>, window, cx| {
+            let id = match &result {
+                Ok(Saved::Done(id, _) | Saved::Partial(id, _)) => *id,
+                Err(e) => return this.form_error(e.clone(), cx),
+            };
+            this.close_form(window, cx);
+            // Jump to the day of the saved item and select it.
+            this.session.day = date;
+            this.session.week_start = domain::time::monday_of(date);
+            this.session.report = Report::default();
+            this.load_week(Some(id), window, cx);
             match result {
-                Ok((id, message)) => {
-                    this.close_form(window, cx);
-                    // Jump to the day of the saved item and select it.
-                    this.session.day = date;
-                    this.session.week_start = domain::time::monday_of(date);
-                    this.session.report = Report::default();
-                    this.load_week(Some(id), window, cx);
-                    this.set_info(message, window, cx);
+                Ok(Saved::Done(_, message)) => this.set_info(message, window, cx),
+                Ok(Saved::Partial(_, e)) => {
+                    this.set_error(format!("Outbound trip saved, but the return trip failed: {e}"), window, cx)
                 }
-                Err(e) => this.form_error(e, cx),
+                Err(_) => {}
             }
         });
     }
@@ -1413,6 +1421,12 @@ enum DeleteTarget {
     TripPreset(config::TripPreset),
     /// A `[[time_entries]]` preset in `config.toml`.
     TimePreset(config::TimePreset),
+}
+
+/// What a save did: everything, with a message, or (a trip with its return) only the outbound trip.
+enum Saved {
+    Done(i64, &'static str),
+    Partial(i64, String),
 }
 
 /// What `fill_time_form` puts in the open time form.
