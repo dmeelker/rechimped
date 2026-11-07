@@ -55,7 +55,8 @@ pub fn recent_items<'a>(entries: impl IntoIterator<Item = &'a TimeEntry>) -> Vec
 
 /// Billable hours among `entries`.
 pub fn billable_hours(entries: &[TimeEntry]) -> f64 {
-    entries.iter().filter(|e| e.billable).map(|e| e.hours).sum()
+    // A fold from +0.0: `sum` of nothing is -0.0, which shows as "-0%".
+    entries.iter().filter(|e| e.billable).fold(0.0, |total, e| total + e.hours)
 }
 
 /// The week's billable hours as a fraction of the contract hours, or (without a contract) of the
@@ -155,6 +156,18 @@ mod tests {
     }
 
     const WEEKDAYS: [bool; 7] = [true, true, true, true, true, false, false];
+
+    #[test]
+    fn billable_share_of_the_week() {
+        use crate::test_support::entry;
+        let mut unbilled = entry(2, 3, "10:00-13:00");
+        (unbilled.billable, unbilled.hours) = (false, 3.0);
+        let entries = [entry(1, 2, "9:00-10:00"), unbilled];
+        assert_eq!(billable_share(&entries, 40.0), Some(1.0 / 40.0));
+        assert_eq!(billable_share(&entries, 0.0), Some(1.0 / 4.0), "of the hours logged");
+        assert_eq!(billable_share(&[], 0.0), None);
+        assert!(billable_share(&[], 40.0).unwrap().is_sign_positive(), "not -0");
+    }
 
     #[test]
     fn shown_days() {
