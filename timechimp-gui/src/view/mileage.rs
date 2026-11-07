@@ -14,7 +14,7 @@ use super::widgets::*;
 
 impl TimeChimpApp {
     pub(super) fn trip_row(&self, theme: &T, i: usize, m: &timechimp::Mileage, cx: &mut Context<Self>) -> impl IntoElement {
-        let selected = self.session.selected_mileage_index() == Some(i);
+        let (id, selected) = (m.id, self.session.selected_mileage_id() == Some(m.id));
         h_stack()
             .id(ElementId::NamedInteger("trip".into(), i as u64))
             .w_full()
@@ -26,7 +26,7 @@ impl TimeChimpApp {
             .when(!m.billable, |d| d.text_color(theme.fg_muted()))
             .when(selected, |d| d.bg(theme.accent_bg()))
             .when(!selected, |d| d.hover(|s| s.bg(theme.surface())))
-            .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| this.click_mileage(i, ev.click_count(), window, cx)))
+            .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| this.click_mileage(id, ev.click_count(), window, cx)))
             .child(right_cell(60., format!("{}", m.distance)))
             .child(cell(None, m.from_address.clone().unwrap_or_default()))
             .child(cell(None, m.to_address.clone().unwrap_or_default()))

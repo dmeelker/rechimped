@@ -30,7 +30,7 @@ impl TimeChimpApp {
     }
 
     pub(super) fn entry_row(&self, theme: &T, index: usize, e: &TimeEntry, cx: &mut Context<Self>) -> impl IntoElement {
-        let selected = self.session.selected_entry_index() == Some(index);
+        let (id, selected) = (e.id, self.session.selected_entry_id() == Some(e.id));
         h_stack()
             .id(ElementId::NamedInteger("entry".into(), index as u64))
             .w_full()
@@ -42,7 +42,7 @@ impl TimeChimpApp {
             .when(!e.billable, |d| d.text_color(theme.fg_muted()))
             .when(selected, |d| d.bg(theme.accent_bg()))
             .when(!selected, |d| d.hover(|s| s.bg(theme.surface())))
-            .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| this.click_entry(index, ev.click_count(), window, cx)))
+            .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| this.click_entry(id, ev.click_count(), window, cx)))
             .child(cell(Some(110.), e.start_end.clone().unwrap_or_else(|| "–".into())))
             .child(right_cell(60., format!("{:.2}", e.hours)))
             .child(cell(Some(160.), e.customer_name.clone()))

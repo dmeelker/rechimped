@@ -68,8 +68,8 @@ impl TimeChimpApp {
     }
 
     /// Clicking a row: select it; a double click opens it for editing.
-    pub fn click_entry(&mut self, index: usize, clicks: usize, window: &mut Window, cx: &mut Context<Self>) {
-        self.session.select_entry(index);
+    pub fn click_entry(&mut self, id: i64, clicks: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.session.select_entry(id);
         window.focus(&self.focus, cx);
         if clicks >= 2 {
             self.edit_selected(window, cx);
@@ -77,8 +77,8 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    pub fn click_mileage(&mut self, index: usize, clicks: usize, window: &mut Window, cx: &mut Context<Self>) {
-        self.session.select_mileage(index);
+    pub fn click_mileage(&mut self, id: i64, clicks: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.session.select_mileage(id);
         window.focus(&self.focus, cx);
         if clicks >= 2 {
             self.edit_selected(window, cx);

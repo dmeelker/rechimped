@@ -9,6 +9,7 @@ use crate::forms::{self, Form, FormBody, TimeForm, chosen, text};
 use crate::validate::TimeKind;
 use crate::domain;
 use crate::seed::{self, TagSeed, TimeFill};
+use crate::store::config::TimePreset;
 
 use super::{Tab, TimeChimpApp};
 
@@ -188,13 +189,12 @@ impl TimeChimpApp {
     }
 
     /// A time preset in the "+ Add time" dropdown: a new time entry on the selected day, with the
-    /// project, task, notes and tags of preset `index`.
-    pub fn open_time_preset(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    /// project, task, notes and tags of `preset`.
+    pub fn open_time_preset(&mut self, preset: TimePreset, window: &mut Window, cx: &mut Context<Self>) {
         if self.session.me.is_none() || self.form.is_some() {
             return;
         }
         self.menu = None;
-        let Some(preset) = self.session.time_presets.get(index).cloned() else { return };
         let resolved = match self.session.resolve_time_preset(&preset) {
             Ok(resolved) => resolved,
             Err(unknown) => return self.set_error(format!("Preset: unknown {unknown}"), window, cx),

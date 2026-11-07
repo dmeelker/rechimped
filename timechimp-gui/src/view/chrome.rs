@@ -1,5 +1,7 @@
 //! The main screen around the tabs: header, user menu, toolbar, footer and the row actions.
 
+use std::rc::Rc;
+
 use gpui::{
     AnyElement, ClickEvent, Context, ElementId, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, Window, deferred, div, prelude::FluentBuilder, px,
@@ -177,33 +179,44 @@ impl TimeChimpApp {
     /// description over project) or "+ Add trip" (`[[trips]]`, by name). Clicking one opens the
     /// form for the selected day, filled in; its × asks to delete it.
     fn render_presets_menu(&self, theme: &T, kind: Menu, cx: &mut Context<Self>) -> impl IntoElement {
-        type Act = fn(&mut TimeChimpApp, usize, &mut Window, &mut Context<TimeChimpApp>);
-        let (labels, open, delete, empty): (Vec<AnyElement>, Act, Act, &str) = match kind {
+        // Each row's actions hold a copy of its preset, so they act on the one that was shown even
+        // if config.toml is reread in between.
+        type Act = Rc<dyn Fn(&mut TimeChimpApp, &mut Window, &mut Context<TimeChimpApp>)>;
+        let (presets, empty): (Vec<(AnyElement, Act, Act)>, &str) = match kind {
             Menu::AddTime => (
                 self.session
                     .time_presets
                     .iter()
                     .map(|p| {
-                        v_stack()
+                        let label = v_stack()
                             .child(session::time_preset_label(p).to_owned())
                             .child(div().text_xs().text_color(theme.fg_muted()).child(p.project.clone()))
-                            .into_any_element()
+                            .into_any_element();
+                        let (open, delete) = (p.clone(), p.clone());
+                        let open: Act = Rc::new(move |this, w, cx| this.open_time_preset(open.clone(), w, cx));
+                        let delete: Act = Rc::new(move |this, w, cx| this.ask_delete_time_preset(delete.clone(), w, cx));
+                        (label, open, delete)
                     })
                     .collect(),
-                Self::open_time_preset,
-                Self::ask_delete_time_preset,
                 "No presets yet: use \"Save as preset\" in the time form",
             ),
             _ => (
-                self.session.trip_presets.iter().map(|p| p.name.clone().into_any_element()).collect(),
-                Self::open_trip_preset,
-                Self::ask_delete_trip_preset,
+                self.session
+                    .trip_presets
+                    .iter()
+                    .map(|p| {
+                        let (open, delete) = (p.clone(), p.clone());
+                        let open: Act = Rc::new(move |this, w, cx| this.open_trip_preset(open.clone(), w, cx));
+                        let delete: Act = Rc::new(move |this, w, cx| this.ask_delete_trip_preset(delete.clone(), w, cx));
+                        (p.name.clone().into_any_element(), open, delete)
+                    })
+                    .collect(),
                 "No presets yet: use \"Save as preset\" in the trip form",
             ),
         };
         let danger = theme.danger();
-        let is_empty = labels.is_empty();
-        let rows = labels.into_iter().enumerate().map(|(i, label)| {
+        let is_empty = presets.is_empty();
+        let rows = presets.into_iter().enumerate().map(|(i, (label, open, delete))| {
             let remove = div()
                 .id(ElementId::NamedInteger("preset-delete".into(), i as u64))
                 .px(px(6.))
@@ -213,7 +226,7 @@ impl TimeChimpApp {
                 .text_color(theme.fg_muted())
                 .hover(move |s| s.text_color(danger))
                 .child("×")
-                .on_click(cx.listener(move |this, _, w, cx| delete(this, i, w, cx)));
+                .on_click(cx.listener(move |this, _, w, cx| delete(this, w, cx)));
             h_stack()
                 .items_center()
                 .gap(px(4.))
@@ -222,7 +235,7 @@ impl TimeChimpApp {
                 .child(
                     menu_item(theme, ElementId::NamedInteger("preset".into(), i as u64), label)
                         .flex_1()
-                        .on_click(cx.listener(move |this, _, w, cx| open(this, i, w, cx))),
+                        .on_click(cx.listener(move |this, _, w, cx| open(this, w, cx))),
                 )
                 .child(remove)
         });

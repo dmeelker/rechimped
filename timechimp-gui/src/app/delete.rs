@@ -46,24 +46,22 @@ impl TimeChimpApp {
         self.confirm_delete(target, question, label, window, cx);
     }
 
-    /// The × of a trip preset in the "+ Add trip" dropdown: removes preset `index` from
-    /// `config.toml`, after confirmation.
-    pub fn ask_delete_trip_preset(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    /// The × of a trip preset in the "+ Add trip" dropdown: removes `preset` from `config.toml`,
+    /// after confirmation.
+    pub fn ask_delete_trip_preset(&mut self, preset: config::TripPreset, window: &mut Window, cx: &mut Context<Self>) {
         self.menu = None;
-        let Some(preset) = self.session.trip_presets.get(index) else { return };
         let label = format!("\"{}\": {} → {}", preset.name, preset.from, preset.to);
-        let target = DeleteTarget::TripPreset(preset.clone());
+        let target = DeleteTarget::TripPreset(preset);
         self.confirm_delete(target, "Delete preset?", label, window, cx);
     }
 
-    /// The × of a time preset in the "+ Add time" dropdown: removes preset `index` from
-    /// `config.toml`, after confirmation.
-    pub fn ask_delete_time_preset(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    /// The × of a time preset in the "+ Add time" dropdown: removes `preset` from `config.toml`,
+    /// after confirmation.
+    pub fn ask_delete_time_preset(&mut self, preset: config::TimePreset, window: &mut Window, cx: &mut Context<Self>) {
         self.menu = None;
-        let Some(preset) = self.session.time_presets.get(index) else { return };
         let task = preset.task.as_deref().map(|t| format!(" / {t}")).unwrap_or_default();
-        let label = format!("\"{}\": {}{task}", session::time_preset_label(preset), preset.project);
-        let target = DeleteTarget::TimePreset(preset.clone());
+        let label = format!("\"{}\": {}{task}", session::time_preset_label(&preset), preset.project);
+        let target = DeleteTarget::TimePreset(preset);
         self.confirm_delete(target, "Delete preset?", label, window, cx);
     }
 

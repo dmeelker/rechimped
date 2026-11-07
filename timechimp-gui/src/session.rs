@@ -42,9 +42,11 @@ pub struct Session {
     /// empties them right away, so nothing of the week left shows under the new one's title.
     loaded_week: Option<NaiveDate>,
     pub entries: Vec<TimeEntry>,
-    selected_entry: Option<usize>,
+    /// Id of the selected entry (one of the selected day's, if it has any).
+    selected_entry: Option<i64>,
     pub mileage: Vec<Mileage>,
-    selected_mileage: Option<usize>,
+    /// Id of the selected trip.
+    selected_mileage: Option<i64>,
     /// Bumped on every week load, so a slow response for a week we already left is dropped.
     week_generation: u64,
     /// Entries of the last few weeks plus every week loaded since, by id; feeds `recent`.
@@ -184,18 +186,12 @@ impl Session {
         self.recent = domain::week::recent_items(self.history.values());
         self.loaded_week = Some(week.start);
 
-        self.selected_entry = keep_selection(self.selected_entry, week.entries.len());
-        self.selected_mileage = keep_selection(self.selected_mileage, week.mileage.len());
+        let entry_ids = |entries: &[TimeEntry]| entries.iter().map(|e| e.id).collect::<Vec<_>>();
+        let trip_ids = |trips: &[Mileage]| trips.iter().map(|m| m.id).collect::<Vec<_>>();
+        self.selected_entry = reselect(self.selected_entry, select_id, &entry_ids(&self.entries), &entry_ids(&week.entries));
+        self.selected_mileage = reselect(self.selected_mileage, select_id, &trip_ids(&self.mileage), &trip_ids(&week.mileage));
         self.entries = week.entries;
         self.mileage = week.mileage;
-        if let Some(id) = select_id {
-            if let Some(i) = self.entries.iter().position(|e| e.id == id) {
-                self.selected_entry = Some(i);
-            }
-            if let Some(i) = self.mileage.iter().position(|m| m.id == id) {
-                self.selected_mileage = Some(i);
-            }
-        }
         self.fix_selection();
     }
 
@@ -263,8 +259,8 @@ impl Session {
     /// Keeps the selection on a visible entry (the first one of the day if it isn't).
     pub fn fix_selection(&mut self) {
         let visible = self.visible_entries();
-        if !self.selected_entry.is_some_and(|s| visible.contains(&s)) {
-            self.selected_entry = visible.first().copied();
+        if !visible.iter().any(|&i| Some(self.entries[i].id) == self.selected_entry) {
+            self.selected_entry = visible.first().map(|&i| self.entries[i].id);
         }
     }
 
@@ -272,47 +268,47 @@ impl Session {
     pub fn move_entry_selection(&mut self, delta: isize) {
         let visible = self.visible_entries();
         let Some(last) = visible.len().checked_sub(1) else { return };
-        let pos = self.selected_entry.and_then(|s| visible.iter().position(|&i| i == s));
+        let pos = visible.iter().position(|&i| Some(self.entries[i].id) == self.selected_entry);
         let pos = pos.map_or(0, |p| p.saturating_add_signed(delta).min(last));
-        self.selected_entry = Some(visible[pos]);
+        self.selected_entry = Some(self.entries[visible[pos]].id);
     }
 
     /// Moves the trip selection by `delta` rows.
     pub fn move_mileage_selection(&mut self, delta: isize) {
-        let len = self.mileage.len();
-        if len > 0 {
-            self.selected_mileage = Some(self.selected_mileage.map_or(0, |i| i.saturating_add_signed(delta).min(len - 1)));
-        }
+        let Some(last) = self.mileage.len().checked_sub(1) else { return };
+        let pos = self.mileage.iter().position(|m| Some(m.id) == self.selected_mileage);
+        self.selected_mileage = Some(self.mileage[pos.map_or(0, |p| p.saturating_add_signed(delta).min(last))].id);
     }
 
-    /// Selects entry `index` (and its day, in this week).
-    pub fn select_entry(&mut self, index: usize) {
-        if let Some(day) = self.entries.get(index).map(|e| e.date) {
-            self.selected_entry = Some(index);
+    /// Selects entry `id` (and its day, in this week), if it is still there.
+    pub fn select_entry(&mut self, id: i64) {
+        if let Some(day) = self.entries.iter().find(|e| e.id == id).map(|e| e.date) {
+            self.selected_entry = Some(id);
             self.day = day;
         }
     }
 
-    pub fn select_mileage(&mut self, index: usize) {
-        if index < self.mileage.len() {
-            self.selected_mileage = Some(index);
+    /// Selects trip `id`, if it is still there.
+    pub fn select_mileage(&mut self, id: i64) {
+        if self.mileage.iter().any(|m| m.id == id) {
+            self.selected_mileage = Some(id);
         }
     }
 
-    pub fn selected_entry_index(&self) -> Option<usize> {
+    pub fn selected_entry_id(&self) -> Option<i64> {
         self.selected_entry
     }
 
-    pub fn selected_mileage_index(&self) -> Option<usize> {
+    pub fn selected_mileage_id(&self) -> Option<i64> {
         self.selected_mileage
     }
 
     pub fn selected_entry(&self) -> Option<&TimeEntry> {
-        self.entries.get(self.selected_entry?)
+        self.entries.iter().find(|e| Some(e.id) == self.selected_entry)
     }
 
     pub fn selected_mileage(&self) -> Option<&Mileage> {
-        self.mileage.get(self.selected_mileage?)
+        self.mileage.iter().find(|m| Some(m.id) == self.selected_mileage)
     }
 
     // ---- Form data ---------------------------------------------------------------------------
@@ -452,12 +448,15 @@ pub fn time_preset_label(preset: &TimePreset) -> &str {
         .unwrap_or(&preset.project)
 }
 
-fn keep_selection(selected: Option<usize>, len: usize) -> Option<usize> {
-    match (len, selected) {
-        (0, _) => None,
-        (n, Some(i)) => Some(i.min(n - 1)),
-        (_, None) => Some(0),
+/// The selection after a reload replaced the rows with ids `old` by those with `new`: `wanted`
+/// (a saved item) if it is there, else the selected item if it still is, else (it was deleted)
+/// the row at its place, else the first.
+fn reselect(selected: Option<i64>, wanted: Option<i64>, old: &[i64], new: &[i64]) -> Option<i64> {
+    if let Some(id) = [wanted, selected].into_iter().flatten().find(|id| new.contains(id)) {
+        return Some(id);
     }
+    let position = selected.and_then(|id| old.iter().position(|&o| o == id)).unwrap_or(0);
+    new.get(position.min(new.len().saturating_sub(1))).copied()
 }
 
 #[cfg(test)]
@@ -504,7 +503,7 @@ mod tests {
         assert_eq!(s.selected_entry().map(|e| e.id), Some(4));
 
         assert!(!s.select_day(date(8)), "Sunday is still this week");
-        assert_eq!(s.selected_entry, None);
+        assert_eq!(s.selected_entry_id(), None);
         assert!(s.week_loaded());
         assert!(s.select_day(date(9)));
         assert_eq!(s.week_start, date(9));
@@ -515,6 +514,16 @@ mod tests {
         let (second, monday) = s.begin_week_load();
         assert_eq!(monday, date(9));
         assert!(!s.is_latest_week_load(first) && s.is_latest_week_load(second));
+    }
+
+    #[test]
+    fn reload_keeps_the_selected_item() {
+        assert_eq!(reselect(Some(2), None, &[1, 2, 3], &[3, 1, 2]), Some(2), "by id, not position");
+        assert_eq!(reselect(Some(2), Some(9), &[1, 2], &[1, 2, 9]), Some(9), "the saved item");
+        assert_eq!(reselect(Some(2), None, &[1, 2, 3], &[1, 3]), Some(3), "deleted: the row at its place");
+        assert_eq!(reselect(Some(3), None, &[1, 2, 3], &[1, 2]), Some(2), "deleted last: the new last");
+        assert_eq!(reselect(None, None, &[], &[5, 6]), Some(5));
+        assert_eq!(reselect(Some(1), None, &[1], &[]), None);
     }
 
     #[test]

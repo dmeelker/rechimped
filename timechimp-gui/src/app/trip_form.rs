@@ -13,15 +13,13 @@ use super::TimeChimpApp;
 
 impl TimeChimpApp {
     /// A trip preset in the "+ Add trip" dropdown: the trip form for the selected day, filled in
-    /// from preset `index`.
-    pub fn open_trip_preset(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    /// from `preset`.
+    pub fn open_trip_preset(&mut self, preset: config::TripPreset, window: &mut Window, cx: &mut Context<Self>) {
         if self.session.me.is_none() || self.form.is_some() {
             return;
         }
         self.menu = None;
-        if let Some(preset) = self.session.trip_presets.get(index).cloned() {
-            self.open_mileage_form(None, Some(&preset), window, cx);
-        }
+        self.open_mileage_form(None, Some(&preset), window, cx);
     }
 
     /// The trip form: for a new trip filled in from `preset`, or empty (project, type and billable
