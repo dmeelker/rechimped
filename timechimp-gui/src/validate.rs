@@ -224,39 +224,14 @@ pub fn time_preset(v: &TimeValues, session: &Session) -> Result<TimePreset, Stri
 mod tests {
     use std::collections::HashMap;
 
-    use serde_json::json;
-    use timechimp::{CurrentUser, Project, ProjectTask};
-
     use super::*;
+    use crate::test_support::{date, project, tag, task, user};
 
     fn session() -> Session {
-        let mut s = Session::new(None, NaiveDate::from_ymd_opt(2026, 11, 4).unwrap());
-        s.me = Some(
-            serde_json::from_value::<CurrentUser>(json!({
-                "id": 1, "userName": "u", "displayName": "U", "companyId": 1, "companyName": "C",
-                "accountTypeId": 1, "roleId": 1, "timezone": "Europe/Amsterdam",
-                "customerRequired": false, "projectRequired": false, "taskRequired": false,
-                "timeDescriptionRequired": false, "accessAllProjects": false, "isApprover": false,
-                "isContractor": false, "isLocked": false, "userAvailability": null,
-            }))
-            .unwrap(),
-        );
-        s.projects = vec![
-            serde_json::from_value::<Project>(json!({
-                "id": 3, "name": "Intern", "customerId": 2, "customerName": "Us",
-                "intern": true, "unspecified": false, "active": true,
-            }))
-            .unwrap(),
-        ];
-        s.project_tasks = HashMap::from([(
-            3,
-            vec![
-                serde_json::from_value::<ProjectTask>(json!({
-                    "id": 4, "name": "Dev", "billable": false, "active": true, "projectId": 3, "taskId": 5,
-                }))
-                .unwrap(),
-            ],
-        )]);
+        let mut s = Session::new(None, date(4));
+        s.me = Some(user());
+        s.projects = vec![project(3, "Intern")];
+        s.project_tasks = HashMap::from([(3, vec![task(4, 3, "Dev")])]);
         s
     }
 
@@ -362,7 +337,7 @@ mod tests {
     #[test]
     fn time_presets() {
         let mut s = session();
-        s.tags = vec![serde_json::from_value(json!({ "id": 7, "companyId": 1, "name": "Daily", "active": true, "type": 1 })).unwrap()];
+        s.tags = vec![tag(7, "Daily")];
         let v = TimeValues { notes: "Standup".into(), ..time("9", "10", "") };
         let p = time_preset(&v, &s).unwrap();
         assert_eq!(

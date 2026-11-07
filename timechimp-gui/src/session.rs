@@ -462,23 +462,7 @@ fn reselect(selected: Option<i64>, wanted: Option<i64>, old: &[i64], new: &[i64]
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn entry(id: i64, day: u32, start_end: &str) -> TimeEntry {
-        serde_json::from_value(serde_json::json!({
-            "id": id, "timeRowId": id, "userId": 1, "userDisplayName": "U",
-            "customerId": 2, "customerName": "C", "projectId": 3, "projectName": "P",
-            "projectTaskId": 4, "taskId": 5, "taskName": "T",
-            "date": format!("2026-11-{day:02}T00:00:00"), "hours": 1.0, "notes": null,
-            "startEnd": start_end, "pause": 0.0, "billable": true,
-            "status": 0, "statusIntern": 0, "statusExtern": 0,
-            "modified": "2026-11-01T00:00:00", "timezone": null,
-        }))
-        .unwrap()
-    }
-
-    fn date(day: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(2026, 11, day).unwrap()
-    }
+    use crate::test_support::*;
 
     #[test]
     fn sessions_are_distinct() {
@@ -544,12 +528,8 @@ mod tests {
 
     #[test]
     fn kept_tags() {
-        let tag = |id: i64| -> Tag {
-            serde_json::from_value(serde_json::json!({ "id": id, "companyId": 1, "name": format!("t{id}"), "active": true, "type": 1 }))
-                .unwrap()
-        };
         let mut s = Session::new(None, date(4));
-        s.project_tags = HashMap::from([(1, vec![tag(10)]), (2, vec![tag(20)])]);
+        s.project_tags = HashMap::from([(1, vec![tag(10, "a")]), (2, vec![tag(20, "b")])]);
         // A tag only another project configures has no checkbox here either, so it is kept.
         assert_eq!(s.kept_tags(Some(2), &[10, 20, 30]), [10, 30]);
         assert_eq!(s.kept_tags(Some(1), &[10, 20, 30]), [20, 30]);
@@ -586,23 +566,9 @@ mod tests {
     #[test]
     fn time_presets() {
         let mut s = Session::new(None, date(4));
-        s.projects = vec![
-            serde_json::from_value(serde_json::json!({
-                "id": 3, "name": "Intern", "customerId": 2, "customerName": "Us",
-                "intern": true, "unspecified": false, "active": true,
-            }))
-            .unwrap(),
-        ];
-        s.project_tasks = HashMap::from([(
-            3,
-            vec![
-                serde_json::from_value(serde_json::json!({
-                    "id": 4, "name": "Meeting", "billable": false, "active": true, "projectId": 3, "taskId": 5,
-                }))
-                .unwrap(),
-            ],
-        )]);
-        s.tags = vec![serde_json::from_value(serde_json::json!({ "id": 7, "companyId": 1, "name": "Daily", "active": true, "type": 1 })).unwrap()];
+        s.projects = vec![project(3, "Intern")];
+        s.project_tasks = HashMap::from([(3, vec![task(4, 3, "Meeting")])]);
+        s.tags = vec![tag(7, "Daily")];
         let preset = |task: Option<&str>, tags: &[&str]| TimePreset {
             project: "intern".into(),
             task: task.map(Into::into),

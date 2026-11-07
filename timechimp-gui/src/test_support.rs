@@ -3,7 +3,7 @@
 
 use chrono::NaiveDate;
 use serde_json::json;
-use timechimp::{CurrentUser, Mileage, Project, ProjectTask, Tag, TimeEntry};
+use timechimp::{CurrentUser, Mileage, Project, ProjectTask, Tag, TimeEntry, TimeReportRow};
 
 /// November `day`, 2026.
 pub fn date(day: u32) -> NaiveDate {
@@ -34,7 +34,7 @@ pub fn project(id: i64, name: &str) -> Project {
 /// An active, non-billable task of `project_id`.
 pub fn task(id: i64, project_id: i64, name: &str) -> ProjectTask {
     serde_json::from_value(json!({
-        "id": id, "name": name, "billable": false, "active": true, "projectId": project_id, "taskId": id + 100,
+        "id": id, "name": name, "billable": false, "active": true, "projectId": project_id, "taskId": id + 1,
     }))
     .unwrap()
 }
@@ -67,6 +67,18 @@ pub fn trip(id: i64, day: u32) -> Mileage {
         "fromAddress": "A", "toAddress": "B", "notes": null, "distance": 10.0, "billable": true,
         "type": 1, "status": 0, "statusIntern": 0, "statusExtern": 0,
         "modified": "2026-11-01T00:00:00",
+    }))
+    .unwrap()
+}
+
+/// A row of the time report: `hours` of `project` / `task` on November `day`.
+pub fn report_row(project: &str, task: &str, day: u32, hours: f64, billable: bool) -> TimeReportRow {
+    serde_json::from_value(json!({
+        "id": 1, "week": 45, "date": format!("2026-11-{day:02}T00:00:00"), "billable": billable,
+        "customer": "C", "customerId": 1, "project": project, "projectId": 1, "projectCode": null,
+        "task": task, "taskId": 1, "user": "U", "userId": 1, "team": null, "teamId": null,
+        "time": hours, "notes": null, "startEnd": null, "pause": 0.0, "amount": null, "tags": null,
+        "status": 0, "clientStatus": 0, "invoiceId": null,
     }))
     .unwrap()
 }

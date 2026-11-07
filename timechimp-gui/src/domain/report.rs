@@ -79,22 +79,12 @@ impl Summary {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn row(project: &str, task: &str, day: u32, hours: f64, billable: bool) -> TimeReportRow {
-        serde_json::from_value(serde_json::json!({
-            "id": 1, "week": 45, "date": format!("2026-11-{day:02}T00:00:00"), "billable": billable,
-            "customer": "C", "customerId": 1, "project": project, "projectId": 1, "projectCode": null,
-            "task": task, "taskId": 1, "user": "U", "userId": 1, "team": null, "teamId": null,
-            "time": hours, "notes": null, "startEnd": null, "pause": 0.0, "amount": null, "tags": null,
-            "status": 0, "clientStatus": 0, "invoiceId": null,
-        }))
-        .unwrap()
-    }
+    use crate::test_support::report_row as row;
 
     #[test]
     fn summary() {
         let report = Report {
-            month: NaiveDate::from_ymd_opt(2026, 11, 1),
+            month: Some(crate::test_support::date(1)),
             time: vec![
                 row("A", "Dev", 2, 2.0, true),
                 row("B", "Meeting", 2, 1.0, false),
