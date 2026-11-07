@@ -56,11 +56,10 @@ impl TimeChimpApp {
     pub(super) fn entry_rows_with_gaps(&self, theme: &T, indices: &[usize], cx: &mut Context<Self>) -> Vec<AnyElement> {
         let mut rows = Vec::new();
         for (n, &i) in indices.iter().enumerate() {
-            if let Some(&prev) = n.checked_sub(1).and_then(|p| indices.get(p)) {
-                if let Some(junction) = crate::domain::week::junction(&self.session.entries[prev], &self.session.entries[i]) {
+            if let Some(&prev) = n.checked_sub(1).and_then(|p| indices.get(p))
+                && let Some(junction) = crate::domain::week::junction(&self.session.entries[prev], &self.session.entries[i]) {
                     rows.push(junction_row(theme, &junction).into_any_element());
                 }
-            }
             rows.push(self.entry_row(theme, i, &self.session.entries[i], cx).into_any_element());
         }
         rows

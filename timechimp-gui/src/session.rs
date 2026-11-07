@@ -218,11 +218,10 @@ impl Session {
             .and_then(|id| self.project_tasks.get(&id))
             .map(|ts| ts.iter().filter(|t| t.active).map(|t| (t.id, t.name.clone())).collect())
             .unwrap_or_default();
-        if let Some(e) = entry.filter(|e| Some(e.project_id) == project_id) {
-            if !tasks.iter().any(|(id, _)| *id == e.project_task_id) {
+        if let Some(e) = entry.filter(|e| Some(e.project_id) == project_id)
+            && !tasks.iter().any(|(id, _)| *id == e.project_task_id) {
                 tasks.push((e.project_task_id, e.task_name.clone()));
             }
-        }
         tasks
     }
 

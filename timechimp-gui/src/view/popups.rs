@@ -16,6 +16,9 @@ use crate::domain::week::RecentItem;
 
 use super::widgets::*;
 
+/// What a click on the dimmed backdrop around a popup does.
+type BackdropHandler = Box<dyn Fn(&gpui::MouseDownEvent, &mut Window, &mut gpui::App)>;
+
 impl TimeChimpApp {
     /// A dimmed backdrop with a centred card, painted above everything else.
     pub(super) fn modal(
@@ -23,7 +26,7 @@ impl TimeChimpApp {
         id: &'static str,
         width: f32,
         card: gpui::Stateful<gpui::Div>,
-        on_backdrop: Option<Box<dyn Fn(&gpui::MouseDownEvent, &mut Window, &mut gpui::App)>>,
+        on_backdrop: Option<BackdropHandler>,
     ) -> impl IntoElement {
         let card = card.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
         deferred(

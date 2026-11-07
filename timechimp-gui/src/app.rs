@@ -92,7 +92,7 @@ pub struct Login {
 }
 
 pub enum Screen {
-    Login(Login),
+    Login(Box<Login>),
     Main,
 }
 
@@ -151,7 +151,7 @@ impl TimeChimpApp {
                 app.reload(window, cx);
                 window.focus(&app.focus, cx);
             }
-            None => app.to_login(None, window, cx),
+            None => app.show_login(None, window, cx),
         }
         app
     }
@@ -209,7 +209,7 @@ impl TimeChimpApp {
     /// the message (the network or the server may recover; R retries).
     fn api_error(&mut self, error: timechimp::Error, window: &mut Window, cx: &mut Context<Self>) {
         if error.is_auth() {
-            self.to_login(Some(format!("Session expired or invalid, please log in again ({error})")), window, cx);
+            self.show_login(Some(format!("Session expired or invalid, please log in again ({error})")), window, cx);
         } else {
             self.set_error(format!("Error: {error}"), window, cx);
         }
@@ -217,7 +217,7 @@ impl TimeChimpApp {
 
     // ---- Session ---------------------------------------------------------------------------
 
-    fn to_login(&mut self, error: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+    fn show_login(&mut self, error: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         let email = self
             .session
             .me
@@ -242,14 +242,14 @@ impl TimeChimpApp {
         self.show_detail = false;
         self.user_menu = false;
         self.error = None;
-        self.screen = Screen::Login(Login {
+        self.screen = Screen::Login(Box::new(Login {
             email: email_input,
             password,
             code,
             mfa: None,
             error,
             _subscriptions: vec![sub],
-        });
+        }));
         cx.notify();
     }
 
@@ -326,7 +326,7 @@ impl TimeChimpApp {
     pub fn logout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.user_menu = false;
         token::delete_token();
-        self.to_login(None, window, cx);
+        self.show_login(None, window, cx);
     }
 
     // ---- Loading ---------------------------------------------------------------------------

@@ -11,9 +11,11 @@ cargo build                                   # whole workspace
 cargo run -p timechimp-gui                    # desktop app (binary: rechimped)
 cargo test                                    # all tests
 cargo test -p timechimp-gui lenient_times     # single test by name
-cargo clippy --workspace
+cargo clippy --workspace --all-targets
 TIMECHIMP_REFRESH_TOKEN=... cargo run -p timechimp --example smoke [-- --write]
 ```
+
+Keep `cargo clippy --workspace --all-targets` free of warnings and errors: fix every one before committing, including ones that were already there, rather than leaving them for later.
 
 The `smoke` example hits the real API; `--write` creates and then deletes a test time entry and mileage registration.
 

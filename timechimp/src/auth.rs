@@ -144,11 +144,10 @@ impl Authenticator {
 
     async fn get_token(&self, force: bool) -> Result<String> {
         let mut access = self.access.lock().await;
-        if !force {
-            if let Some(t) = access.as_ref().filter(|t| Instant::now() + REFRESH_MARGIN < t.expires_at) {
+        if !force
+            && let Some(t) = access.as_ref().filter(|t| Instant::now() + REFRESH_MARGIN < t.expires_at) {
                 return Ok(t.token.clone());
             }
-        }
         let response = cognito(
             &self.http,
             "InitiateAuth",
