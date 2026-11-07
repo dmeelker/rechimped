@@ -28,6 +28,8 @@ pub struct TimeForm {
     pub kept_tag_ids: Vec<i64>,
     /// Picker over recent work, on a new (not copied) entry only.
     pub recent: Option<RecentPicker>,
+    /// Follows `project` (task list and tags); replaced together with it.
+    pub project_sub: Subscription,
 }
 
 /// Filter field plus highlighted row of the Recent list; picking a row fills in project, task,
@@ -65,8 +67,6 @@ pub enum FormBody {
 pub struct Form {
     pub body: FormBody,
     pub error: Option<String>,
-    /// The time form's project subscription comes first: picking a recent item replaces the
-    /// project select, and with it that subscription.
     pub _subscriptions: Vec<Subscription>,
 }
 

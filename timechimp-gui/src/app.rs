@@ -745,6 +745,7 @@ impl TimeChimpApp {
         let notes = entry.and_then(|e| e.notes.clone()).unwrap_or_default();
 
         let project = forms::choice(cx, "form-project", "Project", projects, project_id);
+        let project_sub = self.subscribe_project(&project, window, cx);
         let recent = (entry.is_none() && !self.recent.is_empty())
             .then(|| forms::RecentPicker { filter: forms::text_input(cx, ""), selected: 0 });
         let form = TimeForm {
@@ -765,8 +766,9 @@ impl TimeChimpApp {
             notes: forms::text_input(cx, notes),
             tags,
             kept_tag_ids,
-            project: project.clone(),
+            project,
             recent,
+            project_sub,
         };
         // A new entry starts in the Recent filter; editing jumps to the times, a copy to the end
         // time when the start is already filled in.
@@ -776,7 +778,7 @@ impl TimeChimpApp {
             None => &form.end,
         };
         window.focus(&focus.read(cx).focus_handle(cx), cx);
-        let mut subscriptions = vec![self.subscribe_project(&project, window, cx)];
+        let mut subscriptions = Vec::new();
         // `+15` / `+1h` / `+1h30` in End becomes start + that duration when leaving the field.
         subscriptions.push(cx.subscribe_in(&form.end, window, |this, end, event: &InputStateEvent, _, cx| {
             let Some(Form { body: FormBody::Time(form), .. }) = &this.form else { return };
@@ -865,13 +867,13 @@ impl TimeChimpApp {
         let tags = self.tag_checkboxes(Some(entry.project_id), Some(&entry), cx);
         let kept_tag_ids = self.unconfigured_tags(&entry.tag_ids);
         let project_sub = self.subscribe_project(&project, window, cx);
-        let Some(Form { body: FormBody::Time(form), _subscriptions, error }) = &mut self.form else { return };
+        let Some(Form { body: FormBody::Time(form), error, .. }) = &mut self.form else { return };
         forms::set_text(&form.notes, entry.notes.clone().unwrap_or_default(), cx);
         form.project = project;
         form.task = task;
         form.tags = tags;
         form.kept_tag_ids = kept_tag_ids;
-        _subscriptions[0] = project_sub;
+        form.project_sub = project_sub;
         *error = None;
         let next = if text(&form.start, cx).is_empty() { &form.start } else { &form.end };
         window.focus(&next.read(cx).focus_handle(cx), cx);
