@@ -14,7 +14,7 @@ use super::TimeChimpApp;
 impl TimeChimpApp {
     /// "Save as preset" in the time or trip form: appends it to `config.toml`.
     pub fn save_as_preset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let saved = match &self.form {
+        let saved = match self.form() {
             Some(Form { body: FormBody::Mileage(f), .. }) => validate::preset(&f.values(cx), &self.session)
                 .and_then(|p| config::path().and_then(|path| config::append_preset(&path, &p)).map(|_| p.name)),
             Some(Form { body: FormBody::Time(f), .. }) => validate::time_preset(&f.values(cx), &self.session).and_then(|p| {
@@ -25,7 +25,7 @@ impl TimeChimpApp {
         };
         match saved {
             Ok(name) => {
-                if let Some(form) = &mut self.form {
+                if let Some(form) = self.form_mut() {
                     form.error = None;
                 }
                 self.load_config(window, cx);
@@ -35,14 +35,8 @@ impl TimeChimpApp {
         }
     }
 
-    pub fn close_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.form = None;
-        window.focus(&self.focus, cx);
-        cx.notify();
-    }
-
     pub(super) fn form_error(&mut self, message: impl Into<String>, cx: &mut Context<Self>) {
-        if let Some(form) = &mut self.form {
+        if let Some(form) = self.form_mut() {
             form.error = Some(message.into());
         }
         cx.notify();
@@ -88,7 +82,7 @@ impl TimeChimpApp {
                 Ok(Saved::Partial(id, e)) => (id, Err(e)),
                 Err(e) => return this.form_api_error(e, window, cx),
             };
-            this.close_form(window, cx);
+            this.close_overlay(window, cx);
             // Jump to the day of the saved item and select it.
             this.session.select_day(date);
             this.session.invalidate_report();
@@ -103,7 +97,7 @@ impl TimeChimpApp {
 
     /// Validates the open form and turns it into an API request.
     fn build_save(&self, cx: &Context<Self>) -> Result<(NaiveDate, SaveRequest), String> {
-        match &self.form.as_ref().ok_or("No form open")?.body {
+        match &self.form().ok_or("No form open")?.body {
             FormBody::Time(f) => validate::time_entry(&f.values(cx), &self.session),
             FormBody::Mileage(f) => validate::trip(&f.values(cx), &self.session),
         }

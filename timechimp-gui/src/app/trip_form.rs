@@ -9,16 +9,16 @@ use crate::domain::MILEAGE_TYPES;
 use crate::seed;
 use crate::store::config;
 
-use super::TimeChimpApp;
+use super::{Overlay, TimeChimpApp};
 
 impl TimeChimpApp {
     /// A trip preset in the "+ Add trip" dropdown: the trip form for the selected day, filled in
     /// from `preset`.
     pub fn open_trip_preset(&mut self, preset: config::TripPreset, window: &mut Window, cx: &mut Context<Self>) {
-        if self.session.me.is_none() || self.form.is_some() {
+        self.menu = None;
+        if self.session.me.is_none() || self.overlay_open() {
             return;
         }
-        self.menu = None;
         self.open_mileage_form(None, Some(&preset), window, cx);
     }
 
@@ -31,6 +31,9 @@ impl TimeChimpApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.overlay_open() {
+            return;
+        }
         let seed = seed::trip_form(&self.session, editing.as_deref(), preset);
         let types = MILEAGE_TYPES.iter().map(|(id, name)| (*id, name.to_string())).collect();
         let form = MileageForm {
@@ -60,7 +63,7 @@ impl TimeChimpApp {
             subscriptions.push(cx.on_focus_out(&handle, window, move |this, _, _, cx| this.close_addresses(field, cx)));
         }
         window.focus(&form.from.read(cx).focus_handle(cx), cx);
-        self.form = Some(Form { body: FormBody::Mileage(form), error: None, _subscriptions: subscriptions });
+        self.overlay = Overlay::Form(Box::new(Form { body: FormBody::Mileage(form), error: None, _subscriptions: subscriptions }));
         cx.notify();
     }
 
@@ -171,7 +174,7 @@ impl TimeChimpApp {
         // An unknown address or no route is an Error::NotFound, shown in the form.
         self.run("Calculating distance…", future, window, cx, |this, result, window, cx| match result {
             Ok((from, to, route)) => {
-                if let Some(form) = &mut this.form {
+                if let Some(form) = this.form_mut() {
                     form.error = None;
                     if let Some(f) = form.trip() {
                         forms::set_text(&f.from, from, cx);

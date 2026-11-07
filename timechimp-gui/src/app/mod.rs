@@ -93,6 +93,25 @@ pub enum Menu {
     AddTime,
 }
 
+/// What covers the main screen. One at a time: opening one while another is open is refused
+/// (`open_overlay`, and the form openers check `overlay_open`), and closing goes through
+/// `close_overlay`, so the rules live in one place instead of one flag per popup.
+#[derive(Default)]
+pub enum Overlay {
+    #[default]
+    None,
+    /// The selected entry's details (Enter on the Week tab).
+    Detail,
+    /// The billability chart (from the Week card).
+    Chart(BillabilityChart),
+    /// The time or trip form.
+    Form(Box<Form>),
+    /// The Settings dialog.
+    Settings(SettingsForm),
+    /// The delete confirmation, with the subscription that clears it when it closes.
+    Confirm { dialog: Entity<DialogState>, _closed: Subscription },
+}
+
 pub struct TimeChimpApp {
     /// Focus target of the main (browse) view; its key handler drives the keyboard shortcuts.
     pub focus: FocusHandle,
@@ -101,14 +120,8 @@ pub struct TimeChimpApp {
     pub session: Session,
     pub tab: Tab,
     pub tabs: Entity<Tabs>,
-    pub form: Option<Form>,
-    /// The open Settings dialog.
-    pub settings: Option<SettingsForm>,
-    /// The open delete confirmation, with the subscription that clears it when it closes.
-    pub confirm: Option<(Entity<DialogState>, Subscription)>,
-    pub show_detail: bool,
-    /// The open billability chart (from the Week card).
-    pub chart: Option<BillabilityChart>,
+    /// What covers the main screen (form, dialog, popup), if anything.
+    pub overlay: Overlay,
     /// The open dropdown, if any.
     pub menu: Option<Menu>,
     pub error: Option<String>,
@@ -137,11 +150,7 @@ impl TimeChimpApp {
             session: Session::new(None, domain::time::today()),
             tab: Tab::Week,
             tabs,
-            form: None,
-            settings: None,
-            confirm: None,
-            show_detail: false,
-            chart: None,
+            overlay: Overlay::None,
             menu: None,
             error: None,
             in_flight: Vec::new(),
@@ -192,20 +201,90 @@ impl TimeChimpApp {
         .detach();
     }
 
+    /// Whether a form, dialog or popup covers the main screen.
+    pub fn overlay_open(&self) -> bool {
+        !matches!(self.overlay, Overlay::None)
+    }
+
+    /// Shows `overlay`, unless another one is open (then false and nothing changes). Closes an
+    /// open dropdown either way.
+    fn open_overlay(&mut self, overlay: Overlay, cx: &mut Context<Self>) -> bool {
+        self.menu = None;
+        cx.notify();
+        if self.overlay_open() {
+            return false;
+        }
+        self.overlay = overlay;
+        true
+    }
+
+    /// Closes the open form, dialog or popup and gives the focus back to the main view.
+    pub fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.overlay = Overlay::None;
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+
+    /// Opens dropdown `menu`, or closes it when it is the one open.
+    pub fn toggle_menu(&mut self, menu: Menu, cx: &mut Context<Self>) {
+        self.menu = if self.menu == Some(menu) { None } else { Some(menu) };
+        cx.notify();
+    }
+
+    pub fn close_menu(&mut self, cx: &mut Context<Self>) {
+        self.menu = None;
+        cx.notify();
+    }
+
+    pub fn form(&self) -> Option<&Form> {
+        match &self.overlay {
+            Overlay::Form(form) => Some(form.as_ref()),
+            _ => None,
+        }
+    }
+
+    fn form_mut(&mut self) -> Option<&mut Form> {
+        match &mut self.overlay {
+            Overlay::Form(form) => Some(form.as_mut()),
+            _ => None,
+        }
+    }
+
+    pub fn settings_form(&self) -> Option<&SettingsForm> {
+        match &self.overlay {
+            Overlay::Settings(form) => Some(form),
+            _ => None,
+        }
+    }
+
+    fn settings_form_mut(&mut self) -> Option<&mut SettingsForm> {
+        match &mut self.overlay {
+            Overlay::Settings(form) => Some(form),
+            _ => None,
+        }
+    }
+
+    pub fn chart(&self) -> Option<&BillabilityChart> {
+        match &self.overlay {
+            Overlay::Chart(chart) => Some(chart),
+            _ => None,
+        }
+    }
+
     fn time_form(&self) -> Option<&TimeForm> {
-        self.form.as_ref()?.time()
+        self.form()?.time()
     }
 
     fn time_form_mut(&mut self) -> Option<&mut TimeForm> {
-        self.form.as_mut()?.time_mut()
+        self.form_mut()?.time_mut()
     }
 
     fn mileage_form(&self) -> Option<&MileageForm> {
-        self.form.as_ref()?.trip()
+        self.form()?.trip()
     }
 
     fn mileage_form_mut(&mut self) -> Option<&mut MileageForm> {
-        self.form.as_mut()?.trip_mut()
+        self.form_mut()?.trip_mut()
     }
 
     /// What is being waited for (the most recent task of this session still running), if anything.

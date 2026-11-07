@@ -18,7 +18,7 @@ use gpui::{
 use gpuikit::elements::toast::ToastExt;
 use gpuikit::theme::{ActiveTheme, Themeable};
 
-use crate::app::{Screen, TimeChimpApp, ToggleShowcase};
+use crate::app::{Overlay, Screen, TimeChimpApp, ToggleShowcase};
 
 impl Render for TimeChimpApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -51,7 +51,10 @@ impl Render for TimeChimpApp {
         root.when(self.fx.showcase, |d| {
             d.child(self.fx.hud(theme.fg(), theme.fg_muted(), theme.accent(), theme.surface()))
         })
-        .children(self.confirm.as_ref().map(|(dialog, _)| dialog.clone()))
+        .children(match &self.overlay {
+            Overlay::Confirm { dialog, .. } => Some(dialog.clone()),
+            _ => None,
+        })
         .child(cx.toast_manager().clone())
         .child(self.fx.end_frame(started))
     }

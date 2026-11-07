@@ -6,7 +6,7 @@ use gpui::{Context, Window};
 use crate::domain::week::{self, CHART_WEEKS, WeekCard};
 use crate::net;
 
-use super::TimeChimpApp;
+use super::{Overlay, TimeChimpApp};
 
 /// The open billability chart.
 pub struct BillabilityChart {
@@ -23,9 +23,9 @@ impl TimeChimpApp {
         let (Some(client), Some(me)) = (self.session.client.clone(), self.session.me.as_ref()) else { return };
         let (user_id, contract) = (me.id, self.session.contract_hours());
         let mondays = week::weeks_up_to(self.session.week_start(), CHART_WEEKS);
-        self.chart = Some(BillabilityChart { mondays: mondays.clone(), weeks: None });
-        self.menu = None;
-        cx.notify();
+        if !self.open_overlay(Overlay::Chart(BillabilityChart { mondays: mondays.clone(), weeks: None }), cx) {
+            return;
+        }
         let wanted = mondays.clone();
         self.run(
             "Loading…",
@@ -35,18 +35,14 @@ impl TimeChimpApp {
             move |this, result, window, cx| match result {
                 // Unless it was closed (or reopened for other weeks) meanwhile.
                 Ok(entries) => {
-                    if let Some(chart) = this.chart.as_mut().filter(|c| c.mondays == wanted) {
+                    if let Overlay::Chart(chart) = &mut this.overlay
+                        && chart.mondays == wanted
+                    {
                         chart.weeks = Some(week::week_cards(&entries, &wanted, contract));
                     }
                 }
                 Err(e) => this.api_error(e, window, cx),
             },
         );
-    }
-
-    pub fn close_chart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.chart = None;
-        window.focus(&self.focus, cx);
-        cx.notify();
     }
 }

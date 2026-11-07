@@ -5,7 +5,7 @@ use gpui::{Context, KeyDownEvent, Window};
 
 use crate::domain;
 
-use super::{Screen, Tab, TimeChimpApp};
+use super::{Overlay, Screen, Tab, TimeChimpApp};
 
 impl TimeChimpApp {
     pub fn switch_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -93,17 +93,20 @@ impl TimeChimpApp {
     }
 
     pub fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if !matches!(self.screen, Screen::Main) || self.form.is_some() || self.settings.is_some() {
+        if !matches!(self.screen, Screen::Main) {
             return;
         }
-        // Any key closes a menu or a read-only popup.
-        if self.menu.is_some() || self.show_detail || self.chart.is_some() {
-            self.menu = None;
-            self.show_detail = false;
-            self.chart = None;
-            cx.stop_propagation();
-            cx.notify();
-            return;
+        // Any key closes a menu or a read-only popup; forms and dialogs handle their own keys.
+        match self.overlay {
+            Overlay::None if self.menu.is_none() => {}
+            Overlay::None | Overlay::Detail | Overlay::Chart(_) => {
+                self.menu = None;
+                self.overlay = Overlay::None;
+                cx.stop_propagation();
+                cx.notify();
+                return;
+            }
+            Overlay::Form(_) | Overlay::Settings(_) | Overlay::Confirm { .. } => return,
         }
         let ks = &event.keystroke;
         let (shift, ctrl) = (ks.modifiers.shift, ks.modifiers.control || ks.modifiers.platform);
@@ -126,7 +129,9 @@ impl TimeChimpApp {
             ("right" | "l" | "]", _) => self.shift_day(7, window, cx),
             ("down" | "j", _) => self.move_selection(1),
             ("up" | "k", _) => self.move_selection(-1),
-            ("enter", _) if week_tab && self.session.selected_entry().is_some() => self.show_detail = true,
+            ("enter", _) if week_tab && self.session.selected_entry().is_some() => {
+                self.open_overlay(Overlay::Detail, cx);
+            }
             ("a" | "n", _) => self.add(window, cx),
             ("e", _) => self.edit_selected(window, cx),
             ("enter", _) if self.tab == Tab::Mileage => self.edit_selected(window, cx),

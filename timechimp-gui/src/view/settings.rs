@@ -26,7 +26,7 @@ impl TimeChimpApp {
             .key_context("Modal")
             .moves_focus_on_tab()
             .on_action(cx.listener(|this, _: &Confirm, w, cx| this.save_settings(w, cx)))
-            .on_action(cx.listener(|this, _: &Cancel, w, cx| this.close_settings(w, cx)))
+            .on_action(cx.listener(|this, _: &Cancel, w, cx| this.close_overlay(w, cx)))
             .p(px(24.))
             .gap(px(14.))
             .child(div().text_lg().font_weight(FontWeight::BOLD).text_color(theme.accent()).child("Settings"))
@@ -48,7 +48,7 @@ impl TimeChimpApp {
                     .justify_end()
                     .child(pop(
                         theme,
-                        button("settings-cancel", "Cancel").on_click(cx.listener(|this, _, w, cx| this.close_settings(w, cx))),
+                        button("settings-cancel", "Cancel").on_click(cx.listener(|this, _, w, cx| this.close_overlay(w, cx))),
                     ))
                     .child(primary_button(
                         theme,

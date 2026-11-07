@@ -8,14 +8,13 @@ use crate::forms::{self, SettingsForm};
 use crate::store::config;
 use crate::validate;
 
-use super::TimeChimpApp;
+use super::{Overlay, TimeChimpApp};
 
 impl TimeChimpApp {
     /// "Settings" in the user menu: opens the dialog with what `config.toml` holds now.
     pub fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.menu = None;
-        if self.form.is_some() {
-            return;
+        if self.overlay_open() {
+            return self.close_menu(cx);
         }
         let current = self.session.settings;
         let work_days = (0..7u8)
@@ -28,34 +27,27 @@ impl TimeChimpApp {
             .collect();
         let billable_goal = forms::text_input(cx, plain_number(current.billable_goal * 100.0));
         let focus = billable_goal.read(cx).focus_handle(cx);
-        self.settings = Some(SettingsForm { work_days, billable_goal, error: None });
+        self.open_overlay(Overlay::Settings(SettingsForm { work_days, billable_goal, error: None }), cx);
         window.focus(&focus, cx);
-        cx.notify();
     }
 
     /// Save in the dialog: checks the fields, writes `config.toml` and takes the settings in.
     pub fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(form) = &self.settings else { return };
+        let Some(form) = self.settings_form() else { return };
         let saved = validate::settings(&form.values(cx))
             .and_then(|settings| config::path().and_then(|path| config::save_settings(&path, &settings)).map(|_| settings));
         match saved {
             Ok(settings) => {
                 self.session.settings = settings;
-                self.close_settings(window, cx);
+                self.close_overlay(window, cx);
                 self.set_info("Settings saved", window, cx);
             }
             Err(e) => {
-                if let Some(form) = &mut self.settings {
+                if let Some(form) = self.settings_form_mut() {
                     form.error = Some(e);
                 }
                 cx.notify();
             }
         }
-    }
-
-    pub fn close_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.settings = None;
-        window.focus(&self.focus, cx);
-        cx.notify();
     }
 }

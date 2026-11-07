@@ -13,7 +13,7 @@ use super::TimeChimpApp;
 impl TimeChimpApp {
     /// The calendar icon of the Date field: focuses the field and opens the calendar, or closes it.
     pub fn toggle_calendar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(form) = &self.form else { return };
+        let Some(form) = self.form() else { return };
         let open = form.date().picker.is_some();
         window.focus(&form.date().input.read(cx).focus_handle(cx), cx);
         if open {
@@ -29,7 +29,7 @@ impl TimeChimpApp {
     /// focused calendar's focus ring as a filled shadow behind its transparent grid, which turns
     /// the whole grid accent-coloured, so a click on it hands the focus straight back.
     pub fn open_calendar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(form) = &self.form else { return };
+        let Some(form) = self.form() else { return };
         if form.date().picker.is_some() {
             return;
         }
@@ -47,7 +47,7 @@ impl TimeChimpApp {
             // A clicked day fills in the field and closes the calendar.
             cx.subscribe_in(&calendar, window, |this, _, event: &CalendarEvent, window, cx| {
                 if let CalendarEvent::Selected(day) = event
-                    && let (Some(form), Some(day)) = (&this.form, forms::from_calendar_date(*day))
+                    && let (Some(form), Some(day)) = (this.form(), forms::from_calendar_date(*day))
                 {
                     let input = &form.date().input;
                     input.update(cx, |input, cx| input.set_content_silent(day.to_string(), cx));
@@ -58,7 +58,7 @@ impl TimeChimpApp {
             }),
             // A typed date shows in the calendar.
             cx.subscribe_in(&input, window, |this, _, event: &InputStateEvent, _, cx| {
-                if let (InputStateEvent::TextChanged, Some(form)) = (event, &this.form)
+                if let (InputStateEvent::TextChanged, Some(form)) = (event, this.form())
                     && let (Some(picker), Some(date)) = (&form.date().picker, form.date().parsed(cx))
                 {
                     picker.calendar.update(cx, |c, cx| c.set_selected(Some(forms::to_calendar_date(date)), cx));
@@ -76,7 +76,7 @@ impl TimeChimpApp {
                 }
             }),
         ];
-        if let Some(form) = &mut self.form {
+        if let Some(form) = self.form_mut() {
             form.date_mut().picker = Some(forms::DatePicker { calendar, _subscriptions: subscriptions });
         }
         cx.notify();
@@ -84,7 +84,7 @@ impl TimeChimpApp {
 
     /// Closes the calendar, if open.
     pub fn close_calendar(&mut self, cx: &mut Context<Self>) {
-        if let Some(form) = &mut self.form
+        if let Some(form) = self.form_mut()
             && form.date_mut().picker.take().is_some()
         {
             cx.notify();
@@ -93,7 +93,7 @@ impl TimeChimpApp {
 
     /// ↓ in the Date field: opens a closed calendar, or moves a week down in an open one.
     pub fn calendar_down(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        match &self.form {
+        match self.form() {
             Some(form) if form.date().picker.is_none() => self.open_calendar(window, cx),
             _ => self.move_calendar(7, 0, cx),
         }
@@ -103,7 +103,7 @@ impl TimeChimpApp {
     /// by `days` and `months`, in the field and the calendar. With it closed the key does what it
     /// normally does in a text field.
     pub fn move_calendar(&mut self, days: i64, months: i32, cx: &mut Context<Self>) {
-        let Some(form) = &self.form else { return cx.propagate() };
+        let Some(form) = self.form() else { return cx.propagate() };
         let field = form.date();
         let Some(picker) = &field.picker else { return cx.propagate() };
         let current = field.parsed(cx).unwrap_or(self.session.day());
@@ -116,7 +116,7 @@ impl TimeChimpApp {
     /// Enter or Escape in the Date field: closes an open calendar (keeping the date); with none
     /// open the key goes on, so Enter saves and Escape cancels the form.
     pub fn dismiss_calendar(&mut self, cx: &mut Context<Self>) {
-        match &self.form {
+        match self.form() {
             Some(form) if form.date().picker.is_some() => self.close_calendar(cx),
             _ => cx.propagate(),
         }

@@ -10,7 +10,7 @@ use gpuikit::elements::dialog::{DialogClosed, DialogState, dialog};
 use crate::session;
 use crate::store::config;
 
-use super::{Tab, TimeChimpApp};
+use super::{Overlay, Tab, TimeChimpApp};
 
 impl TimeChimpApp {
     pub fn ask_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -85,12 +85,12 @@ impl TimeChimpApp {
             ))
         });
         let sub = cx.subscribe_in(&state, window, |this, _, _: &DialogClosed, window, cx| {
-            this.confirm = None;
-            window.focus(&this.focus, cx);
-            cx.notify();
+            if matches!(this.overlay, Overlay::Confirm { .. }) {
+                this.close_overlay(window, cx);
+            }
         });
         state.update(cx, |d, cx| d.open(window, cx));
-        self.confirm = Some((state, sub));
+        self.overlay = Overlay::Confirm { dialog: state, _closed: sub };
         cx.notify();
     }
 

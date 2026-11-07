@@ -11,7 +11,7 @@ use crate::domain;
 use crate::seed::{self, TagSeed, TimeFill};
 use crate::store::config::TimePreset;
 
-use super::{Tab, TimeChimpApp};
+use super::{Overlay, Tab, TimeChimpApp};
 
 impl TimeChimpApp {
     pub fn add(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -44,6 +44,9 @@ impl TimeChimpApp {
 
     /// Form for a new time entry, for editing `entry`, or (with `copy`) for a copy of it.
     fn open_time_form(&mut self, entry: Option<&TimeEntry>, copy: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.overlay_open() {
+            return;
+        }
         let seed = seed::time_form(&self.session, entry, copy);
         let editing = matches!(seed.kind, TimeKind::Edit { .. });
         let project = forms::choice(cx, "form-project", "Project", seed.projects, seed.project_id);
@@ -94,7 +97,7 @@ impl TimeChimpApp {
                 }
             }));
         }
-        self.form = Some(Form { body: FormBody::Time(form), error: None, _subscriptions: subscriptions });
+        self.overlay = Overlay::Form(Box::new(Form { body: FormBody::Time(form), error: None, _subscriptions: subscriptions }));
         cx.notify();
     }
 
@@ -161,7 +164,7 @@ impl TimeChimpApp {
         let task = forms::choice(cx, "form-task", "Task", seed.project.tasks, seed.project.task_id);
         let tags = tag_checkboxes(seed.project.tags, cx);
         let project_sub = self.subscribe_project(&project, window, cx);
-        let Some(Form { body: FormBody::Time(form), error, .. }) = &mut self.form else { return };
+        let Some(Form { body: FormBody::Time(form), error, .. }) = self.form_mut() else { return };
         forms::set_text(&form.notes, seed.notes, cx);
         form.project = project;
         form.task = task;
@@ -191,10 +194,10 @@ impl TimeChimpApp {
     /// A time preset in the "+ Add time" dropdown: a new time entry on the selected day, with the
     /// project, task, notes and tags of `preset`.
     pub fn open_time_preset(&mut self, preset: TimePreset, window: &mut Window, cx: &mut Context<Self>) {
-        if self.session.me.is_none() || self.form.is_some() {
+        self.menu = None;
+        if self.session.me.is_none() || self.overlay_open() {
             return;
         }
-        self.menu = None;
         let resolved = match self.session.resolve_time_preset(&preset) {
             Ok(resolved) => resolved,
             Err(unknown) => return self.set_error(format!("Preset: unknown {unknown}"), window, cx),

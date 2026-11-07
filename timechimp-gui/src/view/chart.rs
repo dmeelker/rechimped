@@ -58,10 +58,10 @@ impl TimeChimpApp {
                     "chart-close",
                     "Close",
                     false,
-                    cx.listener(|this, _, w, cx| this.close_chart(w, cx)),
+                    cx.listener(|this, _, w, cx| this.close_overlay(w, cx)),
                 )),
             );
-        let close = cx.listener(|this, _: &gpui::MouseDownEvent, w, cx| this.close_chart(w, cx));
+        let close = cx.listener(|this, _: &gpui::MouseDownEvent, w, cx| this.close_overlay(w, cx));
         Self::modal(theme, "chart", 560., card, Some(Box::new(close)))
     }
 }

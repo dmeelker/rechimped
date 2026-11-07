@@ -10,7 +10,7 @@ use gpuikit::elements::button::{ButtonVariant, button};
 use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::Themeable;
 
-use crate::app::{Menu, Tab, TimeChimpApp};
+use crate::app::{Menu, Overlay, Tab, TimeChimpApp};
 use crate::{domain, session};
 
 use super::widgets::*;
@@ -88,10 +88,10 @@ impl TimeChimpApp {
             .child(disclaimer)
             .child(browse)
             .when(self.menu.is_some(), |d| d.child(self.render_menu_backdrop(cx)))
-            .when(self.show_detail, |d| d.child(self.render_detail(theme, cx)))
-            .when_some(self.chart.as_ref(), |d, chart| d.child(self.render_chart(chart, theme, cx)))
-            .when_some(self.form.as_ref(), |d, form| d.child(self.render_form(form, theme, cx)))
-            .when_some(self.settings.as_ref(), |d, form| d.child(self.render_settings(form, theme, cx)))
+            .when(matches!(self.overlay, Overlay::Detail), |d| d.child(self.render_detail(theme, cx)))
+            .when_some(self.chart(), |d, chart| d.child(self.render_chart(chart, theme, cx)))
+            .when_some(self.form(), |d, form| d.child(self.render_form(form, theme, cx)))
+            .when_some(self.settings_form(), |d, form| d.child(self.render_settings(form, theme, cx)))
     }
 
     pub(super) fn render_toolbar(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
@@ -156,10 +156,7 @@ impl TimeChimpApp {
             .child(div().size(px(12.)).rounded_full().bg(theme.accent()))
             .child(muted(theme, title))
             .child(muted(theme, "▾"))
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.menu = if this.menu == Some(Menu::User) { None } else { Some(Menu::User) };
-                cx.notify();
-            }))
+            .on_click(cx.listener(|this, _, _, cx| this.toggle_menu(Menu::User, cx)))
     }
 
     /// "+ Add time" / "+ Add trip" as a split button: the left part opens an empty form, the ▾ a
@@ -176,10 +173,7 @@ impl TimeChimpApp {
             "add-presets",
             "▾",
             false,
-            cx.listener(move |this, _, _, cx| {
-                this.menu = if this.menu == Some(kind) { None } else { Some(kind) };
-                cx.notify();
-            }),
+            cx.listener(move |this, _, _, cx| this.toggle_menu(kind, cx)),
         )
         .rounded_l(px(0.))
         .px(px(8.))
@@ -266,9 +260,8 @@ impl TimeChimpApp {
     /// Transparent, window-wide layer under an open dropdown: any click outside closes it.
     pub(super) fn render_menu_backdrop(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let close = cx.listener(|this, _: &gpui::MouseDownEvent, _, cx| {
-            this.menu = None;
+            this.close_menu(cx);
             cx.stop_propagation();
-            cx.notify();
         });
         deferred(div().id("menu-backdrop").absolute().inset_0().occlude().on_mouse_down(MouseButton::Left, close))
             .with_priority(1)

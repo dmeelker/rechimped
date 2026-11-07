@@ -88,7 +88,7 @@ impl TimeChimpApp {
                     .child(pop(
                         theme,
                         button("detail-edit", "Edit").on_click(cx.listener(|this, _, w, cx| {
-                            this.show_detail = false;
+                            this.close_overlay(w, cx);
                             this.edit_selected(w, cx)
                         })),
                     ))
@@ -98,16 +98,11 @@ impl TimeChimpApp {
                         "Close",
                         false,
                         cx.listener(|this, _, w, cx| {
-                            this.show_detail = false;
-                            w.focus(&this.focus, cx);
-                            cx.notify()
+                            this.close_overlay(w, cx)
                         }),
                     )),
             );
-        let close = cx.listener(|this, _: &gpui::MouseDownEvent, _, cx| {
-            this.show_detail = false;
-            cx.notify()
-        });
+        let close = cx.listener(|this, _: &gpui::MouseDownEvent, w, cx| this.close_overlay(w, cx));
         Self::modal(theme, "detail", 560., card, Some(Box::new(close))).into_any_element()
     }
 
@@ -182,7 +177,7 @@ impl TimeChimpApp {
             .key_context("Modal")
             .moves_focus_on_tab()
             .on_action(cx.listener(|this, _: &Confirm, w, cx| this.submit_form(w, cx)))
-            .on_action(cx.listener(|this, _: &Cancel, w, cx| this.close_form(w, cx)))
+            .on_action(cx.listener(|this, _: &Cancel, w, cx| this.close_overlay(w, cx)))
             .on_action(cx.listener(|this, _: &CalculateDistance, w, cx| this.calculate_distance(w, cx)))
             .on_action(cx.listener(|this, _: &AddressUp, w, cx| this.move_address(-1, w, cx)))
             .on_action(cx.listener(|this, _: &AddressDown, w, cx| this.move_address(1, w, cx)))
@@ -219,7 +214,7 @@ impl TimeChimpApp {
                     .when_some(self.busy(), |d, b| d.child(div().text_color(theme.accent()).child(b)))
                     .child(pop(
                         theme,
-                        button("form-cancel", "Cancel").on_click(cx.listener(|this, _, w, cx| this.close_form(w, cx))),
+                        button("form-cancel", "Cancel").on_click(cx.listener(|this, _, w, cx| this.close_overlay(w, cx))),
                     ))
                     .child(primary_button(
                         theme,
