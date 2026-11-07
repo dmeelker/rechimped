@@ -26,10 +26,12 @@ impl TimeChimpApp {
             .px(px(16.))
             .pt(px(10.))
             .gap(px(16.))
-            .items_center()
+            .items_end()
             .border_b_1()
             .border_color(theme.border())
-            .child(self.tabs.clone())
+            // The tab strip draws its own rule; pulled 1px down it lies on the header's border, so the
+            // two read as one line (and the selected tab's underline covers it).
+            .child(div().mb(px(-1.)).child(self.tabs.clone()))
             .child(div().flex_1())
             .child(div().relative().mb(px(6.)).child(self.render_user_button(theme, title, cx)).when(
                 self.menu == Some(Menu::User),
