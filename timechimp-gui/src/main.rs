@@ -28,7 +28,7 @@ use gpuikit::input::INPUT_CONTEXT;
 use gpuikit::theme::{ControlMetrics, GlobalTheme, Theme, parse_hex};
 
 use app::{
-    CalculateDistance, Cancel, Confirm, CycleAddress, PickRecent, RecentDown, RecentUp, TimeChimpApp, ToggleShowcase,
+    AddressDown, AddressUp, CalculateDistance, Cancel, CloseAddresses, Confirm, PickAddress, PickRecent, RecentDown, RecentUp, TimeChimpApp, ToggleShowcase,
 };
 
 fn main() {
@@ -110,11 +110,17 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", Cancel, Some("Modal")),
         KeyBinding::new("ctrl-enter", Confirm, Some("Modal")),
         KeyBinding::new("ctrl-d", CalculateDistance, Some("Modal")),
-        KeyBinding::new("f2", CycleAddress, Some("Modal")),
         // The time form's Recent filter: ↑/↓ move through the list, Enter picks.
         KeyBinding::new("up", RecentUp, Some("RecentPicker > Input")),
         KeyBinding::new("down", RecentDown, Some("RecentPicker > Input")),
         KeyBinding::new("enter", PickRecent, Some("RecentPicker > Input")),
+        // The trip form's From/To: ↑/↓ move through the saved addresses (opening the list), Enter
+        // takes the highlighted one, Escape closes the list. With nothing to do they pass the key
+        // on, so Enter still saves and Escape still cancels.
+        KeyBinding::new("up", AddressUp, Some("AddressField > Input")),
+        KeyBinding::new("down", AddressDown, Some("AddressField > Input")),
+        KeyBinding::new("enter", PickAddress, Some("AddressField > Input")),
+        KeyBinding::new("escape", CloseAddresses, Some("AddressField > Input")),
         // Showcase mode: aurora behind the app plus the frame-time HUD.
         KeyBinding::new("f12", ToggleShowcase, None),
     ]);

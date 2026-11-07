@@ -17,7 +17,7 @@ use timechimp::{
     Authenticator, Client, LoginOutcome, MfaChallenge, Mileage, NewMileage, TimeEntry,
 };
 
-use crate::forms::{self, Form, FormBody, MileageForm, TimeForm, chosen, text};
+use crate::forms::{self, AddressField, AddressMenu, Form, FormBody, MileageForm, TimeForm, chosen, text};
 use crate::validate::{self, SaveRequest, TimeKind};
 use crate::domain::report::Report;
 use crate::domain::{self, MILEAGE_TYPES};
@@ -35,8 +35,14 @@ actions!(
         Cancel,
         /// Ctrl+D in the mileage form.
         CalculateDistance,
-        /// F2 in an address field: cycle through saved addresses.
-        CycleAddress,
+        /// ↑ in an address field of the trip form: previous suggestion (opens the list).
+        AddressUp,
+        /// ↓ in an address field of the trip form: next suggestion (opens the list).
+        AddressDown,
+        /// Enter in an address field: take the highlighted suggestion.
+        PickAddress,
+        /// Escape in an address field: close the suggestions.
+        CloseAddresses,
         /// ↑ in the time form's Recent filter.
         RecentUp,
         /// ↓ in the time form's Recent filter.
@@ -909,9 +915,23 @@ impl TimeChimpApp {
             mileage_type: forms::choice(cx, "form-type", "Type", types, mileage_type),
             billable: forms::toggle(cx, "form-billable", "Billable", billable),
             notes: forms::text_input(cx, notes),
+            addresses: saved,
+            address_menu: None,
         };
+        // Typing in From/To filters the suggestions; leaving the field closes them.
+        let mut subscriptions = Vec::new();
+        for field in [AddressField::From, AddressField::To] {
+            let input = form.address_input(field);
+            subscriptions.push(cx.subscribe_in(input, window, move |this, _, event: &InputStateEvent, _, cx| {
+                if matches!(event, InputStateEvent::TextChanged) {
+                    this.open_addresses(field, true, cx);
+                }
+            }));
+            let handle = input.read(cx).focus_handle(cx);
+            subscriptions.push(cx.on_focus_out(&handle, window, move |this, _, _, cx| this.close_addresses(field, cx)));
+        }
         window.focus(&form.from.read(cx).focus_handle(cx), cx);
-        self.form = Some(Form { body: FormBody::Mileage(form), error: None, _subscriptions: Vec::new() });
+        self.form = Some(Form { body: FormBody::Mileage(form), error: None, _subscriptions: subscriptions });
         cx.notify();
     }
 
@@ -928,15 +948,103 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// F2 in an address field cycles through the user's saved addresses.
-    pub fn cycle_address(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let saved = self.session.saved_addresses();
-        let Some(Form { body: FormBody::Mileage(form), .. }) = &self.form else { return };
-        let field = [&form.from, &form.to].into_iter().find(|f| f.read(cx).focus_handle(cx).is_focused(window));
-        if let (Some(field), false) = (field, saved.is_empty()) {
-            let current = text(field, cx);
-            let next = saved.iter().position(|a| *a == current).map_or(0, |i| (i + 1) % saved.len());
-            forms::set_text(field, saved[next].clone(), cx);
+    fn mileage_form(&self) -> Option<&MileageForm> {
+        match &self.form {
+            Some(Form { body: FormBody::Mileage(form), .. }) => Some(form),
+            _ => None,
+        }
+    }
+
+    fn mileage_form_mut(&mut self) -> Option<&mut MileageForm> {
+        match &mut self.form {
+            Some(Form { body: FormBody::Mileage(form), .. }) => Some(form),
+            _ => None,
+        }
+    }
+
+    /// Opens the suggestions under `field`: filtered by its text after typing (nothing
+    /// highlighted, so Enter keeps what was typed), or all of them from ↓ or ▾.
+    pub fn open_addresses(&mut self, field: AddressField, filtered: bool, cx: &mut Context<Self>) {
+        if let Some(form) = self.mileage_form_mut() {
+            let highlighted = (!filtered).then_some(0);
+            form.address_menu = Some(AddressMenu { field, filtered, highlighted });
+            cx.notify();
+        }
+    }
+
+    /// Closes the suggestions if they are open under `field`.
+    pub fn close_addresses(&mut self, field: AddressField, cx: &mut Context<Self>) {
+        if let Some(form) = self.mileage_form_mut()
+            && form.address_menu.as_ref().is_some_and(|m| m.field == field)
+        {
+            form.address_menu = None;
+            cx.notify();
+        }
+    }
+
+    /// The ▾ of an address field: focuses it and shows all suggestions, or closes them.
+    pub fn toggle_addresses(&mut self, field: AddressField, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(form) = self.mileage_form() else { return };
+        let open = form.address_menu.as_ref().is_some_and(|m| m.field == field);
+        window.focus(&form.address_input(field).read(cx).focus_handle(cx), cx);
+        if open {
+            self.close_addresses(field, cx);
+        } else {
+            self.open_addresses(field, false, cx);
+        }
+    }
+
+    /// ↑/↓ in an address field: moves through the suggestions, opening the full list first.
+    pub fn move_address(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(form) = self.mileage_form() else { return cx.propagate() };
+        let Some(field) = form.focused_address(window, cx) else { return cx.propagate() };
+        let count = form.address_matches(cx).len();
+        let Some(menu) = self.mileage_form_mut().and_then(|f| f.address_menu.as_mut()).filter(|m| m.field == field) else {
+            return self.open_addresses(field, false, cx);
+        };
+        let last = count.saturating_sub(1);
+        menu.highlighted = Some(match menu.highlighted {
+            None => 0,
+            Some(i) => i.saturating_add_signed(delta).min(last),
+        });
+        cx.notify();
+    }
+
+    /// Enter in an address field: takes the highlighted suggestion; with none, Enter saves the form.
+    pub fn pick_highlighted_address(&mut self, cx: &mut Context<Self>) {
+        let Some(form) = self.mileage_form() else { return cx.propagate() };
+        let picked = form
+            .address_menu
+            .as_ref()
+            .and_then(|m| Some((m.field, form.address_matches(cx).get(m.highlighted?)?.to_string())));
+        match picked {
+            Some((field, address)) => self.pick_address(field, address, cx),
+            None => {
+                if let Some(form) = self.mileage_form_mut() {
+                    form.address_menu = None;
+                }
+                cx.propagate();
+            }
+        }
+    }
+
+    /// Puts `address` in `field` and closes the suggestions.
+    pub fn pick_address(&mut self, field: AddressField, address: String, cx: &mut Context<Self>) {
+        let Some(form) = self.mileage_form_mut() else { return };
+        form.address_menu = None;
+        // Silent, or the TextChanged subscription would reopen the list filtered by the address.
+        form.address_input(field).update(cx, |input, cx| input.set_content_silent(address, cx));
+        cx.notify();
+    }
+
+    /// Escape in an address field: closes the suggestions; with none open, Escape closes the form.
+    pub fn dismiss_addresses(&mut self, cx: &mut Context<Self>) {
+        match self.mileage_form_mut() {
+            Some(form) if form.address_menu.is_some() => {
+                form.address_menu = None;
+                cx.notify();
+            }
+            _ => cx.propagate(),
         }
     }
 

@@ -1,6 +1,6 @@
 //! The add/edit dialogs, built from gpuikit inputs, selects and switches.
 
-use gpui::{App, AppContext, ElementId, Entity, Focusable, SharedString, Subscription};
+use gpui::{App, AppContext, ElementId, Entity, Focusable, SharedString, Subscription, Window};
 use gpuikit::elements::checkbox::{Checkbox, checkbox};
 use gpuikit::elements::select::{SelectState, select};
 use gpuikit::elements::switch::{Switch, switch};
@@ -75,9 +75,49 @@ pub struct MileageForm {
     pub mileage_type: Entity<SelectState<MileageType>>,
     pub billable: Entity<Switch>,
     pub notes: Entity<InputState>,
+    /// What From and To suggest: the saved addresses, then this week's (`Session::saved_addresses`).
+    pub addresses: Vec<String>,
+    /// The suggestion list open under From or To, if any.
+    pub address_menu: Option<AddressMenu>,
+}
+
+/// The two address fields of the trip form, each a text field with a list of suggestions.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AddressField {
+    From,
+    To,
+}
+
+/// The suggestion list under an address field.
+pub struct AddressMenu {
+    pub field: AddressField,
+    /// Filtered by the field's text (opened by typing) or all addresses (opened with ↓ or ▾).
+    pub filtered: bool,
+    /// Index into `MileageForm::address_matches`. None after typing, so Enter keeps the typed text.
+    pub highlighted: Option<usize>,
 }
 
 impl MileageForm {
+    pub fn address_input(&self, field: AddressField) -> &Entity<InputState> {
+        match field {
+            AddressField::From => &self.from,
+            AddressField::To => &self.to,
+        }
+    }
+
+    /// The address field that has focus, if any.
+    pub fn focused_address(&self, window: &Window, cx: &App) -> Option<AddressField> {
+        [AddressField::From, AddressField::To]
+            .into_iter()
+            .find(|f| self.address_input(*f).read(cx).focus_handle(cx).is_focused(window))
+    }
+
+    /// The suggestions the open list shows (empty while none is open).
+    pub fn address_matches(&self, cx: &App) -> Vec<&str> {
+        let Some(menu) = &self.address_menu else { return Vec::new() };
+        let query = if menu.filtered { text(self.address_input(menu.field), cx) } else { String::new() };
+        crate::domain::matching_addresses(&self.addresses, &query)
+    }
     /// What is filled in, for `validate::trip` and `validate::preset`.
     pub fn values(&self, cx: &App) -> MileageValues {
         MileageValues {

@@ -6,12 +6,15 @@ use gpui::{
 };
 use gpuikit::a11y::FocusNavigation;
 use gpuikit::elements::button::button;
-use gpuikit::elements::text_field::text_field;
+use gpuikit::elements::text_field::{Adornment, text_field};
 use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::Themeable;
 
-use crate::app::{CalculateDistance, Cancel, Confirm, CycleAddress, PickRecent, RecentDown, RecentUp, TimeChimpApp};
-use crate::forms::{Form, FormBody, RecentPicker};
+use crate::app::{
+    AddressDown, AddressUp, CalculateDistance, Cancel, CloseAddresses, Confirm, PickAddress, PickRecent, RecentDown,
+    RecentUp, TimeChimpApp,
+};
+use crate::forms::{AddressField, Form, FormBody, MileageForm, RecentPicker};
 use crate::domain::week::RecentItem;
 
 use super::widgets::*;
@@ -149,8 +152,8 @@ impl TimeChimpApp {
             FormBody::Mileage(f) => vec![
                 row("Date", field(&f.date, "YYYY-MM-DD", cx)),
                 row("Project", f.project.clone().into_any_element()),
-                row("From", field(&f.from, "Address", cx)),
-                row("To", field(&f.to, "Address", cx)),
+                row("From", self.render_address(f, AddressField::From, theme, cx)),
+                row("To", self.render_address(f, AddressField::To, theme, cx)),
                 row(
                     "Distance (km)",
                     h_stack()
@@ -180,7 +183,10 @@ impl TimeChimpApp {
             .on_action(cx.listener(|this, _: &Confirm, w, cx| this.submit_form(w, cx)))
             .on_action(cx.listener(|this, _: &Cancel, w, cx| this.close_form(w, cx)))
             .on_action(cx.listener(|this, _: &CalculateDistance, w, cx| this.calculate_distance(w, cx)))
-            .on_action(cx.listener(|this, _: &CycleAddress, w, cx| this.cycle_address(w, cx)))
+            .on_action(cx.listener(|this, _: &AddressUp, w, cx| this.move_address(-1, w, cx)))
+            .on_action(cx.listener(|this, _: &AddressDown, w, cx| this.move_address(1, w, cx)))
+            .on_action(cx.listener(|this, _: &PickAddress, _, cx| this.pick_highlighted_address(cx)))
+            .on_action(cx.listener(|this, _: &CloseAddresses, _, cx| this.dismiss_addresses(cx)))
             .on_action(cx.listener(|this, _: &RecentUp, _, cx| this.move_recent(-1, cx)))
             .on_action(cx.listener(|this, _: &RecentDown, _, cx| this.move_recent(1, cx)))
             .on_action(cx.listener(|this, _: &PickRecent, w, cx| this.pick_highlighted_recent(w, cx)))
@@ -216,6 +222,66 @@ impl TimeChimpApp {
                     )),
             );
         Self::modal(theme, "form", 720., card, None)
+    }
+
+    /// From or To of the trip form: a text field for any address, whose ▾ (or ↓) lists the saved
+    /// addresses; typing filters that list. Picking one fills in the field.
+    fn render_address(&self, form: &MileageForm, field: AddressField, theme: &T, cx: &mut Context<Self>) -> AnyElement {
+        let (chevron_id, menu_id) = match field {
+            AddressField::From => ("from-addresses-toggle", "from-addresses"),
+            AddressField::To => ("to-addresses-toggle", "to-addresses"),
+        };
+        let chevron = div()
+            .id(chevron_id)
+            .flex()
+            .items_center()
+            .px(px(2.))
+            .cursor_pointer()
+            .text_color(theme.fg_muted())
+            .child("▾")
+            // On press, so the field underneath doesn't take the click.
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, w, cx| {
+                    cx.stop_propagation();
+                    this.toggle_addresses(field, w, cx)
+                }),
+            );
+        let input = text_field(form.address_input(field), cx).placeholder("Address").suffix(Adornment::element(chevron));
+        let menu = form.address_menu.as_ref().filter(|m| m.field == field).and_then(|menu| {
+            let matches = form.address_matches(cx);
+            // Typing something new isn't worth an empty list; ▾ without saved addresses says so.
+            if matches.is_empty() && menu.filtered {
+                return None;
+            }
+            let rows = matches.into_iter().enumerate().map(|(i, address)| {
+                let address = address.to_owned();
+                div()
+                    .id(ElementId::NamedInteger("address".into(), i as u64))
+                    .px(px(10.))
+                    .py(px(5.))
+                    .rounded(px(4.))
+                    .cursor_pointer()
+                    .when(menu.highlighted == Some(i), |d| d.bg(theme.accent_bg()))
+                    .hover(|s| s.bg(theme.accent_bg()))
+                    .child(address.clone())
+                    // On press: picking before the field could lose focus and close the list.
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.pick_address(field, address.clone(), cx)
+                        }),
+                    )
+            });
+            let panel = menu_panel(theme, menu_id)
+                .max_h(px(240.))
+                .overflow_y_scroll()
+                .children(rows)
+                .when(form.addresses.is_empty(), |d| d.child(muted(theme, "No saved addresses").px(px(10.)).py(px(5.))));
+            Some(deferred(div().absolute().top_full().left_0().right_0().mt(px(4.)).child(panel)).with_priority(3))
+        });
+        div().relative().key_context("AddressField").child(input).children(menu).into_any_element()
     }
 
     /// The time form's Recent picker: a filter field over the recent items, the highlighted one

@@ -25,3 +25,23 @@ pub fn mileage_type_name(mileage_type: MileageType) -> String {
         .find(|(t, _)| *t == mileage_type)
         .map_or_else(|| format!("type {}", i32::from(mileage_type)), |(_, n)| n.to_string())
 }
+
+/// The addresses containing `query` (case-insensitive, trimmed), in their order; all of them for
+/// an empty query.
+pub fn matching_addresses<'a>(addresses: &'a [String], query: &str) -> Vec<&'a str> {
+    let query = query.trim().to_lowercase();
+    addresses.iter().filter(|a| a.to_lowercase().contains(&query)).map(String::as_str).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn matching_addresses_filters_case_insensitively() {
+        let addresses = ["Stationsplein 1, Utrecht".to_owned(), "Damrak 1, Amsterdam".to_owned()];
+        assert_eq!(matching_addresses(&addresses, "  utrecht "), ["Stationsplein 1, Utrecht"]);
+        assert_eq!(matching_addresses(&addresses, ""), ["Stationsplein 1, Utrecht", "Damrak 1, Amsterdam"]);
+        assert!(matching_addresses(&addresses, "Rotterdam").is_empty());
+    }
+}

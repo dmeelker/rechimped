@@ -323,21 +323,6 @@ impl TimeChimpApp {
     }
 }
 
-/// The box of a dropdown menu; its items are `menu_item`s.
-fn menu_panel(theme: &T, id: &'static str) -> gpui::Stateful<gpui::Div> {
-    v_stack()
-        .id(id)
-        .occlude()
-        .min_w(px(160.))
-        .p(px(4.))
-        .rounded(px(6.))
-        .border_1()
-        .border_color(theme.border())
-        .bg(theme.surface())
-        .shadow_lg()
-        .text_color(theme.fg())
-}
-
 fn menu_item(theme: &T, id: impl Into<ElementId>, label: impl IntoElement) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
