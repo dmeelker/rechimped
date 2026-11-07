@@ -486,9 +486,6 @@ impl TimeChimpApp {
         self.selected_mileage = keep_selection(self.selected_mileage, week.mileage.len());
         self.entries = week.entries;
         self.mileage = week.mileage;
-        // Per day in the order they were registered (outbound before return), so the Mileage tab
-        // can group consecutive rows by day and ↑/↓ follow what's on screen.
-        self.mileage.sort_by_key(|m| (m.date, m.id));
         if let Some(id) = select_id {
             if let Some(i) = self.entries.iter().position(|e| e.id == id) {
                 self.selected_entry = Some(i);
@@ -710,8 +707,21 @@ impl TimeChimpApp {
         }
     }
 
-    fn project_options(&self) -> Vec<(i64, String)> {
-        self.projects.iter().filter(|p| p.active).map(|p| (p.id, format!("{} — {}", p.name, p.customer_name))).collect()
+    /// The active projects, plus `current` (id, name, customer: the project of the entry or trip
+    /// at hand) when it isn't among them.
+    fn project_options(&self, current: Option<(i64, &str, &str)>) -> Vec<(i64, String)> {
+        let mut options: Vec<(i64, String)> = self
+            .projects
+            .iter()
+            .filter(|p| p.active)
+            .map(|p| (p.id, logic::project_label(&p.name, &p.customer_name)))
+            .collect();
+        if let Some((id, name, customer)) = current
+            && !options.iter().any(|(o, _)| *o == id)
+        {
+            options.push((id, logic::project_label(name, customer)));
+        }
+        options
     }
 
     fn task_options(&self, project_id: Option<i64>, entry: Option<&TimeEntry>) -> Vec<(i64, String)> {
@@ -729,12 +739,7 @@ impl TimeChimpApp {
 
     /// Form for a new time entry, for editing `entry`, or (with `copy`) for a copy of it.
     fn open_time_form(&mut self, entry: Option<&TimeEntry>, copy: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let mut projects = self.project_options();
-        if let Some(e) = entry {
-            if !projects.iter().any(|(id, _)| *id == e.project_id) {
-                projects.push((e.project_id, format!("{} — {}", e.project_name, e.customer_name)));
-            }
-        }
+        let projects = self.project_options(entry.map(|e| (e.project_id, &*e.project_name, &*e.customer_name)));
         // New entries default to the project/task/tag of the most recently modified entry.
         let template = entry.or_else(|| self.entries.iter().max_by_key(|e| e.modified));
         let project_id = template.map(|e| e.project_id).or(projects.first().map(|(id, _)| *id));
@@ -866,10 +871,7 @@ impl TimeChimpApp {
     /// Fills the open time form with the project, task, notes and tags of `entry` (a recent item);
     /// date and times stay. Focus moves on to the times.
     pub fn pick_recent(&mut self, entry: TimeEntry, window: &mut Window, cx: &mut Context<Self>) {
-        let mut projects = self.project_options();
-        if !projects.iter().any(|(id, _)| *id == entry.project_id) {
-            projects.push((entry.project_id, format!("{} — {}", entry.project_name, entry.customer_name)));
-        }
+        let projects = self.project_options(Some((entry.project_id, &entry.project_name, &entry.customer_name)));
         let project = forms::choice(cx, "form-project", "Project", projects, Some(entry.project_id));
         let tasks = self.task_options(Some(entry.project_id), Some(&entry));
         let task = forms::choice(cx, "form-task", "Task", tasks, Some(entry.project_task_id));
@@ -951,11 +953,11 @@ impl TimeChimpApp {
         let Some(project) = chosen(&f.project, cx).and_then(|id| self.projects.iter().find(|p| p.id == id)) else {
             return self.form_error("Pick a project first", cx);
         };
-        let distance = text(&f.distance, cx).replace(',', ".");
-        let distance = match distance.parse::<f64>() {
-            Ok(km) => Some(km),
-            Err(_) if distance.is_empty() => None,
-            Err(_) => return self.form_error("Distance must be a number (or empty)", cx),
+        let distance = text(&f.distance, cx);
+        let distance = match logic::parse_decimal(&distance) {
+            Some(km) => Some(km),
+            None if distance.is_empty() => None,
+            None => return self.form_error("Distance must be a number (or empty)", cx),
         };
         let name = logic::preset_name(&from, &to, &notes);
         if self.trip_presets.iter().any(|p| p.name.eq_ignore_ascii_case(&name)) {
@@ -996,12 +998,8 @@ impl TimeChimpApp {
         let template = editing.as_deref().or(self.mileage.last());
         let saved = self.saved_addresses();
         let types = MILEAGE_TYPES.iter().map(|(id, name)| (*id, name.to_string())).collect();
-        let mut projects = self.project_options();
-        if let Some(m) = &editing
-            && !projects.iter().any(|(id, _)| *id == m.project_id)
-        {
-            projects.push((m.project_id, format!("{} — {}", m.project_name, m.customer_name)));
-        }
+        let projects =
+            self.project_options(editing.as_deref().map(|m| (m.project_id, &*m.project_name, &*m.customer_name)));
         let (mut project, mut mileage_type, mut billable, mut return_trip) = (
             template.map(|m| m.project_id),
             template.map(|m| m.mileage_type as i64),
@@ -1192,10 +1190,8 @@ impl TimeChimpApp {
 
         let request = match &form.body {
             FormBody::Mileage(f) => {
-                let distance: f64 = text(&f.distance, cx)
-                    .replace(',', ".")
-                    .parse()
-                    .map_err(|_| "Distance must be a number (Ctrl+D calculates it)")?;
+                let distance = logic::parse_decimal(&text(&f.distance, cx))
+                    .ok_or("Distance must be a number (Ctrl+D calculates it)")?;
                 let (from, to) = (text(&f.from, cx), text(&f.to, cx));
                 if from.is_empty() || to.is_empty() {
                     return Err("Fill in both addresses".into());
@@ -1267,10 +1263,8 @@ impl TimeChimpApp {
                         entry.with_times(logic::local(date, start)?, logic::local(date, end)?)
                     }
                     (None, None) => {
-                        let hours: f64 = text(&f.hours, cx)
-                            .replace(',', ".")
-                            .parse()
-                            .map_err(|_| "Enter start and end, or a number of hours")?;
+                        let hours = logic::parse_decimal(&text(&f.hours, cx))
+                            .ok_or("Enter start and end, or a number of hours")?;
                         if hours <= 0.0 {
                             return Err("Hours must be positive".into());
                         }

@@ -1,12 +1,14 @@
 //! UI-independent pieces: data loading, date/time helpers and the session token on disk.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use chrono::{DateTime, Datelike, Duration, FixedOffset, Local, Months, NaiveDate, NaiveTime};
 use timechimp::{
-    Client, CurrentUser, Mileage, MileageReportRow, Project, ProjectTask, Tag, Task, TimeEntry, TimeReportRow,
+    Client, CurrentUser, Mileage, MileageReportRow, Project, ProjectTask, QueryResult, Tag, Task, TimeEntry,
+    TimeReportRow,
 };
 
 /// Mileage trip types as observed in the API (names are a best guess).
@@ -60,6 +62,8 @@ pub async fn load_week(client: &Client, user_id: i64, week_start: NaiveDate) -> 
     let (mut entries, mut mileage) =
         tokio::try_join!(client.time_entries_for_week(user_id, week_start), client.mileage_for_week(user_id, week_start))?;
     entries.sort_by_key(|e| (e.date, e.start));
+    // Per day in the order they were registered (outbound before return), so the Mileage tab can
+    // group consecutive rows by day and ↑/↓ follow what's on screen.
     mileage.sort_by_key(|m| (m.date, m.id));
     Ok(Week { entries, mileage })
 }
@@ -123,22 +127,21 @@ pub fn recent_items<'a>(entries: impl IntoIterator<Item = &'a TimeEntry>) -> Vec
 /// Share of hours that should be billable, unless `billable_goal` in `config.toml` says otherwise.
 pub const DEFAULT_BILLABLE_GOAL: f64 = 0.75;
 
-/// Page through the server-side grid until all of the month's rows are in (own rows only).
-async fn load_month_time(client: &Client, user_id: i64, month: NaiveDate) -> timechimp::Result<Vec<TimeReportRow>> {
-    let to = last_of_month(month);
-    let mut time = Vec::new();
+/// Pages through a server-side grid query until all rows are in.
+async fn page_all<T, Fut>(mut fetch: impl FnMut(std::ops::Range<u32>) -> Fut) -> timechimp::Result<Vec<T>>
+where
+    Fut: Future<Output = timechimp::Result<QueryResult<T>>>,
+{
+    let mut rows = Vec::new();
     loop {
-        let start = time.len() as u32;
-        let page = client.query_time(month, to, start..start + PAGE).await?;
+        let start = rows.len() as u32;
+        let page = fetch(start..start + PAGE).await?;
         let done = page.row_data.is_empty() || (start as i64 + page.row_data.len() as i64) >= page.row_count;
-        time.extend(page.row_data);
+        rows.extend(page.row_data);
         if done {
-            break;
+            return Ok(rows);
         }
     }
-    // Reports include everyone the caller can see.
-    time.retain(|r: &TimeReportRow| r.user_id == user_id);
-    Ok(time)
 }
 
 const PAGE: u32 = 500;
@@ -152,19 +155,15 @@ pub fn billable_hours(entries: &[TimeEntry]) -> f64 {
     entries.iter().filter(|e| e.billable).map(|e| e.hours).sum()
 }
 
+/// The month's report rows (own rows only).
 pub async fn load_report(client: &Client, user_id: i64, month: NaiveDate) -> timechimp::Result<Report> {
     let to = last_of_month(month);
-    let time = load_month_time(client, user_id, month).await?;
-    let mut mileage = Vec::new();
-    loop {
-        let start = mileage.len() as u32;
-        let page = client.query_mileage(month, to, start..start + PAGE).await?;
-        let done = page.row_data.is_empty() || (start as i64 + page.row_data.len() as i64) >= page.row_count;
-        mileage.extend(page.row_data);
-        if done {
-            break;
-        }
-    }
+    let (mut time, mut mileage) = tokio::try_join!(
+        page_all(|rows| client.query_time(month, to, rows)),
+        page_all(|rows| client.query_mileage(month, to, rows)),
+    )?;
+    // Reports include everyone the caller can see.
+    time.retain(|r: &TimeReportRow| r.user_id == user_id);
     mileage.retain(|r: &MileageReportRow| r.user_id == user_id);
     Ok(Report { month: Some(month), time, mileage })
 }
@@ -426,6 +425,16 @@ fn range_junction((_, prev_end): (NaiveTime, NaiveTime), (next_start, next_end):
     } else {
         Junction::Overlap { from: next_start, to: prev_end.min(next_end) }
     })
+}
+
+/// A number as typed in a form: surrounding spaces allowed, `,` as the decimal separator too.
+pub fn parse_decimal(s: &str) -> Option<f64> {
+    s.trim().replace(',', ".").parse().ok()
+}
+
+/// How a project is listed in the forms: "Project — Customer".
+pub fn project_label(project: &str, customer: &str) -> String {
+    format!("{project} — {customer}")
 }
 
 pub fn json_strings(value: &serde_json::Value) -> Option<Vec<String>> {
