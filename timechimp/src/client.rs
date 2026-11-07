@@ -17,11 +17,23 @@ const AI_API_BASE: &str = "https://ai.timechimp.com/api/v1/";
 pub struct Client {
     http: reqwest::Client,
     auth: Arc<Authenticator>,
+    /// `API_BASE`, or a test server.
+    base: String,
 }
 
 impl Client {
     pub fn new(auth: Authenticator) -> Self {
-        Self { http: reqwest::Client::new(), auth: Arc::new(auth) }
+        Self::with_base_url(auth, API_BASE)
+    }
+
+    /// A client for another server than TimeChimp's (with a trailing `/`), for tests.
+    #[doc(hidden)]
+    pub fn with_base_url(auth: Authenticator, base: impl Into<String>) -> Self {
+        Self { http: reqwest::Client::new(), auth: Arc::new(auth), base: base.into() }
+    }
+
+    fn url(&self, path: &str) -> String {
+        format!("{}{path}", self.base)
     }
 
     pub fn authenticator(&self) -> &Authenticator {
@@ -155,7 +167,7 @@ impl Client {
 
     /// The running timer, or `None` when none is running. Shape not yet observed.
     pub async fn running_timer(&self) -> Result<Option<Value>> {
-        let url = format!("{API_BASE}v2/timer");
+        let url = self.url("v2/timer");
         let response = self.send(|| self.http.get(&url)).await?;
         if response.status() == StatusCode::NO_CONTENT {
             return Ok(None);
@@ -310,7 +322,7 @@ impl Client {
     /// Address autocomplete.
     pub async fn place_predictions(&self, query: &str) -> Result<Vec<PlacePrediction>> {
         let maps = self.get_maps(&["places", query]).await?;
-        let url = format!("{API_BASE}googlemaps/places");
+        let url = self.url("googlemaps/places");
         serde_json::from_value(maps["predictions"].clone()).map_err(|source| Error::Decode { url, source })
     }
 
@@ -331,7 +343,7 @@ impl Client {
     }
 
     async fn get_maps(&self, segments: &[&str]) -> Result<Value> {
-        let mut url = reqwest::Url::parse(API_BASE).expect("valid base url");
+        let mut url = reqwest::Url::parse(&self.base).expect("valid base url");
         url.path_segments_mut().expect("base url").pop_if_empty().push("googlemaps").extend(segments);
         let url = url.to_string();
         let response = self.send(|| self.http.get(&url)).await?;
@@ -342,25 +354,25 @@ impl Client {
     // ---- Plumbing ------------------------------------------------------------------------
 
     async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
-        let url = format!("{API_BASE}{path}");
+        let url = self.url(path);
         let response = self.send(|| self.http.get(&url)).await?;
         decode(&url, response).await
     }
 
     async fn post<T: DeserializeOwned>(&self, path: &str, body: &Value) -> Result<T> {
-        let url = format!("{API_BASE}{path}");
+        let url = self.url(path);
         let response = self.send(|| self.http.post(&url).json(body)).await?;
         decode(&url, response).await
     }
 
     async fn put<T: DeserializeOwned>(&self, path: &str, body: &Value) -> Result<T> {
-        let url = format!("{API_BASE}{path}");
+        let url = self.url(path);
         let response = self.send(|| self.http.put(&url).json(body)).await?;
         decode(&url, response).await
     }
 
     async fn delete(&self, path: &str) -> Result<()> {
-        let url = format!("{API_BASE}{path}");
+        let url = self.url(path);
         self.send(|| self.http.delete(&url)).await?;
         Ok(())
     }

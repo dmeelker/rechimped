@@ -120,6 +120,14 @@ impl Authenticator {
         }
     }
 
+    /// Uses `token` as the access token for an hour, without a refresh token, for tests against
+    /// a server that takes any bearer token.
+    #[doc(hidden)]
+    pub fn with_access_token(token: impl Into<String>) -> Self {
+        let token = AccessToken { token: token.into(), expires_at: Instant::now() + Duration::from_secs(3600) };
+        Self { http: reqwest::Client::new(), refresh_token: String::new(), access: Mutex::new(Some(token)) }
+    }
+
     /// Long-lived token; persist it to avoid logging in with a password every time.
     pub fn refresh_token(&self) -> &str {
         &self.refresh_token

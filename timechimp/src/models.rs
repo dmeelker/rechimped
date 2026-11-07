@@ -679,6 +679,111 @@ mod tests {
         DateTime::parse_from_rfc3339(&format!("2026-11-04T{h:02}:{m:02}:00+01:00")).unwrap()
     }
 
+    fn fixture<T: serde::de::DeserializeOwned>(name: &str) -> T {
+        let path = format!("{}/testdata/{name}", env!("CARGO_MANIFEST_DIR"));
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap_or_else(|e| panic!("{path}: {e}"))
+    }
+
+    #[test]
+    fn decodes_time_entries() {
+        let [plain, timed]: [TimeEntry; 2] = fixture("time_entries.json");
+        assert_eq!(plain.date.date(), NaiveDate::from_ymd_opt(2026, 11, 4).unwrap());
+        assert_eq!((plain.start, &plain.start_end), (None, &None));
+        assert!(plain.tag_ids.is_empty() && plain.tag_names.is_empty(), "null lists become empty");
+        assert_eq!(timed.start_end.as_deref(), Some("09:00-10:30"));
+        assert_eq!(timed.start.unwrap().to_string(), "2026-11-04 08:00:00");
+        assert_eq!(timed.modified.to_string(), "2026-11-04 09:23:00.772055700", "offset dates are read as UTC");
+        assert_eq!(timed.tag_ids, [7]);
+        assert_eq!(timed.timezone.as_deref(), Some("Europe/Amsterdam"));
+        assert!(timed.extra.contains_key("timer"), "unknown fields are kept");
+    }
+
+    #[test]
+    fn decodes_mileage() {
+        let [trip]: [Mileage; 1] = fixture("mileage.json");
+        assert_eq!(trip.distance, 23.5);
+        assert_eq!(trip.mileage_type, 3);
+        assert_eq!(trip.from_address.as_deref(), Some("Home street 1, Town"));
+        assert_eq!(trip.mileage_vehicle_id, None);
+    }
+
+    #[test]
+    fn decodes_current_user() {
+        let me: CurrentUser = fixture("current_user.json");
+        assert_eq!(me.contract_hours, Some(32.0));
+        assert_eq!(me.user_availability.as_ref().and_then(|a| a.for_day(0)), Some(8.0));
+        assert_eq!(me.user_availability.as_ref().and_then(|a| a.for_day(4)), None);
+        assert!(me.company_apps.is_empty());
+        assert!(me.extra.contains_key("mileageAddresses"));
+    }
+
+    #[test]
+    fn time_entry_body() {
+        let entry = NewTimeEntry {
+            notes: Some("Review".into()),
+            pause: 0.25,
+            tag_ids: vec![7],
+            timezone: Some("Europe/Amsterdam".into()),
+            ..entry()
+        }
+        .with_times(at(9, 0), at(10, 30));
+        assert_eq!(
+            entry.to_json(),
+            json!({
+                "userId": 1, "customerId": 2, "projectId": 3, "projectTaskId": 4, "taskId": 5,
+                "date": "2026-11-04T00:00:00.000Z",
+                "hours": 1.25,
+                "notes": "Review",
+                "pause": 0.25,
+                "tagIds": [7],
+                "timer": null,
+                "start": "2026-11-04T08:00:00.000Z",
+                "end": "2026-11-04T09:30:00.000Z",
+                "startEnd": "09:00-10:30",
+                "startTime": "09:00",
+                "endTime": "10:30",
+                "timezone": "Europe/Amsterdam",
+            })
+        );
+        // Without times: the hours as given, no start/end keys.
+        let body = NewTimeEntry { hours: 2.0, ..entry.clone() };
+        let body = NewTimeEntry { start: None, end: None, ..body }.to_json();
+        assert_eq!(body["hours"], 2.0);
+        assert!(body.get("start").is_none() && body.get("startEnd").is_none());
+    }
+
+    #[test]
+    fn mileage_body() {
+        let trip = NewMileage {
+            user_id: 1,
+            customer_id: 2,
+            project_id: 3,
+            date: NaiveDate::from_ymd_opt(2026, 11, 4).unwrap(),
+            distance: 23.5,
+            from_address: "A".into(),
+            to_address: "B".into(),
+            notes: None,
+            billable: true,
+            mileage_type: 1,
+            mileage_vehicle_id: None,
+        };
+        assert_eq!(
+            trip.to_json(),
+            json!({
+                "userId": 1, "customerId": 2, "projectId": 3,
+                "date": "2026-11-04T00:00:00.000Z",
+                "distance": 23.5,
+                "fromAddress": "A",
+                "toAddress": "B",
+                "notes": "",
+                "billable": true,
+                "type": 1,
+                "mileageVehicleId": null,
+                "status": 0, "statusIntern": 0, "statusExtern": 0,
+            })
+        );
+    }
+
     #[test]
     fn hours_follow_times_and_pause_in_any_order() {
         let pause_first = NewTimeEntry { pause: 0.5, ..entry() }.with_times(at(9, 0), at(11, 0));

@@ -1,0 +1,25 @@
+[
+  {
+    "id": 201,
+    "userId": 1,
+    "userDisplayName": "Test User",
+    "customerId": 2,
+    "customerName": "Customer",
+    "projectId": 3,
+    "projectName": "Project",
+    "projectCode": null,
+    "date": "2026-11-04T00:00:00",
+    "mileageVehicleId": null,
+    "mileageVehicleName": null,
+    "fromAddress": "Home street 1, Town",
+    "toAddress": "Office lane 2, City",
+    "notes": null,
+    "distance": 23.5,
+    "billable": false,
+    "type": 3,
+    "status": 0,
+    "statusIntern": 0,
+    "statusExtern": 0,
+    "modified": "2026-11-04T17:02:11.123Z"
+  }
+]

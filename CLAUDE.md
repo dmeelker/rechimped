@@ -31,6 +31,8 @@ Client for TimeChimp's **undocumented internal** web API (`web.timechimp.com/api
 - `client.rs`: `Client` (cheap to clone, `Arc<Authenticator>`) with one async method per endpoint. Report data (`query_time`, `query_mileage`) comes from a server-side grid and must be paged by the caller.
 - `models.rs`: serde models; `NewTimeEntry` / `NewMileage` are the write payloads.
 - `srp.rs` has unit tests against a pycognito-generated vector in `testdata/`.
+- `error.rs`: `Error::is_auth()` says whether logging in again is the fix (Cognito `Rejected`, login protocol errors, a 401 after a refresh) as opposed to network/server trouble.
+- Tests: `models.rs` decodes the JSON fixtures in `testdata/` (hand-written to the observed shapes, not captured responses; swap in scrubbed real ones when the API changes) and snapshots the `to_json` request bodies; `tests/client.rs` runs `Client` against a one-shot local HTTP server via `Client::with_base_url` and `Authenticator::with_access_token` (both `#[doc(hidden)]`, for tests).
 
 ### `timechimp-gui` — Rechimped, the gpui + gpuikit desktop app
 One root entity, `TimeChimpApp` (`app.rs`), holds all state; `view.rs` implements `Render` for it.
