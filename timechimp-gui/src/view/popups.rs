@@ -108,35 +108,30 @@ impl TimeChimpApp {
     }
 
     pub(super) fn render_form(&self, form: &Form, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        // Only the mileage form has hints; the time form uses the full width for its fields.
-        let show_help = matches!(form.body, FormBody::Mileage(_));
-        let row = |label: &'static str, control: AnyElement, help: Option<&'static str>| {
+        let row = |label: &'static str, control: AnyElement| {
             h_stack()
                 .gap(px(16.))
                 .items_center()
                 .child(div().w(px(110.)).flex_none().text_color(theme.fg_muted()).child(label))
                 .child(div().flex_1().min_w_0().child(control))
-                .when(show_help, |d| {
-                    d.child(div().w(px(150.)).flex_none().text_xs().text_color(theme.fg_muted()).children(help))
-                })
         };
         let field = |input, placeholder: &'static str, cx: &mut Context<Self>| {
             text_field(input, cx).placeholder(placeholder).into_any_element()
         };
         let rows: Vec<AnyElement> = match &form.body {
             FormBody::Time(f) => vec![
-                row("Recent", f.recent.as_ref().map_or_else(|| div().into_any_element(), |p| self.render_recent(p, theme, cx)), None)
+                row("Recent", f.recent.as_ref().map_or_else(|| div().into_any_element(), |p| self.render_recent(p, theme, cx)))
                     .when(f.recent.is_none(), |d| d.hidden())
                     .items_start(),
                 // Separates the picker from the fields it fills in.
                 h_stack().h(px(1.)).w_full().bg(theme.border()).when(f.recent.is_none(), |d| d.hidden()),
-                row("Date", field(&f.date, "YYYY-MM-DD", cx), None),
-                row("Project", f.project.clone().into_any_element(), None),
-                row("Task", f.task.clone().into_any_element(), None),
-                row("Start", field(&f.start, "HH:MM", cx), None),
-                row("End", field(&f.end, "HH:MM, +15 or +1h30", cx), None),
-                row("Notes", field(&f.notes, "What did you work on?", cx), None),
-                row("Hours", field(&f.hours, "used without start/end, e.g. 1.5", cx), None),
+                row("Date", field(&f.date, "YYYY-MM-DD", cx)),
+                row("Project", f.project.clone().into_any_element()),
+                row("Task", f.task.clone().into_any_element()),
+                row("Start", field(&f.start, "HH:MM", cx)),
+                row("End", field(&f.end, "HH:MM, +15 or +1h30", cx)),
+                row("Notes", field(&f.notes, "What did you work on?", cx)),
+                row("Hours", field(&f.hours, "used without start/end, e.g. 1.5", cx)),
                 // Only projects with tags in config.toml get the row.
                 row(
                     "Tags",
@@ -145,7 +140,6 @@ impl TimeChimpApp {
                         .gap(px(16.))
                         .children(f.tags.iter().map(|t| t.checkbox.clone()))
                         .into_any_element(),
-                    None,
                 )
                 .when(f.tags.is_empty(), |d| d.hidden()),
             ]
@@ -153,10 +147,10 @@ impl TimeChimpApp {
             .map(IntoElement::into_any_element)
             .collect(),
             FormBody::Mileage(f) => vec![
-                row("Date", field(&f.date, "YYYY-MM-DD", cx), Some("YYYY-MM-DD")),
-                row("Project", f.project.clone().into_any_element(), None),
-                row("From", field(&f.from, "Address", cx), Some("F2: saved addresses")),
-                row("To", field(&f.to, "Address", cx), Some("F2: saved addresses")),
+                row("Date", field(&f.date, "YYYY-MM-DD", cx)),
+                row("Project", f.project.clone().into_any_element()),
+                row("From", field(&f.from, "Address", cx)),
+                row("To", field(&f.to, "Address", cx)),
                 row(
                     "Distance (km)",
                     h_stack()
@@ -168,13 +162,12 @@ impl TimeChimpApp {
                                 .on_click(cx.listener(|this, _, w, cx| this.calculate_distance(w, cx))),
                         ))
                         .into_any_element(),
-                    Some("Ctrl+D: calculate"),
                 ),
                 // Editing changes one trip; the return switch only applies to new ones.
-                row("", f.return_trip.clone().into_any_element(), None).when(f.editing.is_some(), |d| d.hidden()),
-                row("Type", f.mileage_type.clone().into_any_element(), None),
-                row("", f.billable.clone().into_any_element(), None),
-                row("Notes", field(&f.notes, "", cx), None),
+                row("", f.return_trip.clone().into_any_element()).when(f.editing.is_some(), |d| d.hidden()),
+                row("Type", f.mileage_type.clone().into_any_element()),
+                row("", f.billable.clone().into_any_element()),
+                row("Notes", field(&f.notes, "", cx)),
             ]
             .into_iter()
             .map(IntoElement::into_any_element)
