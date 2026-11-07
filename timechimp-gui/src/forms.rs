@@ -7,11 +7,7 @@ use gpuikit::elements::switch::{Switch, switch};
 use gpuikit::input::InputState;
 use timechimp::{Mileage, MileageType};
 
-pub enum TimeKind {
-    New,
-    /// Keeps what the form doesn't edit, so an update doesn't drop it.
-    Edit { id: i64, pause: f64, timezone: Option<String>, task: (i64, i64) },
-}
+use crate::validate::{MileageValues, TimeKind, TimeValues};
 
 pub struct TimeForm {
     pub kind: TimeKind,
@@ -34,6 +30,28 @@ pub struct TimeForm {
 
 /// Filter field plus highlighted row of the Recent list; picking a row fills in project, task,
 /// notes and tags.
+impl TimeForm {
+    /// What is filled in, for `validate::time_entry`.
+    pub fn values(&self, cx: &App) -> TimeValues {
+        TimeValues {
+            kind: self.kind.clone(),
+            date: text(&self.date, cx),
+            project_id: chosen(&self.project, cx),
+            project_task_id: chosen(&self.task, cx),
+            start: text(&self.start, cx),
+            end: text(&self.end, cx),
+            hours: text(&self.hours, cx),
+            notes: text(&self.notes, cx),
+            tag_ids: self
+                .kept_tag_ids
+                .iter()
+                .copied()
+                .chain(self.tags.iter().filter(|t| t.checkbox.read(cx).is_checked()).map(|t| t.tag_id))
+                .collect(),
+        }
+    }
+}
+
 pub struct RecentPicker {
     pub filter: Entity<InputState>,
     /// Index into the filtered list.
@@ -57,6 +75,24 @@ pub struct MileageForm {
     pub mileage_type: Entity<SelectState<MileageType>>,
     pub billable: Entity<Switch>,
     pub notes: Entity<InputState>,
+}
+
+impl MileageForm {
+    /// What is filled in, for `validate::trip` and `validate::preset`.
+    pub fn values(&self, cx: &App) -> MileageValues {
+        MileageValues {
+            editing: self.editing.clone(),
+            date: text(&self.date, cx),
+            project_id: chosen(&self.project, cx),
+            from: text(&self.from, cx),
+            to: text(&self.to, cx),
+            distance: text(&self.distance, cx),
+            return_trip: self.return_trip.read(cx).is_on(),
+            mileage_type: chosen(&self.mileage_type, cx),
+            billable: self.billable.read(cx).is_on(),
+            notes: text(&self.notes, cx),
+        }
+    }
 }
 
 pub enum FormBody {

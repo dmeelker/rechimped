@@ -14,6 +14,7 @@ mod net;
 mod password;
 mod session;
 mod store;
+mod validate;
 mod view;
 
 use std::sync::Arc;

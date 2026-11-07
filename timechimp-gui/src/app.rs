@@ -14,10 +14,11 @@ use gpuikit::elements::tabs::{TabChanged, Tabs, tab, tabs};
 use gpuikit::elements::toast::ToastExt;
 use gpuikit::input::{InputState, InputStateEvent};
 use timechimp::{
-    Authenticator, Client, LoginOutcome, MfaChallenge, Mileage, MileageType, NewMileage, NewTimeEntry, TimeEntry,
+    Authenticator, Client, LoginOutcome, MfaChallenge, Mileage, NewMileage, TimeEntry,
 };
 
-use crate::forms::{self, Form, FormBody, MileageForm, TimeForm, TimeKind, chosen, text};
+use crate::forms::{self, Form, FormBody, MileageForm, TimeForm, chosen, text};
+use crate::validate::{self, SaveRequest, TimeKind};
 use crate::domain::report::Report;
 use crate::domain::{self, MILEAGE_TYPES};
 use crate::net;
@@ -788,34 +789,11 @@ impl TimeChimpApp {
     /// "Save as preset" in the trip form: appends its trip to `config.toml`.
     pub fn save_as_preset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(Form { body: FormBody::Mileage(f), .. }) = &self.form else { return };
-        let (from, to, notes) = (text(&f.from, cx), text(&f.to, cx), text(&f.notes, cx));
-        if from.is_empty() || to.is_empty() {
-            return self.form_error("Fill in both addresses first", cx);
-        }
-        let Some(project) = chosen(&f.project, cx).and_then(|id| self.session.projects.iter().find(|p| p.id == id)) else {
-            return self.form_error("Pick a project first", cx);
+        let preset = match validate::preset(&f.values(cx), &self.session) {
+            Ok(preset) => preset,
+            Err(e) => return self.form_error(e, cx),
         };
-        let distance = text(&f.distance, cx);
-        let distance = match domain::time::parse_decimal(&distance) {
-            Some(km) => Some(km),
-            None if distance.is_empty() => None,
-            None => return self.form_error("Distance must be a number (or empty)", cx),
-        };
-        let name = config::preset_name(&from, &to, &notes);
-        if self.session.trip_presets.iter().any(|p| p.name.eq_ignore_ascii_case(&name)) {
-            return self.form_error(format!("There already is a preset \"{name}\" in config.toml"), cx);
-        }
-        let preset = config::TripPreset {
-            name: name.clone(),
-            project: project.name.clone(),
-            from,
-            to,
-            distance,
-            return_trip: f.editing.is_none() && f.return_trip.read(cx).is_on(),
-            mileage_type: chosen(&f.mileage_type, cx).and_then(config::mileage_type_key),
-            billable: f.billable.read(cx).is_on(),
-            notes: Some(notes).filter(|n| !n.is_empty()),
-        };
+        let name = preset.name.clone();
         match config::path().and_then(|path| config::append_trip_preset(&path, &preset)) {
             Ok(_) => {
                 if let Some(form) = &mut self.form {
@@ -1015,119 +993,10 @@ impl TimeChimpApp {
 
     /// Validates the open form and turns it into an API request.
     fn build_save(&self, cx: &Context<Self>) -> Result<(NaiveDate, SaveRequest), String> {
-        let (Some(form), Some(me)) = (&self.form, &self.session.me) else { return Err("Not logged in".into()) };
-        let (date_input, project) = match &form.body {
-            FormBody::Time(f) => (&f.date, &f.project),
-            FormBody::Mileage(f) => (&f.date, &f.project),
-        };
-        let date = NaiveDate::parse_from_str(&text(date_input, cx), "%Y-%m-%d").map_err(|_| "Date must be YYYY-MM-DD")?;
-        let project_id = chosen(project, cx).ok_or("Pick a project")?;
-        let customer_id = self.session
-            .projects
-            .iter()
-            .find(|p| p.id == project_id)
-            .map(|p| p.customer_id)
-            .or(self.session.entries.iter().find(|e| e.project_id == project_id).map(|e| e.customer_id))
-            .ok_or("Unknown project")?;
-
-        let request = match &form.body {
-            FormBody::Mileage(f) => {
-                let distance = domain::time::parse_decimal(&text(&f.distance, cx))
-                    .ok_or("Distance must be a number (Ctrl+D calculates it)")?;
-                let (from, to) = (text(&f.from, cx), text(&f.to, cx));
-                if from.is_empty() || to.is_empty() {
-                    return Err("Fill in both addresses".into());
-                }
-                let notes = text(&f.notes, cx);
-                SaveRequest::Mileage {
-                    trip: NewMileage {
-                        user_id: me.id,
-                        customer_id,
-                        project_id,
-                        date,
-                        distance,
-                        from_address: from,
-                        to_address: to,
-                        notes: Some(notes).filter(|n| !n.is_empty()),
-                        billable: f.billable.read(cx).is_on(),
-                        mileage_type: chosen(&f.mileage_type, cx).unwrap_or(MileageType::Business),
-                        mileage_vehicle_id: f.editing.as_ref().and_then(|m| m.mileage_vehicle_id),
-                    },
-                    return_trip: f.editing.is_none() && f.return_trip.read(cx).is_on(),
-                    editing: f.editing.clone(),
-                }
-            }
-            FormBody::Time(f) => {
-                let project_task_id = chosen(&f.task, cx).ok_or("Pick a task")?;
-                let task_id = self.session
-                    .project_tasks
-                    .get(&project_id)
-                    .and_then(|ts| ts.iter().find(|t| t.id == project_task_id))
-                    .map(|t| t.task_id)
-                    .or(match &f.kind {
-                        TimeKind::Edit { task: (pt, t), .. } if *pt == project_task_id => Some(*t),
-                        _ => None,
-                    })
-                    .ok_or("Unknown task")?;
-                let notes = text(&f.notes, cx);
-                let mut entry = NewTimeEntry {
-                    user_id: me.id,
-                    customer_id,
-                    project_id,
-                    project_task_id,
-                    task_id,
-                    date,
-                    hours: 0.0,
-                    notes: Some(notes).filter(|n| !n.is_empty()),
-                    start: None,
-                    end: None,
-                    pause: 0.0,
-                    tag_ids: f
-                        .kept_tag_ids
-                        .iter()
-                        .copied()
-                        .chain(f.tags.iter().filter(|t| t.checkbox.read(cx).is_checked()).map(|t| t.tag_id))
-                        .collect(),
-                    timezone: None,
-                };
-                // An edited entry keeps its own timezone; the times are read on that wall clock.
-                let own_timezone = match &f.kind {
-                    TimeKind::Edit { pause, timezone, .. } => {
-                        entry.pause = *pause;
-                        timezone.as_deref()
-                    }
-                    TimeKind::New => None,
-                };
-                let tz = self.session.timezone(own_timezone);
-                entry.timezone = Some(tz.name().to_owned());
-
-                let start = domain::time::parse_time(&text(&f.start, cx))?;
-                let end = domain::time::parse_end(start, &text(&f.end, cx))?;
-                let entry = match (start, end) {
-                    (Some(start), Some(end)) => {
-                        if end <= start {
-                            return Err("End must be after start".into());
-                        }
-                        entry.with_times(domain::time::local(date, start, tz)?, domain::time::local(date, end, tz)?)
-                    }
-                    (None, None) => {
-                        let hours = domain::time::parse_decimal(&text(&f.hours, cx))
-                            .ok_or("Enter start and end, or a number of hours")?;
-                        if hours <= 0.0 {
-                            return Err("Hours must be positive".into());
-                        }
-                        NewTimeEntry { hours, ..entry }
-                    }
-                    _ => return Err("Fill in both start and end, or neither".into()),
-                };
-                let id = match &f.kind {
-                    TimeKind::Edit { id, .. } => Some(*id),
-                    TimeKind::New => None,
-                };
-                SaveRequest::Time { id, entry }
-            }
-        };
-        Ok((date, request))
+        match &self.form.as_ref().ok_or("No form open")?.body {
+            FormBody::Time(f) => validate::time_entry(&f.values(cx), &self.session),
+            FormBody::Mileage(f) => validate::trip(&f.values(cx), &self.session),
+        }
     }
 
     // ---- Delete ----------------------------------------------------------------------------
@@ -1240,12 +1109,6 @@ enum DeleteTarget {
     Mileage(i64),
     /// A `[[trips]]` preset in `config.toml`, by name.
     Preset(String),
-}
-
-enum SaveRequest {
-    Time { id: Option<i64>, entry: NewTimeEntry },
-    /// `editing` is the trip being replaced; None creates `trip` (and its return with `return_trip`).
-    Mileage { trip: NewMileage, return_trip: bool, editing: Option<Box<Mileage>> },
 }
 
 /// Rows the Recent picker shows at most.
