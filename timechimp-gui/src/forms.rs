@@ -1,5 +1,7 @@
 //! The add/edit dialogs, built from gpuikit inputs, selects and switches.
 
+use std::collections::{BTreeSet, HashMap};
+
 use chrono::{Datelike, NaiveDate};
 use gpui::{App, AppContext, ElementId, Entity, Focusable, SharedString, Subscription, Window};
 use gpuikit::date::Date;
@@ -10,6 +12,7 @@ use gpuikit::elements::switch::{Switch, switch};
 use gpuikit::input::InputState;
 use timechimp::{Mileage, MileageType};
 
+use crate::session::Session;
 use crate::validate::{MileageValues, SettingsValues, TimeKind, TimeValues};
 
 pub struct TimeForm {
@@ -315,4 +318,113 @@ pub fn set_text(input: &Entity<InputState>, value: impl Into<String>, cx: &mut A
 pub fn tag_checkbox(cx: &mut App, tag_id: i64, label: String, checked: bool) -> TagCheckbox {
     let id = ElementId::NamedInteger("form-tag".into(), tag_id as u64);
     TagCheckbox { tag_id, checkbox: cx.new(|_| checkbox(id, checked).label(label)) }
+}
+
+/// The Project tags dialog (in the menu under the user name): which tags the time form offers
+/// per project, i.e. `[projects]` in `config.toml`. Plain data; the view draws the checkboxes.
+pub struct ProjectTagsForm {
+    /// Active projects plus inactive ones that have tags, by name: (id, name, customer).
+    pub projects: Vec<(i64, String, String)>,
+    /// The tags offered: all but the `z_` ones, plus any `z_` tag a project already has; by name.
+    pub tags: Vec<(i64, String)>,
+    /// The project whose tags are shown (an index into `projects`).
+    pub current: usize,
+    /// Project id → checked tag ids, as edited.
+    pub chosen: HashMap<i64, BTreeSet<i64>>,
+    /// As it was on opening, so only the projects changed are written.
+    original: HashMap<i64, BTreeSet<i64>>,
+    pub error: Option<String>,
+}
+
+impl ProjectTagsForm {
+    pub fn new(session: &Session) -> Self {
+        let chosen: HashMap<i64, BTreeSet<i64>> = session
+            .project_tags
+            .iter()
+            .map(|(id, tags)| (*id, tags.iter().map(|t| t.id).collect()))
+            .collect();
+        let in_use: BTreeSet<i64> = chosen.values().flatten().copied().collect();
+        let by_name = |a: &String, b: &String| a.to_lowercase().cmp(&b.to_lowercase());
+        let mut projects: Vec<_> = session
+            .projects()
+            .iter()
+            .filter(|p| p.active || chosen.get(&p.id).is_some_and(|t| !t.is_empty()))
+            .map(|p| (p.id, p.name.clone(), p.customer_name.clone()))
+            .collect();
+        projects.sort_by(|a, b| by_name(&a.1, &b.1).then_with(|| by_name(&a.2, &b.2)));
+        let mut tags: Vec<_> = session
+            .tags()
+            .iter()
+            .filter(|t| !t.name.starts_with("z_") || in_use.contains(&t.id))
+            .map(|t| (t.id, t.name.clone()))
+            .collect();
+        tags.sort_by(|a, b| by_name(&a.1, &b.1));
+        Self { projects, tags, current: 0, original: chosen.clone(), chosen, error: None }
+    }
+
+    pub fn current_project(&self) -> Option<i64> {
+        self.projects.get(self.current).map(|p| p.0)
+    }
+
+    pub fn is_checked(&self, project_id: i64, tag_id: i64) -> bool {
+        self.chosen.get(&project_id).is_some_and(|t| t.contains(&tag_id))
+    }
+
+    /// How many tags `project_id` has checked.
+    pub fn count(&self, project_id: i64) -> usize {
+        self.chosen.get(&project_id).map_or(0, BTreeSet::len)
+    }
+
+    /// Checks or unchecks `tag_id` for the shown project.
+    pub fn toggle(&mut self, tag_id: i64) {
+        let Some(project) = self.current_project() else { return };
+        let tags = self.chosen.entry(project).or_default();
+        if !tags.remove(&tag_id) {
+            tags.insert(tag_id);
+        }
+    }
+
+    /// The projects whose tags changed, as (project name, tag names) for
+    /// `store::config::save_project_tags`.
+    pub fn changes(&self) -> Vec<(String, Vec<String>)> {
+        let none = BTreeSet::new();
+        self.projects
+            .iter()
+            .filter(|(id, ..)| self.chosen.get(id).unwrap_or(&none) != self.original.get(id).unwrap_or(&none))
+            .map(|(id, name, _)| {
+                let names = self.tags.iter().filter(|(t, _)| self.is_checked(*id, *t)).map(|(_, n)| n.clone()).collect();
+                (name.clone(), names)
+            })
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::*;
+
+    #[test]
+    fn project_tags_form() {
+        let mut s = Session::new(None, date(4));
+        let mut old = project(9, "old");
+        old.active = false;
+        let tags = vec![tag(10, "b"), tag(20, "A"), tag(30, "z_hidden"), tag(40, "z_used")];
+        s.apply_base(base(vec![project(3, "P"), project(6, "Other"), old], HashMap::new(), tags), None, &[]);
+        s.project_tags = HashMap::from([(3, vec![tag(40, "z_used")])]);
+
+        let mut form = ProjectTagsForm::new(&s);
+        assert_eq!(form.projects.iter().map(|p| p.1.as_str()).collect::<Vec<_>>(), ["Other", "P"], "by name, inactive left out");
+        assert_eq!(form.tags.iter().map(|t| t.0).collect::<Vec<_>>(), [20, 10, 40], "by name; z_ only when in use");
+        assert!(form.changes().is_empty());
+
+        assert_eq!(form.current_project(), Some(6));
+        form.toggle(10);
+        form.toggle(20);
+        form.toggle(20);
+        form.current = 1;
+        form.toggle(40);
+        assert_eq!(form.changes(), [("Other".to_owned(), vec!["b".to_owned()]), ("P".to_owned(), Vec::new())]);
+        assert_eq!((form.count(6), form.count(3)), (1, 0));
+    }
 }

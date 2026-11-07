@@ -91,6 +91,7 @@ impl TimeChimpApp {
             .when_some(self.chart(), |d, chart| d.child(self.render_chart(chart, theme, cx)))
             .when_some(self.form(), |d, form| d.child(self.render_form(form, theme, cx)))
             .when_some(self.settings_form(), |d, form| d.child(self.render_settings(form, theme, cx)))
+            .when_some(self.project_tags_form(), |d, form| d.child(self.render_project_tags(form, theme, cx)))
     }
 
     pub(super) fn render_toolbar(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
@@ -269,6 +270,10 @@ impl TimeChimpApp {
             .child(
                 menu_item(theme, "user-menu-settings", "Settings…")
                     .on_click(cx.listener(|this, _, w, cx| this.open_settings(w, cx))),
+            )
+            .child(
+                menu_item(theme, "user-menu-project-tags", "Project tags…")
+                    .on_click(cx.listener(|this, _, w, cx| this.open_project_tags(w, cx))),
             )
             .child(menu_item(theme, "user-menu-logout", "Log out").on_click(cx.listener(|this, _, w, cx| this.logout(w, cx))));
         deferred(div().absolute().top_full().right_0().mt(px(4.)).child(menu)).with_priority(2)

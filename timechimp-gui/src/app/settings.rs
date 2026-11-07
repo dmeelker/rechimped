@@ -1,10 +1,11 @@
-//! The Settings dialog: work days and the billable target, kept in `config.toml`.
+//! The Settings dialog (work days and the billable target) and the Project tags dialog (the
+//! tags per project), both kept in `config.toml`.
 
 use gpui::{AppContext, Context, ElementId, Focusable, Window};
 use gpuikit::elements::checkbox::checkbox;
 
 use crate::domain::plain_number;
-use crate::forms::{self, SettingsForm};
+use crate::forms::{self, ProjectTagsForm, SettingsForm};
 use crate::store::config;
 use crate::validate;
 
@@ -44,6 +45,53 @@ impl TimeChimpApp {
             }
             Err(e) => {
                 if let Some(form) = self.settings_form_mut() {
+                    form.error = Some(e);
+                }
+                cx.notify();
+            }
+        }
+    }
+}
+
+impl TimeChimpApp {
+    /// "Project tags" in the user menu: which tags the time form offers per project.
+    pub fn open_project_tags(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.overlay_open() {
+            return self.close_menu(cx);
+        }
+        let form = ProjectTagsForm::new(&self.session);
+        self.open_overlay(Overlay::ProjectTags(form), cx);
+    }
+
+    pub fn show_project_tags_of(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(form) = self.project_tags_form_mut() {
+            form.current = index;
+            cx.notify();
+        }
+    }
+
+    pub fn toggle_project_tag(&mut self, tag_id: i64, cx: &mut Context<Self>) {
+        if let Some(form) = self.project_tags_form_mut() {
+            form.toggle(tag_id);
+            cx.notify();
+        }
+    }
+
+    /// Save in the dialog: writes the changed projects to `config.toml` and reads it back in.
+    pub fn save_project_tags(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(form) = self.project_tags_form() else { return };
+        let changes = form.changes();
+        if changes.is_empty() {
+            return self.close_overlay(window, cx);
+        }
+        match config::path().and_then(|path| config::save_project_tags(&path, &changes)) {
+            Ok(()) => {
+                self.close_overlay(window, cx);
+                self.set_info("Project tags saved", window, cx);
+                self.load_config(window, cx);
+            }
+            Err(e) => {
+                if let Some(form) = self.project_tags_form_mut() {
                     form.error = Some(e);
                 }
                 cx.notify();

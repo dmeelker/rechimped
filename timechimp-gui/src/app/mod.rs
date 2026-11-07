@@ -27,7 +27,7 @@ use gpuikit::traits::control_sized::ControlSized;
 use gpuikit::input::InputState;
 use timechimp::{Authenticator, Client, MfaChallenge};
 
-use crate::forms::{Form, MileageForm, SettingsForm, TimeForm};
+use crate::forms::{Form, MileageForm, ProjectTagsForm, SettingsForm, TimeForm};
 use crate::domain;
 use crate::net;
 use crate::session::Session;
@@ -96,7 +96,7 @@ pub enum Screen {
 /// A dropdown open on the main screen.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Menu {
-    /// Under the user name in the header (Settings, Log out).
+    /// Under the user name in the header (Settings, Project tags, Log out).
     User,
     /// Under the ▾ next to "+ Add trip" (the trip presets).
     AddTrip,
@@ -119,6 +119,8 @@ pub enum Overlay {
     Form(Box<Form>),
     /// The Settings dialog.
     Settings(SettingsForm),
+    /// The Project tags dialog.
+    ProjectTags(ProjectTagsForm),
     /// The delete confirmation, with the subscription that clears it when it closes.
     Confirm { dialog: Entity<DialogState>, _closed: Subscription },
 }
@@ -286,6 +288,20 @@ impl TimeChimpApp {
     fn settings_form_mut(&mut self) -> Option<&mut SettingsForm> {
         match &mut self.overlay {
             Overlay::Settings(form) => Some(form),
+            _ => None,
+        }
+    }
+
+    pub fn project_tags_form(&self) -> Option<&ProjectTagsForm> {
+        match &self.overlay {
+            Overlay::ProjectTags(form) => Some(form),
+            _ => None,
+        }
+    }
+
+    fn project_tags_form_mut(&mut self) -> Option<&mut ProjectTagsForm> {
+        match &mut self.overlay {
+            Overlay::ProjectTags(form) => Some(form),
             _ => None,
         }
     }

@@ -269,6 +269,49 @@ fn with_settings(text: &str, settings: &Settings) -> Result<String, String> {
     Ok(text)
 }
 
+/// Writes the tag names of the given projects to `[projects]`, leaving the other projects and the
+/// rest of the file (comments included) as they are. A project's existing key (matched
+/// case-insensitively) is changed in place; a project not in the file yet is added unless it gets
+/// no tags. Creates the file when missing.
+pub fn save_project_tags(path: &Path, changes: &[(String, Vec<String>)]) -> Result<(), String> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("Could not read {}: {e}", path.display())),
+    };
+    let text = with_project_tags(&text, changes).map_err(|e| format!("Error in {}: {e}", path.display()))?;
+    std::fs::create_dir_all(path.parent().expect("has parent")).map_err(|e| e.to_string())?;
+    replace_file(path, &text)
+}
+
+fn with_project_tags(text: &str, changes: &[(String, Vec<String>)]) -> Result<String, String> {
+    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| e.to_string())?;
+    let projects = doc
+        .entry("projects")
+        .or_insert_with(toml_edit::table)
+        .as_table_mut()
+        .ok_or("[projects] is not a table")?;
+    for (project, tags) in changes {
+        let tags: toml_edit::Array = tags.iter().map(String::as_str).collect();
+        let existing = projects.iter().map(|(key, _)| key.to_owned()).find(|key| same_name(key, project));
+        match existing.and_then(|key| projects.get_mut(&key)).and_then(|item| item.as_value_mut()) {
+            // In place, so the key keeps its position and the comment above it.
+            Some(value) => {
+                let decor = value.decor().clone();
+                *value = toml_edit::Value::Array(tags);
+                *value.decor_mut() = decor;
+            }
+            None if !tags.is_empty() => {
+                projects.insert(project, toml_edit::value(tags));
+            }
+            None => {}
+        }
+    }
+    let text = doc.to_string();
+    parse_config(&text)?;
+    Ok(text)
+}
+
 /// The `[[KEY]]` block for `preset`, as appended to `config.toml`.
 fn preset_toml<P: Preset>(preset: &P) -> Result<String, String> {
     toml::to_string(&std::collections::BTreeMap::from([(P::KEY, [preset])])).map_err(|e| e.to_string())
@@ -384,8 +427,8 @@ fn settings_toml() -> String {
 /// Writes a starter `config.toml` listing the user's projects and current (non-`z_`) tags.
 pub fn write_template(path: &Path, projects: &[Project], tags: &[Tag]) -> std::io::Result<()> {
     let mut text = format!(
-        "# Reload the app (R) after editing. Settings, in the menu under your name, edits the\n\
-         # first two keys.\n\n{}\n\
+        "# Reload the app (R) after editing. In the menu under your name, Settings edits the\n\
+         # first two keys and Project tags the [projects] table.\n\n{}\n\
          # Tags each project may use; the time entry form shows them as checkboxes.\n\
          # Names are matched case-insensitively.\n#\n# Available tags:\n",
         settings_toml()
@@ -528,6 +571,29 @@ mod tests {
         assert!(empty.projects.is_empty());
         assert_eq!(empty.settings, Settings::default());
         assert!(parse_config("billable_goal = 150").is_err());
+    }
+
+    #[test]
+    fn project_tags_are_written_in_place() {
+        let text = "billable_goal = 80\n\n[projects]\n# keep me\nintern = [\"old\"]\nOther = [\"x\"]\n\n[[trips]]\nname = \"T\"\nproject = \"P\"\nfrom = \"A\"\nto = \"B\"\n";
+        let changes = [
+            ("Intern".to_owned(), vec!["a".to_owned(), "b".to_owned()]),
+            ("New".to_owned(), vec!["c".to_owned()]),
+            ("Untagged".to_owned(), Vec::new()),
+        ];
+        let saved = with_project_tags(text, &changes).unwrap();
+        assert!(saved.contains("# keep me\nintern = [\"a\", \"b\"]\n"), "existing key changed in place, its spelling kept:\n{saved}");
+        assert!(saved.contains("Other = [\"x\"]"), "projects not changed stay");
+        let config = parse_config(&saved).unwrap();
+        assert_eq!(config.projects["New"], ["c"]);
+        assert!(!config.projects.contains_key("Untagged"), "no key added for a project without tags");
+        assert_eq!(config.trips.len(), 1);
+
+        let cleared = with_project_tags(&saved, &[("INTERN".to_owned(), Vec::new())]).unwrap();
+        assert!(parse_config(&cleared).unwrap().projects["intern"].is_empty());
+
+        let fresh = with_project_tags("", &[("P".to_owned(), vec!["t".to_owned()])]).unwrap();
+        assert_eq!(parse_config(&fresh).unwrap().projects["P"], ["t"]);
     }
 
     #[test]
