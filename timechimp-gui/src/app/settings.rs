@@ -77,6 +77,14 @@ impl TimeChimpApp {
         }
     }
 
+    /// "Select all" (`true`) / "Clear all" in the dialog, for the shown project.
+    pub fn set_all_project_tags(&mut self, checked: bool, cx: &mut Context<Self>) {
+        if let Some(form) = self.project_tags_form_mut() {
+            form.set_all(checked);
+            cx.notify();
+        }
+    }
+
     /// Save in the dialog: writes the changed projects to `config.toml` and reads it back in.
     pub fn save_project_tags(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(form) = self.project_tags_form() else { return };

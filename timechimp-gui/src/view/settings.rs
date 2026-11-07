@@ -6,7 +6,7 @@ use gpuikit::elements::checkbox::{CheckState, checkbox_box};
 use gpuikit::elements::text_field::{TextField, text_field};
 use gpuikit::a11y::FocusNavigation;
 use gpuikit::layout::{h_stack, v_stack};
-use gpuikit::theme::Themeable;
+use gpuikit::theme::{ControlSize, Themeable};
 
 use crate::app::{Cancel, Confirm, TimeChimpApp};
 use crate::forms::{ProjectTagsForm, SettingsForm};
@@ -74,14 +74,14 @@ impl TimeChimpApp {
         let list = |id: &'static str| {
             v_stack()
                 .id(id)
-                .h(px(380.))
+                .h(px(344.))
                 .overflow_y_scroll()
                 .border_1()
                 .border_color(theme.border())
                 .rounded(px(6.))
                 .bg(theme.surface())
         };
-        let projects = list("tag-projects").w(px(280.)).flex_none().children(form.projects.iter().enumerate().map(
+        let projects = list("tag-projects").children(form.projects.iter().enumerate().map(
             |(i, (id, name, customer))| {
                 let (selected, count) = (i == form.current, form.count(*id));
                 h_stack()
@@ -107,8 +107,8 @@ impl TimeChimpApp {
             },
         ));
         let tags = match form.current_project() {
-            None => list("tag-choices").flex_1().p(px(12.)).child(muted(theme, "No projects.")),
-            Some(project) => list("tag-choices").flex_1().p(px(8.)).children(form.tags.iter().map(|(tag_id, name)| {
+            None => list("tag-choices").p(px(12.)).child(muted(theme, "No projects.")),
+            Some(project) => list("tag-choices").p(px(8.)).children(form.tags.iter().map(|(tag_id, name)| {
                 let (tag_id, checked) = (*tag_id, form.is_checked(project, *tag_id));
                 h_stack()
                     .id(ElementId::NamedInteger("tag-choice".into(), tag_id as u64))
@@ -125,13 +125,39 @@ impl TimeChimpApp {
                     .child(name.clone())
             })),
         };
+        let count = form.current_project().map_or(0, |p| form.count(p));
+        let no_project = form.current_project().is_none();
+        let set_all = |id: &'static str, label: &'static str, checked: bool, disabled: bool| {
+            pop(
+                theme,
+                button(id, label)
+                    .disabled(disabled)
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_all_project_tags(checked, cx))),
+            )
+        };
+        // Each column: a header row as tall as a button, then its list, so both lists line up.
+        let column = |header: gpui::Div, list: gpui::Stateful<gpui::Div>| {
+            v_stack().gap(px(8.)).child(header.h(theme.control(ControlSize::Medium).height).items_center()).child(list)
+        };
+        let projects = column(h_stack().child(muted(theme, "Projects")), projects).w(px(280.)).flex_none();
+        let title = form.projects.get(form.current).map_or_else(String::new, |(_, name, _)| format!("Tags for {name}"));
+        let tags = column(
+            h_stack()
+                .gap(px(8.))
+                .child(muted(theme, title).flex_1().min_w_0().truncate())
+                .child(set_all("project-tags-all", "Select all", true, no_project || count == form.tags.len()))
+                .child(set_all("project-tags-none", "Clear all", false, no_project || count == 0)),
+            tags,
+        )
+        .flex_1()
+        .min_w_0();
         let card = v_stack()
             .id("project-tags-card")
             .p(px(24.))
             .gap(px(14.))
             .child(div().text_lg().font_weight(FontWeight::BOLD).text_color(theme.accent()).child("Project tags"))
             .child(muted(theme, "The tags the time form offers as checkboxes, per project."))
-            .child(h_stack().gap(px(12.)).items_start().child(projects).child(tags))
+            .child(h_stack().gap(px(12.)).child(projects).child(tags))
             .when_some(form.error.clone(), |d, e| {
                 d.child(div().p(px(8.)).rounded(px(6.)).bg(theme.danger().opacity(0.15)).text_color(theme.danger()).child(e))
             })

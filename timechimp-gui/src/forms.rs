@@ -390,6 +390,13 @@ impl ProjectTagsForm {
         }
     }
 
+    /// Checks (`true`) or unchecks every tag for the shown project.
+    pub fn set_all(&mut self, checked: bool) {
+        let Some(project) = self.current_project() else { return };
+        let all = if checked { self.tags.iter().map(|(id, _)| *id).collect() } else { BTreeSet::new() };
+        self.chosen.insert(project, all);
+    }
+
     /// The projects whose tags changed, as (project name, tag names) for
     /// `store::config::save_project_tags`.
     pub fn changes(&self) -> Vec<(String, Vec<String>)> {
@@ -432,6 +439,10 @@ mod tests {
         form.toggle(40);
         assert_eq!(form.changes(), [("Other".to_owned(), vec!["b".to_owned()]), ("P".to_owned(), Vec::new())]);
         assert_eq!((form.count(6), form.count(3)), (1, 0));
+        form.set_all(true);
+        assert_eq!((form.count(6), form.count(3)), (1, 3), "all offered, for the shown project only");
+        form.set_all(false);
+        assert_eq!(form.count(3), 0);
 
         // Nothing configured: every project starts with all tags but the z_ ones, and is written.
         s.project_tags = HashMap::new();
