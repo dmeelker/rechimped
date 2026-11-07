@@ -71,7 +71,9 @@ impl TimeChimpApp {
         let total: f64 = per_day.iter().sum();
         let contract = self.session.contract_hours();
 
-        let strip = h_stack().flex_none().gap(px(8.)).children((0..7).map(|i| {
+        // Only the work days (Settings), plus today and the selected day when they aren't one.
+        let shown = self.session.shown_days(crate::domain::time::today());
+        let strip = h_stack().flex_none().gap(px(8.)).children(shown.into_iter().map(|i| {
             let day = self.session.week_start() + Duration::days(i as i64);
             let (hours, target) = (per_day[i], self.session.target_for(i));
             let selected = day == self.session.day();

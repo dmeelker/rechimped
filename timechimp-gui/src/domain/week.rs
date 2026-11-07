@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use chrono::{NaiveDate, NaiveTime};
+use chrono::{Datelike, NaiveDate, NaiveTime};
 use timechimp::TimeEntry;
 
 use super::time::parse_time;
@@ -64,6 +64,26 @@ pub fn billable_share(entries: &[TimeEntry], contract_hours: f64) -> Option<f64>
     let logged: f64 = entries.iter().map(|e| e.hours).sum();
     let of = if contract_hours > 0.0 { contract_hours } else { logged };
     (of > 0.0).then(|| billable_hours(entries) / of)
+}
+
+/// Whether the Week tab shows `day`: a work day (`work_days`, Monday first), today, or the selected
+/// day (so a day jumped to, e.g. after saving an entry on a Saturday, still has its card).
+pub fn shows_day(day: NaiveDate, work_days: [bool; 7], today: NaiveDate, selected: NaiveDate) -> bool {
+    work_days[day.weekday().num_days_from_monday() as usize] || day == today || day == selected
+}
+
+/// The day ←/→ moves to from `day` (`direction` ±1): the next work day or today, skipping the
+/// days the Week tab hides. Just the next day when no day is a work day.
+pub fn step_day(day: NaiveDate, direction: i64, work_days: [bool; 7], today: NaiveDate) -> NaiveDate {
+    let next = |d: NaiveDate| d + chrono::Duration::days(direction);
+    let mut candidate = next(day);
+    for _ in 0..7 {
+        if shows_day(candidate, work_days, today, today) {
+            return candidate;
+        }
+        candidate = next(candidate);
+    }
+    next(day)
 }
 
 /// Hours registered per day of the week starting on `monday`, Monday first.
@@ -132,6 +152,31 @@ mod tests {
             range_junction(r("8", "12"), r("9", "10")),
             Some(Junction::Overlap { from: tm("9"), to: tm("10") })
         );
+    }
+
+    const WEEKDAYS: [bool; 7] = [true, true, true, true, true, false, false];
+
+    #[test]
+    fn shown_days() {
+        use crate::test_support::date;
+        // 2 Nov 2026 is a Monday; 7 and 8 the weekend.
+        let (fri, sat, sun) = (date(6), date(7), date(8));
+        assert!(shows_day(fri, WEEKDAYS, fri, fri));
+        assert!(!shows_day(sat, WEEKDAYS, fri, fri));
+        assert!(shows_day(sat, WEEKDAYS, sat, fri), "today");
+        assert!(shows_day(sun, WEEKDAYS, fri, sun), "selected");
+    }
+
+    #[test]
+    fn stepping_skips_hidden_days() {
+        use crate::test_support::date;
+        let (wed, fri, sat, mon) = (date(4), date(6), date(7), date(9));
+        assert_eq!(step_day(fri, 1, WEEKDAYS, wed), mon);
+        assert_eq!(step_day(mon, -1, WEEKDAYS, wed), fri);
+        assert_eq!(step_day(fri, 1, WEEKDAYS, sat), sat, "today shows");
+        assert_eq!(step_day(mon, -1, WEEKDAYS, sat), sat);
+        assert_eq!(step_day(sat, 1, WEEKDAYS, sat), mon, "leaving today, the weekend is skipped");
+        assert_eq!(step_day(wed, 1, [false; 7], wed), date(5));
     }
 
     #[test]

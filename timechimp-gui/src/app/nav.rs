@@ -28,10 +28,16 @@ impl TimeChimpApp {
         self.select_day(self.session.day() + Duration::days(days), window, cx);
     }
 
-    /// The ‹/› buttons: a day on the Week tab, a week on the Mileage tab.
+    /// The ‹/› buttons and ←/→: a shown day on the Week tab (skipping the days off it hides), a
+    /// week on the Mileage tab.
     pub fn step(&mut self, direction: i64, window: &mut Window, cx: &mut Context<Self>) {
-        let by_day = self.tab == Tab::Week;
-        self.shift_day(if by_day { direction } else { 7 * direction }, window, cx);
+        if self.tab == Tab::Week {
+            let work_days = self.session.settings.work_days;
+            let day = domain::week::step_day(self.session.day(), direction, work_days, domain::time::today());
+            self.select_day(day, window, cx);
+        } else {
+            self.shift_day(7 * direction, window, cx);
+        }
     }
 
     pub fn select_day(&mut self, day: NaiveDate, window: &mut Window, cx: &mut Context<Self>) {
@@ -112,8 +118,8 @@ impl TimeChimpApp {
             ("t", _) if self.tab != Tab::Projects => self.go_today(window, cx),
             (_, _) if !matches!(self.tab, Tab::Week | Tab::Mileage) => return,
             // ←/→ move a day on the Week tab, a week on Mileage; Shift+←/→ and [ ] always a week.
-            ("left" | "h", _) if week_tab && !shift => self.shift_day(-1, window, cx),
-            ("right" | "l", _) if week_tab && !shift => self.shift_day(1, window, cx),
+            ("left" | "h", _) if week_tab && !shift => self.step(-1, window, cx),
+            ("right" | "l", _) if week_tab && !shift => self.step(1, window, cx),
             ("left" | "h" | "[", _) => self.shift_day(-7, window, cx),
             ("right" | "l" | "]", _) => self.shift_day(7, window, cx),
             ("down" | "j", _) => self.move_selection(1),

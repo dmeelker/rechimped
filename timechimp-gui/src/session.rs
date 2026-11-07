@@ -422,6 +422,12 @@ impl Session {
         self.me.as_ref().and_then(|m| m.user_availability.as_ref()).and_then(|a| a.for_day(day)).unwrap_or(0.0)
     }
 
+    /// The days of the current week the Week tab shows (0 = Monday): `domain::week::shows_day`.
+    pub fn shown_days(&self, today: NaiveDate) -> Vec<usize> {
+        let work_days = self.settings.work_days;
+        (0..7).filter(|&i| domain::week::shows_day(self.week_start + Duration::days(i as i64), work_days, today, self.day)).collect()
+    }
+
     pub fn contract_hours(&self) -> f64 {
         self.me.as_ref().and_then(|m| m.contract_hours).unwrap_or(0.0)
     }
