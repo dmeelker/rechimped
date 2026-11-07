@@ -337,19 +337,25 @@ pub struct ProjectTagsForm {
 }
 
 impl ProjectTagsForm {
+    /// Opens with what each project offers now (`Session::tags_for`): while nothing is configured,
+    /// that is every tag, and saving then writes all projects.
     pub fn new(session: &Session) -> Self {
-        let chosen: HashMap<i64, BTreeSet<i64>> = session
+        let original: HashMap<i64, BTreeSet<i64>> = session
             .project_tags
             .iter()
             .map(|(id, tags)| (*id, tags.iter().map(|t| t.id).collect()))
             .collect();
-        let in_use: BTreeSet<i64> = chosen.values().flatten().copied().collect();
+        let in_use: BTreeSet<i64> = original.values().flatten().copied().collect();
         let by_name = |a: &String, b: &String| a.to_lowercase().cmp(&b.to_lowercase());
         let mut projects: Vec<_> = session
             .projects()
             .iter()
-            .filter(|p| p.active || chosen.get(&p.id).is_some_and(|t| !t.is_empty()))
+            .filter(|p| p.active || original.get(&p.id).is_some_and(|t| !t.is_empty()))
             .map(|p| (p.id, p.name.clone(), p.customer_name.clone()))
+            .collect();
+        let chosen = projects
+            .iter()
+            .map(|(id, ..)| (*id, session.tags_for(Some(*id)).iter().map(|t| t.id).collect()))
             .collect();
         projects.sort_by(|a, b| by_name(&a.1, &b.1).then_with(|| by_name(&a.2, &b.2)));
         let mut tags: Vec<_> = session
@@ -359,7 +365,7 @@ impl ProjectTagsForm {
             .map(|t| (t.id, t.name.clone()))
             .collect();
         tags.sort_by(|a, b| by_name(&a.1, &b.1));
-        Self { projects, tags, current: 0, original: chosen.clone(), chosen, error: None }
+        Self { projects, tags, current: 0, original, chosen, error: None }
     }
 
     pub fn current_project(&self) -> Option<i64> {
@@ -426,5 +432,14 @@ mod tests {
         form.toggle(40);
         assert_eq!(form.changes(), [("Other".to_owned(), vec!["b".to_owned()]), ("P".to_owned(), Vec::new())]);
         assert_eq!((form.count(6), form.count(3)), (1, 0));
+
+        // Nothing configured: every project starts with all tags but the z_ ones, and is written.
+        s.project_tags = HashMap::new();
+        let form = ProjectTagsForm::new(&s);
+        assert_eq!(form.count(6), 2);
+        assert_eq!(form.changes(), [
+            ("Other".to_owned(), vec!["A".to_owned(), "b".to_owned()]),
+            ("P".to_owned(), vec!["A".to_owned(), "b".to_owned()]),
+        ]);
     }
 }

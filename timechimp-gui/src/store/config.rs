@@ -430,6 +430,7 @@ pub fn write_template(path: &Path, projects: &[Project], tags: &[Tag]) -> std::i
         "# Reload the app (R) after editing. In the menu under your name, Settings edits the\n\
          # first two keys and Project tags the [projects] table.\n\n{}\n\
          # Tags each project may use; the time entry form shows them as checkboxes.\n\
+         # While no project has any, every project offers all tags (but the z_ ones).\n\
          # Names are matched case-insensitively.\n#\n# Available tags:\n",
         settings_toml()
     );

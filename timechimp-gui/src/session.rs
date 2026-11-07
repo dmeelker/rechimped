@@ -20,7 +20,8 @@ pub struct Session {
     /// The user, projects, project tasks and tags; None until the first load is in.
     base: Option<Base>,
 
-    /// Tags each project may use, from `config.toml` (project id → tags).
+    /// Tags each project may use, from `config.toml` (project id → tags). Read through `tags_for`,
+    /// which offers all tags while none are configured.
     pub project_tags: HashMap<i64, Vec<Tag>>,
     /// Work days and billable goal, from `config.toml` (the Settings dialog).
     pub settings: Settings,
@@ -363,11 +364,28 @@ impl Session {
         tasks
     }
 
-    /// The tags in `tag_ids` that aren't configured for `project_id`: the time form has no checkbox
-    /// for them, so it keeps them as they are.
+    /// Whether `[projects]` gives any project a tag. Until then every project offers all tags, so a
+    /// new user sees them without configuring anything first.
+    pub fn tags_configured(&self) -> bool {
+        self.project_tags.values().any(|tags| !tags.is_empty())
+    }
+
+    /// The tags the time form offers for `project_id`: those configured for it, or, while no
+    /// project has any (`tags_configured`), all current ones (not the `z_` ones).
+    pub fn tags_for(&self, project_id: Option<i64>) -> Vec<&Tag> {
+        let Some(project_id) = project_id else { return Vec::new() };
+        if self.tags_configured() {
+            self.project_tags.get(&project_id).map(|tags| tags.iter().collect()).unwrap_or_default()
+        } else {
+            self.tags().iter().filter(|t| !t.name.starts_with("z_")).collect()
+        }
+    }
+
+    /// The tags in `tag_ids` that `project_id` doesn't offer (`tags_for`): the time form has no
+    /// checkbox for them, so it keeps them as they are.
     pub fn kept_tags(&self, project_id: Option<i64>, tag_ids: &[i64]) -> Vec<i64> {
-        let configured = project_id.and_then(|id| self.project_tags.get(&id)).map(Vec::as_slice).unwrap_or_default();
-        tag_ids.iter().copied().filter(|id| !configured.iter().any(|t| t.id == *id)).collect()
+        let offered = self.tags_for(project_id);
+        tag_ids.iter().copied().filter(|id| !offered.iter().any(|t| t.id == *id)).collect()
     }
 
     /// The project a preset names (case-insensitive), among the user's projects.
@@ -568,6 +586,23 @@ mod tests {
         assert_eq!(s.kept_tags(Some(2), &[10, 20, 30]), [10, 30]);
         assert_eq!(s.kept_tags(Some(1), &[10, 20, 30]), [20, 30]);
         assert_eq!(s.kept_tags(None, &[10, 20]), [10, 20]);
+    }
+
+    #[test]
+    fn all_tags_until_some_are_configured() {
+        let mut s = Session::new(None, date(4));
+        let tags = vec![tag(10, "a"), tag(20, "z_old"), tag(30, "b")];
+        s.apply_base(base(vec![project(1, "P")], HashMap::new(), tags), None, &[]);
+        let ids = |s: &Session, p| s.tags_for(p).iter().map(|t| t.id).collect::<Vec<_>>();
+        assert_eq!(ids(&s, Some(1)), [10, 30], "nothing configured: all but z_");
+        assert_eq!(ids(&s, None), Vec::<i64>::new(), "no project, no tags");
+        assert_eq!(s.kept_tags(Some(1), &[10, 20]), [20]);
+
+        s.project_tags = HashMap::from([(1, Vec::new())]);
+        assert_eq!(ids(&s, Some(1)), [10, 30], "only empty lists count as nothing configured");
+        s.project_tags = HashMap::from([(1, Vec::new()), (2, vec![tag(30, "b")])]);
+        assert_eq!(ids(&s, Some(1)), Vec::<i64>::new(), "once one project has tags, the lists hold");
+        assert_eq!(ids(&s, Some(2)), [30]);
     }
 
     #[test]

@@ -67,7 +67,7 @@ impl TimeChimpApp {
             Ok((None, path)) => {
                 self.session.apply_config(None);
                 match config::write_template(&path, self.session.projects(), self.session.tags()) {
-                    Ok(()) => self.set_info(format!("Created {}; set the tags per project in Project tags…", path.display()), window, cx),
+                    Ok(()) => self.set_info(format!("Created {}", path.display()), window, cx),
                     Err(e) => self.set_error(format!("Could not create config.toml: {e}"), window, cx),
                 }
             }

@@ -78,10 +78,10 @@ pub struct TripSeed {
     pub addresses: Vec<String>,
 }
 
-/// Checkboxes for the tags configured for `project_id`, checked where `checked` has the tag.
+/// Checkboxes for the tags `project_id` offers (`Session::tags_for`), checked where `checked` has
+/// the tag.
 pub fn tags(session: &Session, project_id: Option<i64>, checked: &[i64]) -> Vec<TagSeed> {
-    let configured = project_id.and_then(|id| session.project_tags.get(&id)).map(Vec::as_slice).unwrap_or_default();
-    configured.iter().map(|t| TagSeed { id: t.id, name: t.name.clone(), checked: checked.contains(&t.id) }).collect()
+    session.tags_for(project_id).into_iter().map(|t| TagSeed { id: t.id, name: t.name.clone(), checked: checked.contains(&t.id) }).collect()
 }
 
 /// The time form for a new entry, for editing `entry`, or (with `copy`) for a copy of it.
