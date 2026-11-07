@@ -379,9 +379,10 @@ impl TimeChimpApp {
                 this.projects = base.projects;
                 this.tasks = base.tasks;
                 this.tags = base.tags;
+                // Clear the old error first: `load_config` may report a warning.
+                this.error = None;
                 this.load_config(window, cx);
                 this.report = report.unwrap_or_default();
-                this.error = None;
                 match history {
                     Ok(history) => {
                         this.history = history.into_iter().map(|e| (e.id, e)).collect();
