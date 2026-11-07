@@ -398,7 +398,7 @@ pub struct NewTimeEntry {
     /// [`NewTimeEntry::effective_hours`]).
     pub hours: f64,
     pub notes: Option<String>,
-    /// Optional start/end times. Use the user's local offset (e.g. via `chrono::Local`):
+    /// Optional start/end times, with the offset of `timezone` on that date:
     /// the local `HH:mm` is shown in the app, the UTC value is stored.
     pub start: Option<DateTime<FixedOffset>>,
     pub end: Option<DateTime<FixedOffset>>,

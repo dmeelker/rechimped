@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use chrono::{DateTime, Datelike, Duration, FixedOffset, Local, Months, NaiveDate, NaiveTime};
+use chrono_tz::Tz;
 use timechimp::{
     Client, CurrentUser, Mileage, MileageReportRow, Project, ProjectTask, QueryResult, Tag, Task, TimeEntry,
     TimeReportRow,
@@ -15,7 +16,8 @@ use timechimp::{
 pub const MILEAGE_TYPES: [(i64, &str); 2] = [(1, "Business"), (3, "Home – work")];
 /// Tag type for time entry tags.
 const TIME_TAG_TYPE: i32 = 1;
-pub const FALLBACK_TIMEZONE: &str = "Europe/Amsterdam";
+/// Timezone for start/end times when neither the entry nor the account names a known one.
+pub const FALLBACK_TIMEZONE: Tz = chrono_tz::Europe::Amsterdam;
 
 /// The tokio runtime the HTTP client runs on; gpui has its own executor that reqwest can't use.
 pub fn runtime() -> &'static tokio::runtime::Runtime {
@@ -368,6 +370,21 @@ mod tests {
     }
 
     #[test]
+    fn timezones() {
+        assert_eq!(timezone([None, Some("Europe/London")]), chrono_tz::Europe::London);
+        assert_eq!(timezone([Some("W. Europe Standard Time"), Some("America/New_York")]), chrono_tz::America::New_York);
+        assert_eq!(timezone([None, Some("nonsense")]), FALLBACK_TIMEZONE);
+
+        let date = NaiveDate::from_ymd_opt(2026, 11, 4).unwrap();
+        let nine = NaiveTime::from_hms_opt(9, 0, 0).unwrap();
+        assert_eq!(local(date, nine, chrono_tz::Europe::Amsterdam).unwrap().to_rfc3339(), "2026-11-04T09:00:00+01:00");
+        assert_eq!(local(date, nine, chrono_tz::Europe::London).unwrap().to_rfc3339(), "2026-11-04T09:00:00+00:00");
+        // The hour skipped when summer time starts.
+        let spring = NaiveDate::from_ymd_opt(2026, 3, 29).unwrap();
+        assert!(local(spring, NaiveTime::from_hms_opt(2, 30, 0).unwrap(), chrono_tz::Europe::Amsterdam).is_err());
+    }
+
+    #[test]
     fn lenient_times() {
         assert_eq!(t("12"), Some("12:00".into()));
         assert_eq!(t("9"), Some("09:00".into()));
@@ -384,12 +401,18 @@ mod tests {
     }
 }
 
-pub fn local(date: NaiveDate, time: NaiveTime) -> Result<DateTime<FixedOffset>, String> {
+/// The first of `names` that is a known IANA timezone, else `FALLBACK_TIMEZONE`.
+pub fn timezone<'a>(names: impl IntoIterator<Item = Option<&'a str>>) -> Tz {
+    names.into_iter().flatten().find_map(|n| n.parse().ok()).unwrap_or(FALLBACK_TIMEZONE)
+}
+
+/// `date` at `time` on the wall clock of `tz`.
+pub fn local(date: NaiveDate, time: NaiveTime, tz: Tz) -> Result<DateTime<FixedOffset>, String> {
     date.and_time(time)
-        .and_local_timezone(Local)
+        .and_local_timezone(tz)
         .earliest()
         .map(|t| t.fixed_offset())
-        .ok_or_else(|| format!("{date} {time} does not exist in the local timezone"))
+        .ok_or_else(|| format!("{date} {time} does not exist in {tz}"))
 }
 
 /// The local start and end time of an entry, from its `HH:mm-HH:mm` range.

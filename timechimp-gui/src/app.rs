@@ -1253,12 +1253,18 @@ impl TimeChimpApp {
                         .copied()
                         .chain(f.tags.iter().filter(|t| t.checkbox.read(cx).is_checked()).map(|t| t.tag_id))
                         .collect(),
-                    timezone: Some(self.timezone()),
+                    timezone: None,
                 };
-                if let TimeKind::Edit { pause, timezone, .. } = &f.kind {
-                    entry.pause = *pause;
-                    entry.timezone = timezone.clone().or(entry.timezone);
-                }
+                // An edited entry keeps its own timezone; the times are read on that wall clock.
+                let own_timezone = match &f.kind {
+                    TimeKind::Edit { pause, timezone, .. } => {
+                        entry.pause = *pause;
+                        timezone.as_deref()
+                    }
+                    TimeKind::New => None,
+                };
+                let tz = self.timezone(own_timezone);
+                entry.timezone = Some(tz.name().to_owned());
 
                 let start = logic::parse_time(&text(&f.start, cx))?;
                 let end = logic::parse_end(start, &text(&f.end, cx))?;
@@ -1267,7 +1273,7 @@ impl TimeChimpApp {
                         if end <= start {
                             return Err("End must be after start".into());
                         }
-                        entry.with_times(logic::local(date, start)?, logic::local(date, end)?)
+                        entry.with_times(logic::local(date, start, tz)?, logic::local(date, end, tz)?)
                     }
                     (None, None) => {
                         let hours = logic::parse_decimal(&text(&f.hours, cx))
@@ -1400,8 +1406,12 @@ impl TimeChimpApp {
             .max()
     }
 
-    fn timezone(&self) -> String {
-        self.entries.iter().find_map(|e| e.timezone.clone()).unwrap_or_else(|| logic::FALLBACK_TIMEZONE.to_owned())
+    /// The timezone for an entry's start/end: `own` (an edited entry's), else the account's, else
+    /// what this week's entries were registered in.
+    fn timezone(&self, own: Option<&str>) -> chrono_tz::Tz {
+        let account = self.me.as_ref().and_then(|m| m.timezone.as_deref());
+        let entries = self.entries.iter().map(|e| e.timezone.as_deref());
+        logic::timezone([own, account].into_iter().chain(entries))
     }
 
     fn saved_addresses(&self) -> Vec<String> {

@@ -23,6 +23,7 @@ timechimp = { path = "../timechimp" }
 toml = "0.8"
 toml_edit = "0.22"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+chrono-tz = "0.10"
 
 [build-dependencies]
 embed-resource = "3.0.12"
