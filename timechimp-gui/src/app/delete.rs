@@ -10,7 +10,7 @@ use gpuikit::elements::dialog::{DialogClosed, DialogState, dialog};
 use crate::session;
 use crate::store::config;
 
-use super::{Overlay, Tab, TimeChimpApp};
+use super::{DELETING, Overlay, Tab, TimeChimpApp};
 
 impl TimeChimpApp {
     pub fn ask_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -115,7 +115,7 @@ impl TimeChimpApp {
         request: impl FnOnce(Client) -> BoxFuture<'static, timechimp::Result<()>>,
     ) {
         let Some(client) = self.session.client().cloned() else { return };
-        self.run("Deleting…", request(client), window, cx, |this, result, window, cx| match result {
+        self.run(DELETING, request(client), window, cx, |this, result, window, cx| match result {
             Ok(()) => {
                 this.session.invalidate_report();
                 this.load_week(None, window, cx);

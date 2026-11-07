@@ -30,6 +30,7 @@ impl TimeChimpApp {
         };
         window.focus(&focus, cx);
 
+        self.cancel_loads();
         self.session = Session::new(None, domain::time::today());
         self.overlay = Overlay::None;
         self.menu = None;

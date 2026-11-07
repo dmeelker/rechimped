@@ -36,6 +36,17 @@ use crate::password::PasswordField;
 
 /// The `run` label of a save; `saving()` looks for it.
 const SAVING: &str = "Saving…";
+/// The `run` label of a delete.
+const DELETING: &str = "Deleting…";
+
+/// A future `run` has on the tokio runtime.
+struct Task {
+    id: u64,
+    /// The session it belongs to.
+    epoch: u64,
+    label: &'static str,
+    abort: tokio::task::AbortHandle,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -129,7 +140,9 @@ pub struct TimeChimpApp {
     pub menu: Option<Menu>,
     pub error: Option<String>,
     /// Labels of the tasks `run` has in flight, oldest first, with the session they belong to.
-    in_flight: Vec<(u64, &'static str)>,
+    in_flight: Vec<Task>,
+    /// How many tasks `run` started, for `Task::id`.
+    tasks_started: u64,
     /// How many forms were opened, for `Form::id`.
     forms_opened: u64,
     /// GPU effects state (`fx.rs`).
@@ -159,6 +172,7 @@ impl TimeChimpApp {
             menu: None,
             error: None,
             in_flight: Vec::new(),
+            tasks_started: 0,
             forms_opened: 0,
             fx: crate::fx::Fx::new(),
             _subscriptions: vec![tab_sub],
@@ -187,17 +201,18 @@ impl TimeChimpApp {
         done: impl FnOnce(&mut Self, T, &mut Window, &mut Context<Self>) + 'static,
     ) {
         let epoch = self.session.epoch;
-        self.in_flight.push((epoch, label));
-        cx.notify();
+        self.tasks_started += 1;
+        let id = self.tasks_started;
         let handle = net::runtime().spawn(future);
+        self.in_flight.push(Task { id, epoch, label, abort: handle.abort_handle() });
+        cx.notify();
         cx.spawn_in(window, async move |this, cx| {
             let result = handle.await;
             let _ = this.update_in(cx, |this, window, cx| {
-                if let Some(i) = this.in_flight.iter().rposition(|t| *t == (epoch, label)) {
-                    this.in_flight.remove(i);
-                }
+                this.in_flight.retain(|t| t.id != id);
                 match result {
-                    Ok(_) if this.session.epoch != epoch => {}
+                    // Includes tasks aborted by `cancel_loads`.
+                    _ if this.session.epoch != epoch => {}
                     Ok(value) => done(this, value, window, cx),
                     Err(e) => this.set_error(format!("Background task failed: {e}"), window, cx),
                 }
@@ -205,6 +220,14 @@ impl TimeChimpApp {
             });
         })
         .detach();
+    }
+
+    /// Aborts the loads still running (on logout, nothing of them is wanted any more). Saves and
+    /// deletes are left to finish, so what the server receives doesn't depend on the timing.
+    fn cancel_loads(&mut self) {
+        for task in self.in_flight.iter().filter(|t| t.label != SAVING && t.label != DELETING) {
+            task.abort.abort();
+        }
     }
 
     /// Whether a form, dialog or popup covers the main screen.
@@ -295,7 +318,7 @@ impl TimeChimpApp {
 
     /// Whether a save (`submit_form`) is under way in this session.
     pub fn saving(&self) -> bool {
-        self.in_flight.contains(&(self.session.epoch, SAVING))
+        self.in_flight.iter().any(|t| t.epoch == self.session.epoch && t.label == SAVING)
     }
 
     fn new_form_id(&mut self) -> u64 {
@@ -305,7 +328,7 @@ impl TimeChimpApp {
 
     /// What is being waited for (the most recent task of this session still running), if anything.
     pub fn busy(&self) -> Option<&'static str> {
-        self.in_flight.iter().rev().find(|(epoch, _)| *epoch == self.session.epoch).map(|(_, label)| *label)
+        self.in_flight.iter().rev().find(|t| t.epoch == self.session.epoch).map(|t| t.label)
     }
 
     fn set_info(&mut self, message: impl Into<SharedString>, window: &mut Window, cx: &mut Context<Self>) {
