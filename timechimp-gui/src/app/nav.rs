@@ -87,7 +87,7 @@ impl TimeChimpApp {
     }
 
     pub fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if !matches!(self.screen, Screen::Main) || self.form.is_some() {
+        if !matches!(self.screen, Screen::Main) || self.form.is_some() || self.settings.is_some() {
             return;
         }
         if self.menu.is_some() || self.show_detail {

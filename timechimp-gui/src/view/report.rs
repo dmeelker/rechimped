@@ -58,9 +58,9 @@ impl TimeChimpApp {
                 .child(stat("Total hours", format!("{:.2}", s.total)))
                 .child(stat("Billable", format!("{:.2} ({:.0}%)", s.billable, pct(s.billable))).when_some(
                     s.billable_share(),
-                    |d, share| d.text_color(if share >= self.session.billable_goal { theme.success() } else { theme.warning() }),
+                    |d, share| d.text_color(if share >= self.session.settings.billable_goal { theme.success() } else { theme.warning() }),
                 ))
-                .child(stat("Billable goal", format!("{:.0}%", self.session.billable_goal * 100.0)))
+                .child(stat("Billable goal", format!("{:.0}%", self.session.settings.billable_goal * 100.0)))
                 .child(stat("Non-billable", format!("{:.2}", s.total - s.billable)))
                 .child(stat("Days registered", s.days.to_string()))
                 .child(stat("Entries", s.entries.to_string()))

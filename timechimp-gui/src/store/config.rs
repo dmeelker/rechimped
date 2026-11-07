@@ -1,4 +1,4 @@
-//! `config.toml`: the billable goal, the tags each project may use (shown as checkboxes in the
+//! `config.toml`: the work settings (work days, billable goal), the tags each project may use (shown as checkboxes in the
 //! time form), preset trips and preset time entries. Earlier versions called it `projects.toml`; that file is renamed
 //! on first load.
 
@@ -9,7 +9,28 @@ use timechimp::{MileageType, Project, Tag};
 
 
 /// Share of hours that should be billable, unless `billable_goal` in `config.toml` says otherwise.
-pub const DEFAULT_BILLABLE_GOAL: f64 = 0.75;
+pub const DEFAULT_BILLABLE_GOAL: f64 = 0.8;
+
+/// How the days of the week are written in `work_days`, Monday first.
+pub const DAY_KEYS: [&str; 7] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
+/// What the Settings dialog edits: the top-level keys of `config.toml`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Settings {
+    /// The days worked, Monday first.
+    pub work_days: [bool; 7],
+    /// Fraction, e.g. `0.8`.
+    pub billable_goal: f64,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            work_days: [true, true, true, true, true, false, false],
+            billable_goal: DEFAULT_BILLABLE_GOAL,
+        }
+    }
+}
 
 /// Where `config.toml` lives (in `store::config_dir`).
 pub fn path() -> Result<PathBuf, String> {
@@ -18,7 +39,9 @@ pub fn path() -> Result<PathBuf, String> {
 
 #[derive(serde::Deserialize, Default)]
 struct ConfigFile {
-    /// Percentage, e.g. `75`.
+    /// Day names (`DAY_KEYS`; full names and any case work too).
+    work_days: Option<Vec<String>>,
+    /// Percentage, e.g. `80`.
     billable_goal: Option<f64>,
     /// Project name → tag names.
     #[serde(default)]
@@ -133,8 +156,7 @@ pub fn preset_name(from: &str, to: &str, notes: &str) -> String {
 }
 
 pub struct Config {
-    /// Fraction, e.g. `0.75`.
-    pub billable_goal: f64,
+    pub settings: Settings,
     /// Project name → tag names.
     pub projects: HashMap<String, Vec<String>>,
     pub trips: Vec<TripPreset>,
@@ -143,11 +165,26 @@ pub struct Config {
 
 fn parse_config(text: &str) -> Result<Config, String> {
     let file: ConfigFile = toml::from_str(text).map_err(|e| e.to_string())?;
+    let defaults = Settings::default();
     let billable_goal = match file.billable_goal {
-        None => DEFAULT_BILLABLE_GOAL,
+        None => defaults.billable_goal,
         Some(pct) if (0.0..=100.0).contains(&pct) => pct / 100.0,
         Some(pct) => return Err(format!("billable_goal must be a percentage between 0 and 100, not {pct}")),
     };
+    let work_days = match &file.work_days {
+        None => defaults.work_days,
+        Some(names) => {
+            let mut days = [false; 7];
+            for name in names {
+                let index = day_index(name).ok_or_else(|| {
+                    format!("work_days: unknown day \"{name}\" (use {})", DAY_KEYS.join(", "))
+                })?;
+                days[index] = true;
+            }
+            days
+        }
+    };
+    let settings = Settings { work_days, billable_goal };
     for trip in &file.trips {
         if trip.trip_type().is_none() {
             let known: Vec<&str> = TRIP_TYPE_KEYS.iter().map(|(_, key)| *key).collect();
@@ -159,7 +196,59 @@ fn parse_config(text: &str) -> Result<Config, String> {
             ));
         }
     }
-    Ok(Config { billable_goal, projects: file.projects, trips: file.trips, time_entries: file.time_entries })
+    Ok(Config { settings, projects: file.projects, trips: file.trips, time_entries: file.time_entries })
+}
+
+/// Monday = 0 for `mon`, `Monday`, `TUES`, …: the start (three letters or more) of a day's name.
+fn day_index(name: &str) -> Option<usize> {
+    const NAMES: [&str; 7] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+    let name = name.trim().to_lowercase();
+    (name.len() >= 3).then(|| NAMES.iter().position(|full| full.starts_with(&name))).flatten()
+}
+
+/// A whole number as an integer (`40`, not `40.0`), as people write it.
+fn number(value: f64) -> toml_edit::Item {
+    if value.fract() == 0.0 && value.abs() < 1e15 { toml_edit::value(value as i64) } else { toml_edit::value(value) }
+}
+
+/// Writes `settings` to the top-level keys of `config.toml`, leaving the rest of the file
+/// (comments included) as it is. Creates the file when missing.
+pub fn save_settings(path: &Path, settings: &Settings) -> Result<(), String> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("Could not read {}: {e}", path.display())),
+    };
+    let text = with_settings(&text, settings).map_err(|e| format!("Error in {}: {e}", path.display()))?;
+    std::fs::create_dir_all(path.parent().expect("has parent")).map_err(|e| e.to_string())?;
+    std::fs::write(path, text).map_err(|e| format!("Could not write {}: {e}", path.display()))
+}
+
+fn with_settings(text: &str, settings: &Settings) -> Result<String, String> {
+    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| e.to_string())?;
+    let days: toml_edit::Array =
+        DAY_KEYS.iter().zip(settings.work_days).filter(|(_, on)| *on).map(|(key, _)| *key).collect();
+    // Set in place, so a key keeps its position and the comment above it.
+    let mut set = |key: &str, item: toml_edit::Item, comment: &str| match doc.get_mut(key).and_then(|i| i.as_value_mut()) {
+        Some(value) => {
+            let decor = value.decor().clone();
+            *value = item.into_value().expect("a value");
+            *value.decor_mut() = decor;
+        }
+        None => {
+            doc.insert(key, item);
+            if let Some(mut k) = doc.key_mut(key) {
+                k.leaf_decor_mut().set_prefix(comment);
+            }
+        }
+    };
+    set("work_days", toml_edit::value(days), "# The days you work (mon, tue, wed, thu, fri, sat, sun).\n");
+    // Rounded, so 0.8 * 100 doesn't come out as 80.00000000000001.
+    let pct = (settings.billable_goal * 10000.0).round() / 100.0;
+    set("billable_goal", number(pct), "# Percentage of your hours that should be billable.\n");
+    let text = doc.to_string();
+    parse_config(&text)?;
+    Ok(text)
 }
 
 /// The `[[KEY]]` block for `preset`, as appended to `config.toml`.
@@ -228,12 +317,9 @@ const TIME_ENTRIES_COMMENT: &str = "# Preset time entries, in the dropdown of \"
 pub fn load(path: &Path) -> Result<Option<Config>, String> {
     let legacy = path.with_file_name("projects.toml");
     if !path.exists() && legacy.exists() {
-        // Move it over with the (then new) goal setting on top, where top-level keys must go.
+        // Move it over with the (then new) settings on top, where top-level keys must go.
         let old = std::fs::read_to_string(&legacy).map_err(|e| format!("Could not read {}: {e}", legacy.display()))?;
-        let migrated = format!(
-            "# Percentage of your hours that should be billable.\nbillable_goal = {}\n\n{old}",
-            DEFAULT_BILLABLE_GOAL * 100.0
-        );
+        let migrated = format!("{}\n{old}", settings_toml());
         std::fs::write(path, migrated).map_err(|e| format!("Could not write {}: {e}", path.display()))?;
         let _ = std::fs::remove_file(&legacy);
     }
@@ -272,15 +358,19 @@ pub fn resolve_project_tags(
     (resolved, warning)
 }
 
+/// The default settings with their comments, for the top of a new `config.toml`.
+fn settings_toml() -> String {
+    with_settings("", &Settings::default()).expect("the defaults are valid")
+}
+
 /// Writes a starter `config.toml` listing the user's projects and current (non-`z_`) tags.
 pub fn write_template(path: &Path, projects: &[Project], tags: &[Tag]) -> std::io::Result<()> {
     let mut text = format!(
-        "# Reload the app (R) after editing.\n\n\
-         # Percentage of your hours that should be billable.\n\
-         billable_goal = {}\n\n\
+        "# Reload the app (R) after editing. Settings, in the menu under your name, edits the\n\
+         # first two keys.\n\n{}\n\
          # Tags each project may use; the time entry form shows them as checkboxes.\n\
          # Names are matched case-insensitively.\n#\n# Available tags:\n",
-        DEFAULT_BILLABLE_GOAL * 100.0
+        settings_toml()
     );
     for tag in tags.iter().filter(|t| !t.name.starts_with("z_")) {
         text.push_str(&format!("#   {}\n", tag.name));
@@ -334,7 +424,7 @@ mod tests {
         std::fs::write(dir.0.join("projects.toml"), "[projects]\nIntern = [\"x\"]\n").unwrap();
         let config = load(&path).unwrap().unwrap();
         assert!(!dir.0.join("projects.toml").exists());
-        assert_eq!(config.billable_goal, DEFAULT_BILLABLE_GOAL);
+        assert_eq!(config.settings, Settings::default());
         assert_eq!(config.projects["Intern"], ["x"]);
 
         let preset = TripPreset {
@@ -402,7 +492,7 @@ mod tests {
         let path = dir.0.join("sub").join("config.toml");
         write_template(&path, &[], &[]).unwrap();
         let config = load(&path).unwrap().unwrap();
-        assert_eq!(config.billable_goal, DEFAULT_BILLABLE_GOAL);
+        assert_eq!(config.settings, Settings::default());
         assert!(config.projects.is_empty() && config.trips.is_empty() && config.time_entries.is_empty());
     }
 
@@ -412,14 +502,48 @@ mod tests {
             "# comment\nbillable_goal = 80\n[projects]\n\"Tournament Software\" = [\"wbso_tournament\"]\nIntern = []\n",
         )
         .unwrap();
-        assert_eq!(config.billable_goal, 0.8);
+        assert_eq!(config.settings.billable_goal, 0.8);
         assert_eq!(config.projects["Tournament Software"], vec!["wbso_tournament".to_owned()]);
         assert!(config.projects["Intern"].is_empty());
 
         let empty = parse_config("").unwrap();
         assert!(empty.projects.is_empty());
-        assert_eq!(empty.billable_goal, DEFAULT_BILLABLE_GOAL);
+        assert_eq!(empty.settings, Settings::default());
         assert!(parse_config("billable_goal = 150").is_err());
+    }
+
+    #[test]
+    fn settings() {
+        let config = parse_config("work_days = [\"Mon\", \"tues\", \"thursday\"]\nbillable_goal = 70\n").unwrap();
+        let s = config.settings;
+        assert_eq!(s.work_days, [true, true, false, true, false, false, false]);
+        assert_eq!(s.billable_goal, 0.7);
+        assert_eq!(parse_config("work_days = []").unwrap().settings.work_days, [false; 7]);
+        assert!(parse_config("work_days = [\"mo\"]").is_err(), "too short to tell");
+        assert!(parse_config("work_days = [\"funday\"]").is_err());
+    }
+
+    #[test]
+    fn save_settings_keeps_the_rest() {
+        let settings = Settings { work_days: [false, true, true, false, true, true, false], billable_goal: 0.7 };
+        // Missing keys are added at the top, with a comment; existing ones change in place.
+        let text = "# top\n# goal\nbillable_goal = 75 # inline\n\n[projects]\n# keep me\nIntern = []\n";
+        let saved = with_settings(text, &settings).unwrap();
+        assert_eq!(parse_config(&saved).unwrap().settings, settings);
+        assert!(saved.contains("# goal\nbillable_goal = 70 # inline\n"), "whole numbers without .0: {saved}");
+        assert!(saved.contains("# keep me\nIntern = []") && saved.contains("# The days you work"), "{saved}");
+        assert!(saved.contains("work_days = [\"tue\", \"wed\", \"fri\", \"sat\"]"), "{saved}");
+        assert!(saved.find("work_days").unwrap() < saved.find("[projects]").unwrap(), "top-level keys before the tables");
+        // Saving again changes nothing.
+        assert_eq!(with_settings(&saved, &settings).unwrap(), saved);
+        let fraction = Settings { billable_goal: 0.825, ..settings };
+        assert_eq!(parse_config(&with_settings(&saved, &fraction).unwrap()).unwrap().settings, fraction);
+        assert!(with_settings("billable_goal = [", &settings).is_err());
+
+        let dir = TempDir::new("settings");
+        let path = dir.0.join("config.toml");
+        save_settings(&path, &settings).unwrap();
+        assert_eq!(load(&path).unwrap().unwrap().settings, settings);
     }
 
     #[test]

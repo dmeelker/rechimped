@@ -88,6 +88,7 @@ impl TimeChimpApp {
             .when(self.menu.is_some(), |d| d.child(self.render_menu_backdrop(cx)))
             .when(self.show_detail, |d| d.child(self.render_detail(theme, cx)))
             .when_some(self.form.as_ref(), |d, form| d.child(self.render_form(form, theme, cx)))
+            .when_some(self.settings.as_ref(), |d, form| d.child(self.render_settings(form, theme, cx)))
     }
 
     pub(super) fn render_toolbar(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
@@ -273,6 +274,10 @@ impl TimeChimpApp {
     /// The dropdown under the user name (a child of its `relative()` wrapper).
     pub(super) fn render_user_menu(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         let menu = menu_panel(theme, "user-menu")
+            .child(
+                menu_item(theme, "user-menu-settings", "Settings…")
+                    .on_click(cx.listener(|this, _, w, cx| this.open_settings(w, cx))),
+            )
             .child(menu_item(theme, "user-menu-logout", "Log out").on_click(cx.listener(|this, _, w, cx| this.logout(w, cx))));
         deferred(div().absolute().top_full().right_0().mt(px(4.)).child(menu)).with_priority(2)
     }

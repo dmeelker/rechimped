@@ -33,6 +33,7 @@ impl TimeChimpApp {
 
         self.session = Session::new(None, domain::time::today());
         self.form = None;
+        self.settings = None;
         self.confirm = None;
         self.show_detail = false;
         self.menu = None;

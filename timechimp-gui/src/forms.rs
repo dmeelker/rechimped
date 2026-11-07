@@ -10,7 +10,7 @@ use gpuikit::elements::switch::{Switch, switch};
 use gpuikit::input::InputState;
 use timechimp::{Mileage, MileageType};
 
-use crate::validate::{MileageValues, TimeKind, TimeValues};
+use crate::validate::{MileageValues, SettingsValues, TimeKind, TimeValues};
 
 pub struct TimeForm {
     pub kind: TimeKind,
@@ -267,6 +267,29 @@ pub fn choice<T: Clone + PartialEq + 'static>(
         }
         SelectState::new(builder)
     })
+}
+
+/// The Settings dialog (in the menu under the user name): what `config.toml`'s top-level keys hold.
+pub struct SettingsForm {
+    /// One checkbox per day, Monday first.
+    pub work_days: Vec<Entity<Checkbox>>,
+    /// Percentage.
+    pub billable_goal: Entity<InputState>,
+    pub error: Option<String>,
+}
+
+impl SettingsForm {
+    /// What is filled in, for `validate::settings`.
+    pub fn values(&self, cx: &App) -> SettingsValues {
+        let mut work_days = [false; 7];
+        for (day, checkbox) in work_days.iter_mut().zip(&self.work_days) {
+            *day = checkbox.read(cx).is_checked();
+        }
+        SettingsValues {
+            work_days,
+            billable_goal: text(&self.billable_goal, cx),
+        }
+    }
 }
 
 pub fn toggle(cx: &mut App, id: &'static str, label: &'static str, on: bool) -> Entity<Switch> {

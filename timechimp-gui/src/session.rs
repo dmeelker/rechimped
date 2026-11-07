@@ -10,7 +10,7 @@ use timechimp::{Client, CurrentUser, Mileage, Project, ProjectTask, Tag, Task, T
 
 use crate::domain::report::Report;
 use crate::domain::{self, week::RecentItem};
-use crate::store::config::{self, Config, TimePreset, TripPreset};
+use crate::store::config::{self, Config, Settings, TimePreset, TripPreset};
 
 pub struct Session {
     /// Unique per session; `TimeChimpApp::run` drops results that arrive for an older one.
@@ -26,8 +26,8 @@ pub struct Session {
 
     /// Tags each project may use, from `config.toml` (project id → tags).
     pub project_tags: HashMap<i64, Vec<Tag>>,
-    /// Billable share to aim for, from `config.toml` (fraction).
-    pub billable_goal: f64,
+    /// Work days and billable goal, from `config.toml` (the Settings dialog).
+    pub settings: Settings,
     /// `[[trips]]` from `config.toml`: the "+ Add trip" dropdown, each opening a filled-in trip form.
     pub trip_presets: Vec<TripPreset>,
     /// `[[time_entries]]` from `config.toml`: the "+ Add time" dropdown, each opening a filled-in
@@ -89,7 +89,7 @@ impl Session {
             project_tasks: HashMap::new(),
             tags: Vec::new(),
             project_tags: HashMap::new(),
-            billable_goal: config::DEFAULT_BILLABLE_GOAL,
+            settings: Settings::default(),
             trip_presets: Vec::new(),
             time_presets: Vec::new(),
             day: today,
@@ -128,10 +128,10 @@ impl Session {
             self.project_tags.clear();
             self.trip_presets.clear();
             self.time_presets.clear();
-            self.billable_goal = config::DEFAULT_BILLABLE_GOAL;
+            self.settings = Settings::default();
             return None;
         };
-        self.billable_goal = config.billable_goal;
+        self.settings = config.settings;
         let (resolved, warning) = config::resolve_project_tags(&config.projects, &self.projects, &self.tags);
         self.project_tags = resolved;
         let mut unknown: Vec<String> = config
@@ -540,7 +540,7 @@ mod tests {
     fn config_warnings() {
         let mut s = Session::new(None, date(4));
         let config = Config {
-            billable_goal: 0.8,
+            settings: Settings { billable_goal: 0.7, ..Settings::default() },
             projects: HashMap::from([("Nope".to_owned(), Vec::new())]),
             trips: vec![TripPreset {
                 name: "Trip".into(),
@@ -558,9 +558,9 @@ mod tests {
         let warning = s.apply_config(Some(config)).unwrap();
         assert!(warning.contains("project \"Nope\"") && warning.contains("trip \"Trip\""), "{warning}");
         assert!(warning.contains("(time entry \"Standup\")"), "{warning}");
-        assert_eq!((s.billable_goal, s.trip_presets.len(), s.time_presets.len()), (0.8, 1, 1));
+        assert_eq!((s.settings.billable_goal, s.trip_presets.len(), s.time_presets.len()), (0.7, 1, 1));
         assert_eq!(s.apply_config(None), None);
-        assert_eq!((s.billable_goal, s.trip_presets.len(), s.time_presets.len()), (config::DEFAULT_BILLABLE_GOAL, 0, 0));
+        assert_eq!((s.settings, s.trip_presets.len(), s.time_presets.len()), (Settings::default(), 0, 0));
     }
 
     #[test]

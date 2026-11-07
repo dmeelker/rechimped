@@ -106,7 +106,7 @@ impl TimeChimpApp {
         // one, against what was logged), coloured by the billable goal.
         let share = crate::domain::week::billable_share(&self.session.entries, contract);
         let ratio = share.unwrap_or(0.0);
-        let goal_met = share.is_some_and(|s| s >= self.session.billable_goal);
+        let goal_met = share.is_some_and(|s| s >= self.session.settings.billable_goal);
         let ratio_colour = match share {
             None => theme.fg_muted(),
             Some(_) if goal_met => theme.success(),

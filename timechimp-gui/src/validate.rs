@@ -1,5 +1,6 @@
 //! Checking what was typed in the forms and turning it into API requests or presets. Works on
-//! plain snapshots of the form (`forms::TimeForm::values`, `forms::MileageForm::values`), so it
+//! plain snapshots of the form (`forms::TimeForm::values`, `forms::MileageForm::values`,
+//! `forms::SettingsForm::values`), so it
 //! needs no window and is unit-tested.
 
 use chrono::NaiveDate;
@@ -7,7 +8,7 @@ use timechimp::{Mileage, MileageType, NewMileage, NewTimeEntry};
 
 use crate::domain::time::{local, parse_decimal, parse_end, parse_time};
 use crate::session::Session;
-use crate::store::config::{self, TimePreset, TripPreset};
+use crate::store::config::{self, Settings, TimePreset, TripPreset};
 
 /// Whether the time form creates an entry or edits one.
 #[derive(Clone, Debug, PartialEq)]
@@ -220,6 +221,25 @@ pub fn time_preset(v: &TimeValues, session: &Session) -> Result<TimePreset, Stri
     Ok(preset)
 }
 
+/// The Settings dialog's fields, as typed (trimmed).
+#[derive(Clone, Debug)]
+pub struct SettingsValues {
+    /// Monday first.
+    pub work_days: [bool; 7],
+    /// Percentage; a trailing `%` is allowed.
+    pub billable_goal: String,
+}
+
+pub fn settings(v: &SettingsValues) -> Result<Settings, String> {
+    if !v.work_days.contains(&true) {
+        return Err("Pick at least one work day".into());
+    }
+    let billable_goal = parse_decimal(v.billable_goal.trim_end_matches('%'))
+        .filter(|p| (0.0..=100.0).contains(p))
+        .ok_or("Billable target must be a percentage between 0 and 100")?;
+    Ok(Settings { work_days: v.work_days, billable_goal: billable_goal / 100.0 })
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -348,5 +368,16 @@ mod tests {
         assert!(time_preset(&v, &s).unwrap_err().starts_with("There already is a preset"));
         assert!(time_preset(&TimeValues { notes: "Other".into(), ..v.clone() }, &s).is_ok());
         assert_eq!(time_preset(&TimeValues { project_task_id: None, ..v }, &s).unwrap_err(), "Pick a task first");
+    }
+
+    #[test]
+    fn settings_values() {
+        let v = |days: [bool; 7], goal: &str| SettingsValues { work_days: days, billable_goal: goal.into() };
+        let weekdays = [true, true, true, true, true, false, false];
+        assert_eq!(settings(&v(weekdays, "75 %")), Ok(Settings { work_days: weekdays, billable_goal: 0.75 }));
+        assert_eq!(settings(&v(weekdays, "82,5")).unwrap().billable_goal, 0.825);
+        assert!(settings(&v([false; 7], "80")).unwrap_err().contains("work day"));
+        assert!(settings(&v(weekdays, "101")).unwrap_err().starts_with("Billable"));
+        assert!(settings(&v(weekdays, "lots")).unwrap_err().starts_with("Billable"));
     }
 }

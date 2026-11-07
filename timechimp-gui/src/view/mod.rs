@@ -1,4 +1,4 @@
-//! Rendering of the main window: login screen, the four tabs, popups and dialogs. One file per
+//! Rendering of the main window: login screen, the four tabs, popups and dialogs (`settings`). One file per
 //! screen or tab; `widgets` holds the shared building blocks.
 
 mod chrome;
@@ -7,6 +7,7 @@ mod mileage;
 mod popups;
 mod projects;
 mod report;
+mod settings;
 mod week;
 mod widgets;
 

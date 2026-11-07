@@ -8,6 +8,7 @@ mod delete;
 mod loading;
 mod nav;
 mod save;
+mod settings;
 mod time_form;
 mod trip_form;
 
@@ -22,7 +23,7 @@ use gpuikit::elements::toast::ToastExt;
 use gpuikit::input::InputState;
 use timechimp::{Authenticator, Client, MfaChallenge};
 
-use crate::forms::{Form, MileageForm, TimeForm};
+use crate::forms::{Form, MileageForm, SettingsForm, TimeForm};
 use crate::domain;
 use crate::net;
 use crate::session::Session;
@@ -80,7 +81,7 @@ pub enum Screen {
 /// A dropdown open on the main screen.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Menu {
-    /// Under the user name in the header (Log out).
+    /// Under the user name in the header (Settings, Log out).
     User,
     /// Under the ▾ next to "+ Add trip" (the trip presets).
     AddTrip,
@@ -97,6 +98,8 @@ pub struct TimeChimpApp {
     pub tab: Tab,
     pub tabs: Entity<Tabs>,
     pub form: Option<Form>,
+    /// The open Settings dialog.
+    pub settings: Option<SettingsForm>,
     /// The open delete confirmation, with the subscription that clears it when it closes.
     pub confirm: Option<(Entity<DialogState>, Subscription)>,
     pub show_detail: bool,
@@ -127,6 +130,7 @@ impl TimeChimpApp {
             tab: Tab::Week,
             tabs,
             form: None,
+            settings: None,
             confirm: None,
             show_detail: false,
             menu: None,
