@@ -31,6 +31,11 @@ fn date<'de, D: Deserializer<'de>>(d: D) -> Result<NaiveDate, D::Error> {
     datetime(d).map(|dt| dt.date())
 }
 
+/// A datetime, or the Unix epoch when missing or null.
+fn datetime_or_epoch<'de, D: Deserializer<'de>>(d: D) -> Result<NaiveDateTime, D::Error> {
+    Ok(opt_datetime(d)?.unwrap_or_default())
+}
+
 /// Treats `null` as the type's default (e.g. an empty `Vec`).
 fn null_default<'de, D: Deserializer<'de>, T: Default + Deserialize<'de>>(d: D) -> Result<T, D::Error> {
     Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
@@ -346,22 +351,30 @@ pub struct Task {
     pub common: bool,
 }
 
+/// Ids, the date, hours and billable are required; display names, statuses and `modified` fall
+/// back to defaults when missing or null, so one odd entry from the undocumented API doesn't fail
+/// a whole week.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeEntry {
     pub id: i64,
+    #[serde(default, deserialize_with = "null_default")]
     pub time_row_id: i64,
     pub user_id: i64,
+    #[serde(default, deserialize_with = "null_default")]
     pub user_display_name: String,
     #[serde(default, deserialize_with = "null_default")]
     pub user_tag_names: Vec<String>,
     pub customer_id: i64,
+    #[serde(default, deserialize_with = "null_default")]
     pub customer_name: String,
     pub project_id: i64,
+    #[serde(default, deserialize_with = "null_default")]
     pub project_name: String,
     pub project_code: Option<String>,
     pub project_task_id: i64,
     pub task_id: i64,
+    #[serde(default, deserialize_with = "null_default")]
     pub task_name: String,
     pub task_code: Option<String>,
     #[serde(deserialize_with = "date")]
@@ -376,10 +389,14 @@ pub struct TimeEntry {
     /// UTC.
     #[serde(default, deserialize_with = "opt_datetime")]
     pub end: Option<NaiveDateTime>,
+    #[serde(default, deserialize_with = "null_default")]
     pub pause: f64,
     pub billable: bool,
+    #[serde(default, deserialize_with = "null_default")]
     pub status: i32,
+    #[serde(default, deserialize_with = "null_default")]
     pub status_intern: i32,
+    #[serde(default, deserialize_with = "null_default")]
     pub status_extern: i32,
     #[serde(default, deserialize_with = "null_default")]
     pub tag_ids: Vec<i64>,
@@ -389,7 +406,8 @@ pub struct TimeEntry {
     pub tags: Vec<Tag>,
     pub external_url: Option<String>,
     pub external_name: Option<String>,
-    #[serde(deserialize_with = "datetime")]
+    /// 1970 when missing or null.
+    #[serde(default, deserialize_with = "datetime_or_epoch")]
     pub modified: NaiveDateTime,
     pub timezone: Option<String>,
     #[serde(flatten)]
@@ -768,6 +786,23 @@ mod tests {
         assert_eq!(timed.tag_ids, [7]);
         assert_eq!(timed.timezone.as_deref(), Some("Europe/Amsterdam"));
         assert!(timed.extra.contains_key("timer"), "unknown fields are kept");
+    }
+
+    #[test]
+    fn tolerates_missing_display_fields() {
+        let mut entries: Vec<Value> = fixture("time_entries.json");
+        let entry = entries[0].as_object_mut().unwrap();
+        for key in ["userDisplayName", "projectName", "taskName", "status", "modified"] {
+            entry.insert(key.into(), Value::Null);
+        }
+        entry.remove("customerName");
+        let entry: TimeEntry = serde_json::from_value(entries.remove(0)).unwrap();
+        assert_eq!((entry.project_name.as_str(), entry.status), ("", 0));
+        assert_eq!(entry.modified, NaiveDateTime::default());
+
+        let mut entries: Vec<Value> = fixture("time_entries.json");
+        entries[0].as_object_mut().unwrap().insert("hours".into(), Value::Null);
+        assert!(serde_json::from_value::<TimeEntry>(entries.remove(0)).is_err(), "hours stay required");
     }
 
     #[test]
