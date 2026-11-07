@@ -6,6 +6,7 @@ use timechimp::Mileage;
 
 use crate::forms::{self, AddressField, AddressMenu, Form, FormBody, MileageForm, text};
 use crate::domain::MILEAGE_TYPES;
+use crate::seed;
 use crate::store::config;
 
 use super::TimeChimpApp;
@@ -32,58 +33,20 @@ impl TimeChimpApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let template = editing.as_deref().or(self.session.mileage.last());
-        let saved = self.session.saved_addresses();
+        let seed = seed::trip_form(&self.session, editing.as_deref(), preset);
         let types = MILEAGE_TYPES.iter().map(|(id, name)| (*id, name.to_string())).collect();
-        let projects =
-            self.session.project_options(editing.as_deref().map(|m| (m.project_id, &*m.project_name, &*m.customer_name)));
-        let (mut project, mut mileage_type, mut billable, mut return_trip) = (
-            template.map(|m| m.project_id),
-            template.map(|m| m.mileage_type),
-            template.is_some_and(|m| m.billable),
-            false,
-        );
-        if let Some(p) = preset {
-            project = self.session.project_named(&p.project).map(|p| p.id).or(project);
-            mileage_type = p.trip_type();
-            billable = p.billable;
-            return_trip = p.return_trip;
-        }
-        let (date, from, to, distance, notes) = match (&editing, preset) {
-            (None, Some(p)) => (
-                self.session.day,
-                p.from.clone(),
-                p.to.clone(),
-                p.distance.map(|d| format!("{d}")).unwrap_or_default(),
-                p.notes.clone().unwrap_or_default(),
-            ),
-            (Some(m), _) => (
-                m.date,
-                m.from_address.clone().unwrap_or_default(),
-                m.to_address.clone().unwrap_or_default(),
-                format!("{}", m.distance),
-                m.notes.clone().unwrap_or_default(),
-            ),
-            (None, None) => (
-                self.session.day,
-                saved.first().cloned().unwrap_or_default(),
-                saved.get(1).cloned().unwrap_or_default(),
-                String::new(),
-                String::new(),
-            ),
-        };
         let form = MileageForm {
             editing,
-            date: forms::DateField::new(cx, date),
-            project: forms::choice(cx, "form-project", "Project", projects, project),
-            from: forms::text_input(cx, from),
-            to: forms::text_input(cx, to),
-            distance: forms::text_input(cx, distance),
-            return_trip: forms::toggle(cx, "form-return", "Return trip", return_trip),
-            mileage_type: forms::choice(cx, "form-type", "Type", types, mileage_type),
-            billable: forms::toggle(cx, "form-billable", "Billable", billable),
-            notes: forms::text_input(cx, notes),
-            addresses: saved,
+            date: forms::DateField::new(cx, seed.date),
+            project: forms::choice(cx, "form-project", "Project", seed.projects, seed.project_id),
+            from: forms::text_input(cx, seed.from),
+            to: forms::text_input(cx, seed.to),
+            distance: forms::text_input(cx, seed.distance),
+            return_trip: forms::toggle(cx, "form-return", "Return trip", seed.return_trip),
+            mileage_type: forms::choice(cx, "form-type", "Type", types, seed.mileage_type),
+            billable: forms::toggle(cx, "form-billable", "Billable", seed.billable),
+            notes: forms::text_input(cx, seed.notes),
+            addresses: seed.addresses,
             address_menu: None,
         };
         // Typing in From/To filters the suggestions; leaving the field closes them.

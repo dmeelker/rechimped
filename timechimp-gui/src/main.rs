@@ -12,8 +12,11 @@ mod forms;
 mod fx;
 mod net;
 mod password;
+mod seed;
 mod session;
 mod store;
+#[cfg(test)]
+mod test_support;
 mod validate;
 mod view;
 

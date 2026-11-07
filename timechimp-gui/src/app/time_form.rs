@@ -8,6 +8,7 @@ use timechimp::TimeEntry;
 use crate::forms::{self, Form, FormBody, TimeForm, chosen, text};
 use crate::validate::TimeKind;
 use crate::domain;
+use crate::seed::{self, TagSeed, TimeFill};
 
 use super::{Tab, TimeChimpApp};
 
@@ -42,47 +43,22 @@ impl TimeChimpApp {
 
     /// Form for a new time entry, for editing `entry`, or (with `copy`) for a copy of it.
     fn open_time_form(&mut self, entry: Option<&TimeEntry>, copy: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let projects = self.session.project_options(entry.map(|e| (e.project_id, &*e.project_name, &*e.customer_name)));
-        // New entries default to the project/task/tag of the most recently modified entry.
-        let template = entry.or_else(|| self.session.entries.iter().max_by_key(|e| e.modified));
-        let project_id = template.map(|e| e.project_id).or(projects.first().map(|(id, _)| *id));
-        let tasks = self.session.task_options(project_id, entry);
-
-        let tags = self.tag_checkboxes(project_id, template.map_or(&[], |e| &e.tag_ids), cx);
-        let kept_tag_ids = entry.map(|e| self.session.kept_tags(project_id, &e.tag_ids)).unwrap_or_default();
-
-        let editing = entry.filter(|_| !copy);
-        let date = editing.map(|e| e.date).unwrap_or(self.session.day);
-        let (start, end) = editing
-            .and_then(|e| e.start_end.as_deref())
-            .and_then(|s| s.split_once('-'))
-            .map(|(s, e)| (s.to_owned(), e.to_owned()))
-            .unwrap_or_else(|| (self.session.next_start_time(date).unwrap_or_default(), String::new()));
-        let hours = editing.map(|e| format!("{}", e.hours)).unwrap_or_default();
-        let notes = entry.and_then(|e| e.notes.clone()).unwrap_or_default();
-
-        let project = forms::choice(cx, "form-project", "Project", projects, project_id);
+        let seed = seed::time_form(&self.session, entry, copy);
+        let editing = matches!(seed.kind, TimeKind::Edit { .. });
+        let project = forms::choice(cx, "form-project", "Project", seed.projects, seed.project_id);
         let project_sub = self.subscribe_project(&project, window, cx);
-        let recent = (entry.is_none() && !self.session.recent.is_empty())
-            .then(|| forms::RecentPicker { filter: forms::text_input(cx, ""), selected: 0 });
+        let recent = seed.recent.then(|| forms::RecentPicker { filter: forms::text_input(cx, ""), selected: 0 });
+        let start_empty = seed.start.is_empty();
         let form = TimeForm {
-            kind: match editing {
-                None => TimeKind::New,
-                Some(e) => TimeKind::Edit {
-                    id: e.id,
-                    pause: e.pause,
-                    timezone: e.timezone.clone(),
-                    task: (e.project_task_id, e.task_id),
-                },
-            },
-            date: forms::DateField::new(cx, date),
-            task: forms::choice(cx, "form-task", "Task", tasks, template.map(|e| e.project_task_id)),
-            start: forms::text_input(cx, start.clone()),
-            end: forms::text_input(cx, end),
-            hours: forms::text_input(cx, hours),
-            notes: forms::text_input(cx, notes),
-            tags,
-            kept_tag_ids,
+            kind: seed.kind,
+            date: forms::DateField::new(cx, seed.date),
+            task: forms::choice(cx, "form-task", "Task", seed.project.tasks, seed.project.task_id),
+            start: forms::text_input(cx, seed.start),
+            end: forms::text_input(cx, seed.end),
+            hours: forms::text_input(cx, seed.hours),
+            notes: forms::text_input(cx, seed.notes),
+            tags: tag_checkboxes(seed.project.tags, cx),
+            kept_tag_ids: seed.project.kept_tag_ids,
             project,
             recent,
             project_sub,
@@ -91,7 +67,7 @@ impl TimeChimpApp {
         // time when the start is already filled in.
         let focus = match &form.recent {
             Some(picker) => &picker.filter,
-            None if editing.is_some() || start.is_empty() => &form.start,
+            None if editing || start_empty => &form.start,
             None => &form.end,
         };
         window.focus(&focus.read(cx).focus_handle(cx), cx);
@@ -179,19 +155,17 @@ impl TimeChimpApp {
     /// task are offered even when no longer active); date and times stay. Focus moves on to the
     /// times.
     fn fill_time_form(&mut self, fill: TimeFill, entry: Option<&TimeEntry>, window: &mut Window, cx: &mut Context<Self>) {
-        let projects = self.session.project_options(entry.map(|e| (e.project_id, &*e.project_name, &*e.customer_name)));
-        let project = forms::choice(cx, "form-project", "Project", projects, Some(fill.project_id));
-        let tasks = self.session.task_options(Some(fill.project_id), entry);
-        let task = forms::choice(cx, "form-task", "Task", tasks, fill.project_task_id);
-        let tags = self.tag_checkboxes(Some(fill.project_id), &fill.tag_ids, cx);
-        let kept_tag_ids = self.session.kept_tags(Some(fill.project_id), &fill.tag_ids);
+        let seed = seed::time_fill(&self.session, fill, entry);
+        let project = forms::choice(cx, "form-project", "Project", seed.projects, Some(seed.project_id));
+        let task = forms::choice(cx, "form-task", "Task", seed.project.tasks, seed.project.task_id);
+        let tags = tag_checkboxes(seed.project.tags, cx);
         let project_sub = self.subscribe_project(&project, window, cx);
         let Some(Form { body: FormBody::Time(form), error, .. }) = &mut self.form else { return };
-        forms::set_text(&form.notes, fill.notes, cx);
+        forms::set_text(&form.notes, seed.notes, cx);
         form.project = project;
         form.task = task;
         form.tags = tags;
-        form.kept_tag_ids = kept_tag_ids;
+        form.kept_tag_ids = seed.project.kept_tag_ids;
         form.project_sub = project_sub;
         *error = None;
         let next = if text(&form.start, cx).is_empty() { &form.start } else { &form.end };
@@ -202,28 +176,15 @@ impl TimeChimpApp {
     /// The task list and the tag checkboxes follow the project.
     fn on_project_changed(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(form) = self.time_form() else { return };
-        let project_id = chosen(&form.project, cx);
-        let options = self.session.task_options(project_id, None);
-        let task = forms::choice(cx, "form-task", "Task", options, None);
-        // Pre-check the tags the project's most recently modified entry had, and the kept tags
-        // this project has a checkbox for; the rest stays kept.
-        let last = self.session.entries.iter().filter(|e| Some(e.project_id) == project_id).max_by_key(|e| e.modified);
-        let mut checked: Vec<i64> = last.map_or(&[][..], |e| &e.tag_ids).to_vec();
-        checked.extend(&form.kept_tag_ids);
-        let kept_tag_ids = self.session.kept_tags(project_id, &form.kept_tag_ids);
-        let tags = self.tag_checkboxes(project_id, &checked, cx);
+        let seed = seed::project_changed(&self.session, chosen(&form.project, cx), &form.kept_tag_ids);
+        let task = forms::choice(cx, "form-task", "Task", seed.tasks, seed.task_id);
+        let tags = tag_checkboxes(seed.tags, cx);
         if let Some(form) = self.time_form_mut() {
             form.task = task;
             form.tags = tags;
-            form.kept_tag_ids = kept_tag_ids;
+            form.kept_tag_ids = seed.kept_tag_ids;
         }
         cx.notify();
-    }
-
-    /// Checkboxes for the tags configured for `project_id`, checked where `checked` has the tag.
-    fn tag_checkboxes(&self, project_id: Option<i64>, checked: &[i64], cx: &mut Context<Self>) -> Vec<forms::TagCheckbox> {
-        let tags = project_id.and_then(|id| self.session.project_tags.get(&id)).cloned().unwrap_or_default();
-        tags.into_iter().map(|t| forms::tag_checkbox(cx, t.id, t.name, checked.contains(&t.id))).collect()
     }
 
     /// A time preset in the "+ Add time" dropdown: a new time entry on the selected day, with the
@@ -249,13 +210,9 @@ impl TimeChimpApp {
     }
 }
 
-/// What `fill_time_form` puts in the open time form.
-struct TimeFill {
-    project_id: i64,
-    project_task_id: Option<i64>,
-    notes: String,
-    tag_ids: Vec<i64>,
-}
-
 /// Rows the Recent picker shows at most.
 const RECENT_ROWS: usize = 6;
+
+fn tag_checkboxes(tags: Vec<TagSeed>, cx: &mut Context<TimeChimpApp>) -> Vec<forms::TagCheckbox> {
+    tags.into_iter().map(|t| forms::tag_checkbox(cx, t.id, t.name, t.checked)).collect()
+}

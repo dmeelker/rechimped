@@ -10,7 +10,7 @@ use crate::session::Session;
 use crate::store::config::{self, TimePreset, TripPreset};
 
 /// Whether the time form creates an entry or edits one.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TimeKind {
     New,
     /// Keeps what the form doesn't edit, so an update doesn't drop it.
