@@ -343,7 +343,7 @@ impl TimeChimpApp {
             let user_id = base.me.id;
             // The history only feeds the Recent picker; failing to load it doesn't fail the reload.
             let (week, history) =
-                tokio::join!(net::load_week(&client, user_id, week_start), net::load_history(&client, user_id, today));
+                tokio::join!(net::load_week(&client, user_id, week_start), net::load_history(&client, user_id, today, week_start));
             let report = if want_report { Some(net::load_report(&client, user_id, report_month).await?) } else { None };
             timechimp::Result::Ok((base, week?, report, history))
         };
@@ -352,7 +352,7 @@ impl TimeChimpApp {
                 // Clear the old error first: loading the config or the history may report one.
                 this.error = None;
                 let history = history.map_err(|e| this.set_error(format!("Could not load recent entries: {e}"), window, cx));
-                this.session.apply_base(base, history.ok());
+                this.session.apply_base(base, history.ok(), &week.entries);
                 this.load_config(window, cx);
                 this.session.report = report.unwrap_or_default();
                 if generation == this.session.week_generation {

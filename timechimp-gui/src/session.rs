@@ -79,15 +79,16 @@ impl Session {
         }
     }
 
-    /// Takes in what a full reload fetched (the week itself goes through `apply_week`).
-    pub fn apply_base(&mut self, base: net::Base, history: Option<Vec<TimeEntry>>) {
+    /// Takes in what a full reload fetched. `history` leaves out the loaded week, whose `entries`
+    /// are added here (and shown through `apply_week`).
+    pub fn apply_base(&mut self, base: net::Base, history: Option<Vec<TimeEntry>>, entries: &[TimeEntry]) {
         self.me = Some(base.me);
         self.projects = base.projects;
         self.tasks = base.tasks;
         self.project_tasks = base.project_tasks;
         self.tags = base.tags;
         if let Some(history) = history {
-            self.history = history.into_iter().map(|e| (e.id, e)).collect();
+            self.history = history.into_iter().chain(entries.iter().cloned()).map(|e| (e.id, e)).collect();
             self.recent = domain::week::recent_items(self.history.values());
         }
     }

@@ -5,6 +5,7 @@ use std::future::Future;
 use std::sync::OnceLock;
 
 use chrono::{Duration, NaiveDate};
+use futures::{StreamExt, TryStreamExt};
 use timechimp::{
     Client, CurrentUser, Mileage, MileageReportRow, Project, ProjectTask, QueryResult, Tag, TagType, Task, TimeEntry,
     TimeReportRow,
@@ -37,7 +38,19 @@ pub async fn load_base(client: &Client) -> timechimp::Result<Base> {
     let me = client.current_user().await?;
     let (projects, tasks, tags) =
         tokio::try_join!(client.projects_for_user(me.id), client.tasks_for_time(me.id), client.tags(TagType::Time))?;
-    let project_tasks = futures::future::try_join_all(projects.iter().map(|p| client.project_tasks(p.id))).await?;
+    // One request per project, but not all at once.
+    // The stream owns everything it uses: borrowed ids or client trip up the Send check of the
+    // spawned future (a higher-ranked lifetime).
+    let ids: Vec<i64> = projects.iter().map(|p| p.id).collect();
+    let owned = client.clone();
+    let project_tasks: Vec<Vec<ProjectTask>> = futures::stream::iter(ids)
+        .map(move |id| {
+            let client = owned.clone();
+            async move { client.project_tasks(id).await }
+        })
+        .buffered(MAX_CONCURRENT_REQUESTS)
+        .try_collect()
+        .await?;
     Ok(Base {
         project_tasks: projects.iter().map(|p| p.id).zip(project_tasks).collect(),
         me,
@@ -60,10 +73,22 @@ pub async fn load_week(client: &Client, user_id: i64, week_start: NaiveDate) -> 
 /// How many weeks (this one included) the Recent picker in the time form looks back.
 const HISTORY_WEEKS: i64 = 5;
 
-/// The user's entries of the last `HISTORY_WEEKS` weeks up to `today`, for the Recent picker.
-pub async fn load_history(client: &Client, user_id: i64, today: NaiveDate) -> timechimp::Result<Vec<TimeEntry>> {
+/// How many requests of one batch (e.g. the tasks of every project) run at the same time.
+const MAX_CONCURRENT_REQUESTS: usize = 6;
+
+/// The user's entries of the last `HISTORY_WEEKS` weeks up to `today`, for the Recent picker,
+/// except the week starting on `loaded`: that one is fetched with `load_week` already.
+pub async fn load_history(
+    client: &Client,
+    user_id: i64,
+    today: NaiveDate,
+    loaded: NaiveDate,
+) -> timechimp::Result<Vec<TimeEntry>> {
     let this_week = monday_of(today);
-    let weeks = (0..HISTORY_WEEKS).map(|k| client.time_entries_for_week(user_id, this_week - Duration::weeks(k)));
+    let weeks = (0..HISTORY_WEEKS)
+        .map(|k| this_week - Duration::weeks(k))
+        .filter(|monday| *monday != loaded)
+        .map(|monday| client.time_entries_for_week(user_id, monday));
     Ok(futures::future::try_join_all(weeks).await?.into_iter().flatten().collect())
 }
 
