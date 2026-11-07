@@ -202,6 +202,7 @@ impl Session {
         let moved = week_start != self.week_start;
         if moved {
             self.week_start = week_start;
+            self.loaded_week = None;
             self.entries.clear();
             self.mileage.clear();
             self.selected_mileage = None;
@@ -504,6 +505,10 @@ mod tests {
         let (second, monday) = s.begin_week_load();
         assert_eq!(monday, date(9));
         assert!(!s.is_latest_week_load(first) && s.is_latest_week_load(second));
+
+        // Back to the loaded week before the other week's load returned: its entries were cleared.
+        assert!(s.select_day(date(4)));
+        assert!(!s.week_loaded() && s.entries.is_empty());
     }
 
     #[test]
