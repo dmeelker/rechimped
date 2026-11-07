@@ -110,3 +110,44 @@ pub async fn load_report(client: &Client, user_id: i64, month: NaiveDate) -> tim
     mileage.retain(|r: &MileageReportRow| r.user_id == user_id);
     Ok(Report { month: Some(month), time, mileage })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A grid of `total` rows (their indexes) that claims `row_count` rows in all.
+    fn grid(total: u32, row_count: i64) -> impl FnMut(std::ops::Range<u32>) -> std::future::Ready<timechimp::Result<QueryResult<u32>>> {
+        move |rows: std::ops::Range<u32>| {
+            let row_data = (rows.start..rows.end.min(total)).collect();
+            std::future::ready(Ok(QueryResult { row_data, row_count }))
+        }
+    }
+
+    #[test]
+    fn pages_until_all_rows_are_in() {
+        let mut asked = Vec::new();
+        let mut fetch = grid(1200, 1200);
+        let rows = futures::executor::block_on(page_all(|range: std::ops::Range<u32>| {
+            asked.push(range.clone());
+            fetch(range)
+        }))
+        .unwrap();
+        assert_eq!(rows, (0..1200).collect::<Vec<_>>());
+        assert_eq!(asked, [0..500, 500..1000, 1000..1500]);
+    }
+
+    #[test]
+    fn stops_at_an_empty_page_or_an_exact_fit() {
+        // The server counting more rows than it hands out doesn't loop forever.
+        assert_eq!(futures::executor::block_on(page_all(grid(10, 9999))).unwrap().len(), 10);
+        // Exactly one page: no second request for an empty one.
+        let mut calls = 0;
+        let mut fetch = grid(500, 500);
+        let rows = futures::executor::block_on(page_all(|range| {
+            calls += 1;
+            fetch(range)
+        }))
+        .unwrap();
+        assert_eq!((rows.len(), calls), (500, 1));
+    }
+}

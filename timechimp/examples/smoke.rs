@@ -58,17 +58,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let created = client.create_time_entry(&input).await?;
     println!("\ncreated time entry {}: {} {:?} {}h '{}'", created.id, created.date, created.start_end, created.hours, created.notes.clone().unwrap_or_default());
 
-    let fetched = client.time_entry(created.id).await?;
-    assert_eq!(fetched.hours, 0.25);
+    // Checked without panicking or returning early, so the entry is deleted whatever happens.
+    let checks: Result<(), Box<dyn std::error::Error>> = async {
+        let fetched = client.time_entry(created.id).await?;
+        check(fetched.hours == 0.25, format!("fetched {}h, expected 0.25h", fetched.hours))?;
 
-    let updated = client
-        .update_time_entry(created.id, &input.clone().with_times(at(22, 0), at(22, 30)).with_notes("timechimp-rs API test (updated)"))
-        .await?;
-    println!("updated time entry {}: {:?} {}h '{}'", updated.id, updated.start_end, updated.hours, updated.notes.clone().unwrap_or_default());
-    let refetched = client.time_entry(created.id).await?;
-    assert_eq!((refetched.hours, refetched.start_end.as_deref()), (0.5, Some("22:00-22:30")));
+        let updated = client
+            .update_time_entry(created.id, &input.clone().with_times(at(22, 0), at(22, 30)).with_notes("timechimp-rs API test (updated)"))
+            .await?;
+        println!("updated time entry {}: {:?} {}h '{}'", updated.id, updated.start_end, updated.hours, updated.notes.clone().unwrap_or_default());
+        let refetched = client.time_entry(created.id).await?;
+        let got = (refetched.hours, refetched.start_end.as_deref());
+        check(got == (0.5, Some("22:00-22:30")), format!("after the update: {got:?}"))
+    }
+    .await;
 
     client.delete_time_entry(created.id).await?;
+    checks?;
     let gone = client.time_entries_for_week(me.id, monday).await?.iter().all(|e| e.id != created.id);
     println!("deleted time entry {}: gone from week = {gone}", created.id);
 
@@ -94,4 +100,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("deleted mileage {}: gone from week = {gone}", mileage.id);
 
     Ok(())
+}
+
+fn check(ok: bool, failure: String) -> Result<(), Box<dyn std::error::Error>> {
+    if ok { Ok(()) } else { Err(failure.into()) }
 }

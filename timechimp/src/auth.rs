@@ -163,13 +163,14 @@ impl Authenticator {
     }
 
     /// Uses `token` as the access token for an hour, without a refresh token, for tests against
-    /// a server that takes any bearer token.
+    /// a server that takes any bearer token. A refresh (after a 401) goes to a closed local port
+    /// and fails at once, rather than to AWS.
     #[doc(hidden)]
     pub fn with_access_token(token: impl Into<String>) -> Self {
         let token = AccessToken { token: token.into(), expires_at: Instant::now() + Duration::from_secs(3600) };
         Self {
             http: http_client(),
-            cognito_url: COGNITO_URL.to_owned(),
+            cognito_url: "http://127.0.0.1:9/".to_owned(),
             refresh_token: String::new(),
             access: Mutex::new(Some(token)),
         }

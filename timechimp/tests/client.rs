@@ -1,31 +1,14 @@
 //! `Client` against a local one-shot HTTP server: request shape, decoding and error mapping.
 
+mod common;
+
 use chrono::NaiveDate;
 use timechimp::{Authenticator, Client, Error};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
 
 /// Serves one request with `status` and `body`; returns the base URL and the raw request.
-async fn serve_once(status: &'static str, body: String) -> (String, tokio::task::JoinHandle<String>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let base = format!("http://{}/api/", listener.local_addr().unwrap());
-    let request = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.unwrap();
-        let mut request = Vec::new();
-        let mut buf = [0u8; 4096];
-        while !request.windows(4).any(|w| w == b"\r\n\r\n") {
-            let n = socket.read(&mut buf).await.unwrap();
-            assert!(n > 0, "connection closed before the request was complete");
-            request.extend_from_slice(&buf[..n]);
-        }
-        let response = format!(
-            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
-        );
-        socket.write_all(response.as_bytes()).await.unwrap();
-        String::from_utf8(request).unwrap()
-    });
-    (base, request)
+async fn serve_once(status: &'static str, body: String) -> (String, impl Future<Output = String>) {
+    let (base, requests) = common::serve(vec![(status, body)]).await;
+    (base, async { requests.await.unwrap().remove(0) })
 }
 
 fn client(base: String) -> Client {
@@ -40,7 +23,7 @@ async fn fetches_and_decodes_a_week() {
     let monday = NaiveDate::from_ymd_opt(2026, 11, 2).unwrap();
     let entries = client(base).time_entries_for_week(1, monday).await.unwrap();
 
-    let request = request.await.unwrap().to_lowercase();
+    let request = request.await.to_lowercase();
     assert!(request.starts_with("get /api/time/week/1/2026-11-02 http/1.1\r\n"), "{request}");
     assert!(request.contains("authorization: bearer test-token\r\n"), "{request}");
     assert_eq!(entries.len(), 2);
