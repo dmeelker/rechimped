@@ -31,7 +31,7 @@ impl TimeChimpApp {
             .border_color(theme.border())
             // The tab strip draws its own rule; pulled 1px down it lies on the header's border, so the
             // two read as one line (and the selected tab's underline covers it).
-            .child(div().mb(px(-1.)).child(self.tabs.clone()))
+            .child(div().mb(px(-1.)).font_weight(FontWeight::MEDIUM).child(self.tabs.clone()))
             .child(div().flex_1())
             .child(div().relative().mb(px(6.)).child(self.render_user_button(theme, title, cx)).when(
                 self.menu == Some(Menu::User),

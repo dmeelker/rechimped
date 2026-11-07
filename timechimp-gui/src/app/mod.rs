@@ -20,6 +20,8 @@ use gpui::{AppContext, Context, Entity, FocusHandle, SharedString, Subscription,
 use gpuikit::elements::dialog::DialogState;
 use gpuikit::elements::tabs::{TabChanged, Tabs, tab, tabs};
 use gpuikit::elements::toast::ToastExt;
+use gpuikit::theme::ControlSize;
+use gpuikit::traits::control_sized::ControlSized;
 use gpuikit::input::InputState;
 use timechimp::{Authenticator, Client, MfaChallenge};
 
@@ -116,7 +118,9 @@ pub struct TimeChimpApp {
 impl TimeChimpApp {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let tabs = cx.new(|_| {
-            Tab::ALL.iter().fold(tabs("main-tabs"), |t, tb| t.tab(tab(tb.id(), tb.label()))).selected(Tab::Week.id())
+            Tab::ALL.iter().fold(tabs("main-tabs"), |t, tb| t.tab(tab(tb.id(), tb.label())))
+                .selected(Tab::Week.id())
+                .control_size(ControlSize::Large)
         });
         let tab_sub = cx.subscribe_in(&tabs, window, |this, _, event: &TabChanged, window, cx| {
             if let Some(t) = Tab::ALL.iter().find(|t| t.id() == event.tab_id.as_ref()) {
