@@ -1,6 +1,9 @@
 //! The add/edit dialogs, built from gpuikit inputs, selects and switches.
 
+use chrono::{Datelike, NaiveDate};
 use gpui::{App, AppContext, ElementId, Entity, Focusable, SharedString, Subscription, Window};
+use gpuikit::date::Date;
+use gpuikit::elements::calendar::Calendar;
 use gpuikit::elements::checkbox::{Checkbox, checkbox};
 use gpuikit::elements::select::{SelectState, select};
 use gpuikit::elements::switch::{Switch, switch};
@@ -11,7 +14,7 @@ use crate::validate::{MileageValues, TimeKind, TimeValues};
 
 pub struct TimeForm {
     pub kind: TimeKind,
-    pub date: Entity<InputState>,
+    pub date: DateField,
     pub project: Entity<SelectState<i64>>,
     pub task: Entity<SelectState<i64>>,
     pub start: Entity<InputState>,
@@ -35,7 +38,7 @@ impl TimeForm {
     pub fn values(&self, cx: &App) -> TimeValues {
         TimeValues {
             kind: self.kind.clone(),
-            date: text(&self.date, cx),
+            date: text(&self.date.input, cx),
             project_id: chosen(&self.project, cx),
             project_task_id: chosen(&self.task, cx),
             start: text(&self.start, cx),
@@ -66,7 +69,7 @@ pub struct TagCheckbox {
 pub struct MileageForm {
     /// The trip being edited (None for a new one); its vehicle and statuses are kept.
     pub editing: Option<Box<Mileage>>,
-    pub date: Entity<InputState>,
+    pub date: DateField,
     pub project: Entity<SelectState<i64>>,
     pub from: Entity<InputState>,
     pub to: Entity<InputState>,
@@ -122,7 +125,7 @@ impl MileageForm {
     pub fn values(&self, cx: &App) -> MileageValues {
         MileageValues {
             editing: self.editing.clone(),
-            date: text(&self.date, cx),
+            date: text(&self.date.input, cx),
             project_id: chosen(&self.project, cx),
             from: text(&self.from, cx),
             to: text(&self.to, cx),
@@ -133,6 +136,39 @@ impl MileageForm {
             notes: text(&self.notes, cx),
         }
     }
+}
+
+/// The Date field of both forms: a text field (a date can still be typed) whose calendar icon,
+/// or the down arrow, opens a month grid under it.
+pub struct DateField {
+    pub input: Entity<InputState>,
+    /// The calendar while it is open.
+    pub picker: Option<DatePicker>,
+}
+
+impl DateField {
+    pub fn new(cx: &mut App, date: NaiveDate) -> Self {
+        Self { input: text_input(cx, date.to_string()), picker: None }
+    }
+
+    /// The date typed in, if it is one.
+    pub fn parsed(&self, cx: &App) -> Option<NaiveDate> {
+        NaiveDate::parse_from_str(&text(&self.input, cx), "%Y-%m-%d").ok()
+    }
+}
+
+/// An open calendar, with its subscriptions (a day picked, focus leaving it).
+pub struct DatePicker {
+    pub calendar: Entity<Calendar>,
+    pub _subscriptions: Vec<Subscription>,
+}
+
+pub fn to_calendar_date(date: NaiveDate) -> Date {
+    Date::new(date.year(), date.month(), date.day()).expect("a NaiveDate is a valid date")
+}
+
+pub fn from_calendar_date(date: Date) -> Option<NaiveDate> {
+    NaiveDate::from_ymd_opt(date.year(), date.month(), date.day())
 }
 
 pub enum FormBody {
@@ -147,6 +183,20 @@ pub struct Form {
 }
 
 impl Form {
+    pub fn date(&self) -> &DateField {
+        match &self.body {
+            FormBody::Time(f) => &f.date,
+            FormBody::Mileage(f) => &f.date,
+        }
+    }
+
+    pub fn date_mut(&mut self) -> &mut DateField {
+        match &mut self.body {
+            FormBody::Time(f) => &mut f.date,
+            FormBody::Mileage(f) => &mut f.date,
+        }
+    }
+
     pub fn title(&self) -> &'static str {
         match &self.body {
             FormBody::Time(TimeForm { kind: TimeKind::New, .. }) => "New time entry",

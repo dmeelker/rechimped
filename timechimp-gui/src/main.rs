@@ -28,7 +28,8 @@ use gpuikit::input::INPUT_CONTEXT;
 use gpuikit::theme::{ControlMetrics, GlobalTheme, Theme, parse_hex};
 
 use app::{
-    AddressDown, AddressUp, CalculateDistance, Cancel, CloseAddresses, Confirm, PickAddress, PickRecent, RecentDown, RecentUp, TimeChimpApp, ToggleShowcase,
+    AddressDown, AddressUp, CalculateDistance, Cancel, CloseAddresses, CloseCalendar, Confirm, NextDay, NextMonth, NextWeek, PickAddress, PickRecent, PreviousDay, PreviousMonth,
+    PreviousWeek, RecentDown, RecentUp, TimeChimpApp, ToggleShowcase,
 };
 
 fn main() {
@@ -121,6 +122,17 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("down", AddressDown, Some("AddressField > Input")),
         KeyBinding::new("enter", PickAddress, Some("AddressField > Input")),
         KeyBinding::new("escape", CloseAddresses, Some("AddressField > Input")),
+        // A form's Date field: ↓ opens the calendar; while it is open the arrows move by a day or
+        // a week and PageUp/PageDown by a month, and Enter/Escape close it (keeping the date).
+        // With it closed they pass the key on (caret movement, Enter saves, Escape cancels).
+        KeyBinding::new("left", PreviousDay, Some("DateField > Input")),
+        KeyBinding::new("right", NextDay, Some("DateField > Input")),
+        KeyBinding::new("up", PreviousWeek, Some("DateField > Input")),
+        KeyBinding::new("down", NextWeek, Some("DateField > Input")),
+        KeyBinding::new("pageup", PreviousMonth, Some("DateField > Input")),
+        KeyBinding::new("pagedown", NextMonth, Some("DateField > Input")),
+        KeyBinding::new("enter", CloseCalendar, Some("DateField > Input")),
+        KeyBinding::new("escape", CloseCalendar, Some("DateField > Input")),
         // Showcase mode: aurora behind the app plus the frame-time HUD.
         KeyBinding::new("f12", ToggleShowcase, None),
     ]);

@@ -7,14 +7,15 @@ use gpui::{
 use gpuikit::a11y::FocusNavigation;
 use gpuikit::elements::button::button;
 use gpuikit::elements::text_field::{Adornment, text_field};
+use gpuikit::icons::Icons;
 use gpuikit::layout::{h_stack, v_stack};
-use gpuikit::theme::Themeable;
+use gpuikit::theme::{ControlSize, Themeable};
 
 use crate::app::{
-    AddressDown, AddressUp, CalculateDistance, Cancel, CloseAddresses, Confirm, PickAddress, PickRecent, RecentDown,
-    RecentUp, TimeChimpApp,
+    AddressDown, AddressUp, CalculateDistance, Cancel, CloseAddresses, CloseCalendar, Confirm, NextDay, NextMonth,
+    NextWeek, PickAddress, PickRecent, PreviousDay, PreviousMonth, PreviousWeek, RecentDown, RecentUp, TimeChimpApp,
 };
-use crate::forms::{AddressField, Form, FormBody, MileageForm, RecentPicker};
+use crate::forms::{AddressField, DateField, Form, FormBody, MileageForm, RecentPicker};
 use crate::domain::week::RecentItem;
 
 use super::widgets::*;
@@ -128,7 +129,7 @@ impl TimeChimpApp {
                     .items_start(),
                 // Separates the picker from the fields it fills in.
                 h_stack().h(px(1.)).w_full().bg(theme.border()).when(f.recent.is_none(), |d| d.hidden()),
-                row("Date", field(&f.date, "YYYY-MM-DD", cx)),
+                row("Date", self.render_date(&f.date, theme, cx)),
                 row("Project", f.project.clone().into_any_element()),
                 row("Task", f.task.clone().into_any_element()),
                 row("Start", field(&f.start, "HH:MM", cx)),
@@ -150,7 +151,7 @@ impl TimeChimpApp {
             .map(IntoElement::into_any_element)
             .collect(),
             FormBody::Mileage(f) => vec![
-                row("Date", field(&f.date, "YYYY-MM-DD", cx)),
+                row("Date", self.render_date(&f.date, theme, cx)),
                 row("Project", f.project.clone().into_any_element()),
                 row("From", self.render_address(f, AddressField::From, theme, cx)),
                 row("To", self.render_address(f, AddressField::To, theme, cx)),
@@ -187,6 +188,13 @@ impl TimeChimpApp {
             .on_action(cx.listener(|this, _: &AddressDown, w, cx| this.move_address(1, w, cx)))
             .on_action(cx.listener(|this, _: &PickAddress, _, cx| this.pick_highlighted_address(cx)))
             .on_action(cx.listener(|this, _: &CloseAddresses, _, cx| this.dismiss_addresses(cx)))
+            .on_action(cx.listener(|this, _: &PreviousDay, w, cx| this.move_calendar(-1, 0, w, cx)))
+            .on_action(cx.listener(|this, _: &NextDay, w, cx| this.move_calendar(1, 0, w, cx)))
+            .on_action(cx.listener(|this, _: &PreviousWeek, w, cx| this.move_calendar(-7, 0, w, cx)))
+            .on_action(cx.listener(|this, _: &NextWeek, w, cx| this.move_calendar(7, 0, w, cx)))
+            .on_action(cx.listener(|this, _: &PreviousMonth, w, cx| this.move_calendar(0, -1, w, cx)))
+            .on_action(cx.listener(|this, _: &NextMonth, w, cx| this.move_calendar(0, 1, w, cx)))
+            .on_action(cx.listener(|this, _: &CloseCalendar, _, cx| this.dismiss_calendar(cx)))
             .on_action(cx.listener(|this, _: &RecentUp, _, cx| this.move_recent(-1, cx)))
             .on_action(cx.listener(|this, _: &RecentDown, _, cx| this.move_recent(1, cx)))
             .on_action(cx.listener(|this, _: &PickRecent, w, cx| this.pick_highlighted_recent(w, cx)))
@@ -222,6 +230,62 @@ impl TimeChimpApp {
                     )),
             );
         Self::modal(theme, "form", 720., card, None)
+    }
+
+    /// The Date field: typed as YYYY-MM-DD, or picked from the calendar its icon (or ↓) opens;
+    /// the field keeps the focus and its arrow keys move through the calendar (`move_calendar`).
+    fn render_date(&self, field: &DateField, theme: &T, cx: &mut Context<Self>) -> AnyElement {
+        let color = if field.picker.is_some() { theme.accent() } else { theme.fg_muted() };
+        let icon = div()
+            .id("date-calendar-toggle")
+            .flex()
+            .items_center()
+            .px(px(2.))
+            .cursor_pointer()
+            .child(Icons::calendar().size(px(14.)).text_color(color))
+            // On press, so the field underneath doesn't take the click.
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, w, cx| {
+                    cx.stop_propagation();
+                    this.toggle_calendar(w, cx)
+                }),
+            );
+        let input = text_field(&field.input, cx).placeholder("YYYY-MM-DD").suffix(Adornment::element(icon));
+        let popup = field.picker.as_ref().map(|picker| {
+            // gpuikit colours its month buttons on the div, which doesn't reach their chevron svgs,
+            // so they draw nothing. These chevrons go on top, where the buttons are (inside the
+            // same border and padding as the calendar's); they take no mouse events, so clicks
+            // still reach the buttons underneath.
+            let m = theme.control(ControlSize::default());
+            let chevron = |icon: gpui::Svg| {
+                div()
+                    .size(m.height)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(icon.size(m.text_size).text_color(theme.fg_muted()))
+            };
+            let chevrons = div().absolute().inset_0().border_1().border_color(gpui::transparent_black()).child(
+                h_stack()
+                    .p(m.padding_x)
+                    .justify_between()
+                    .child(chevron(Icons::chevron_left()))
+                    .child(chevron(Icons::chevron_right())),
+            );
+            // The calendar draws its own border but no fill.
+            let panel = div()
+                .id("date-calendar")
+                .relative()
+                .occlude()
+                .rounded(px(6.))
+                .bg(theme.surface())
+                .shadow_lg()
+                .child(picker.calendar.clone())
+                .child(chevrons);
+            deferred(div().absolute().top_full().left_0().mt(px(4.)).child(panel)).with_priority(3)
+        });
+        div().relative().key_context("DateField").child(input).children(popup).into_any_element()
     }
 
     /// From or To of the trip form: a text field for any address, whose ▾ (or ↓) lists the saved
