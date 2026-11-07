@@ -3,6 +3,8 @@
 use std::collections::HashMap;
 use std::future::Future;
 
+use futures::FutureExt;
+
 use chrono::{Duration, Months, NaiveDate};
 use gpui::{
     AppContext, Context, Entity, FocusHandle, Focusable, KeyDownEvent, SharedString, Subscription, Window, actions,
@@ -72,7 +74,7 @@ impl Tab {
         }
     }
 
-    fn index(self) -> usize {
+    pub fn index(self) -> usize {
         Tab::ALL.iter().position(|t| *t == self).expect("tab in ALL")
     }
 }
@@ -99,9 +101,9 @@ pub struct TimeChimpApp {
     pub me: Option<CurrentUser>,
     pub tab: Tab,
     pub tabs: Entity<Tabs>,
-    /// The selected day; `week_start` is always the Monday of its week.
+    /// The selected day.
     pub day: NaiveDate,
-    /// Week tab: show one day (true) or the whole week grouped per day (false).
+    /// Always the Monday of `day`'s week.
     pub week_start: NaiveDate,
     pub entries: Vec<TimeEntry>,
     pub selected_entry: Option<usize>,
@@ -649,7 +651,6 @@ impl TimeChimpApp {
         let (shift, ctrl) = (ks.modifiers.shift, ks.modifiers.control || ks.modifiers.platform);
         let key = ks.key.as_str();
         let week_tab = self.tab == Tab::Week;
-        let by_day = week_tab;
         match (key, ctrl) {
             ("q", true) => cx.quit(),
             (_, true) => return,
@@ -661,8 +662,8 @@ impl TimeChimpApp {
             ("t", _) if self.tab != Tab::Projects => self.go_today(window, cx),
             (_, _) if !matches!(self.tab, Tab::Week | Tab::Mileage) => return,
             // ←/→ move a day on the Week tab, a week on Mileage; Shift+←/→ and [ ] always a week.
-            ("left" | "h", _) if by_day && !shift => self.shift_day(-1, window, cx),
-            ("right" | "l", _) if by_day && !shift => self.shift_day(1, window, cx),
+            ("left" | "h", _) if week_tab && !shift => self.shift_day(-1, window, cx),
+            ("right" | "l", _) if week_tab && !shift => self.shift_day(1, window, cx),
             ("left" | "h" | "[", _) => self.shift_day(-7, window, cx),
             ("right" | "l" | "]", _) => self.shift_day(7, window, cx),
             ("down" | "j", _) => self.move_selection(1),
@@ -1361,23 +1362,20 @@ impl TimeChimpApp {
     }
 
     fn delete(&mut self, target: DeleteTarget, window: &mut Window, cx: &mut Context<Self>) {
-        // A preset only lives in config.toml; no request needed.
-        if let DeleteTarget::Preset(name) = &target {
-            match logic::remove_trip_preset(name) {
-                Ok(_) => {
-                    self.load_config(window, cx);
-                    self.set_info("Preset deleted from config.toml", window, cx);
-                }
-                Err(e) => self.set_error(e, window, cx),
-            }
-            return;
-        }
         let Some(client) = self.client.clone() else { return };
-        let future = async move {
-            match target {
-                DeleteTarget::Time(id) => client.delete_time_entry(id).await,
-                DeleteTarget::Mileage(id) => client.delete_mileage(id).await,
-                DeleteTarget::Preset(_) => unreachable!("handled above"),
+        let future = match target {
+            DeleteTarget::Time(id) => async move { client.delete_time_entry(id).await }.boxed(),
+            DeleteTarget::Mileage(id) => async move { client.delete_mileage(id).await }.boxed(),
+            // A preset only lives in config.toml; no request needed.
+            DeleteTarget::Preset(name) => {
+                match logic::remove_trip_preset(&name) {
+                    Ok(_) => {
+                        self.load_config(window, cx);
+                        self.set_info("Preset deleted from config.toml", window, cx);
+                    }
+                    Err(e) => self.set_error(e, window, cx),
+                }
+                return;
             }
         };
         self.run("Deleting…", future, window, cx, |this, result, window, cx| match result {

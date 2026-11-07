@@ -56,7 +56,7 @@ impl Render for TimeChimpApp {
             });
         let root = match &self.screen {
             Screen::Login(_) => root.child(self.render_login(&theme, t, cx)),
-            Screen::Main => root.child(self.render_main(&theme, window, cx)),
+            Screen::Main => root.child(self.render_main(&theme, cx)),
         };
         root.when(self.fx.showcase, |d| {
             d.child(self.fx.hud(theme.fg(), theme.fg_muted(), theme.accent(), theme.surface()))
@@ -106,7 +106,6 @@ fn header_row(theme: &T, cells: impl IntoIterator<Item = gpui::Div>) -> gpui::Di
         .children(cells)
 }
 
-/// A bordered panel with a title bar.
 /// A bordered card with a title bar. It may shrink below its content (`min_h_0`), so put its
 /// rows in `table_rows` to have them scroll while the title and column header stay put.
 fn panel(theme: &T, title: impl IntoElement, right: Option<AnyElement>) -> gpui::Div {
@@ -234,8 +233,6 @@ fn junction_row(theme: &T, junction: &crate::logic::Junction) -> impl IntoElemen
         .child(div().flex_1().h(px(1.)).bg(colour.opacity(0.4)))
 }
 
-/// "billable: 24.75/32 (77%)": billable hours over `of` (the week's contract hours). The
-/// percentage is green once it reaches the goal, amber below it.
 /// Hours without trailing zeros: 24 → "24", 24.5 → "24.5", 24.75 → "24.75".
 fn trim_hours(hours: f64) -> String {
     let s = format!("{hours:.2}");
@@ -323,7 +320,7 @@ impl TimeChimpApp {
 
     // ---- Main ---------------------------------------------------------------------------------
 
-    fn render_main(&mut self, theme: &T, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_main(&mut self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         let title = match &self.me {
             Some(me) => format!("{} @ {}", me.display_name, me.company_name),
             None => String::new(),
@@ -355,10 +352,10 @@ impl TimeChimpApp {
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key))
             .on_action(cx.listener(|this, _: &gpuikit::a11y::FocusNext, window, cx| {
-                this.switch_tab((this.tab_index() + 1) % Tab::ALL.len(), window, cx)
+                this.switch_tab((this.tab.index() + 1) % Tab::ALL.len(), window, cx)
             }))
             .on_action(cx.listener(|this, _: &gpuikit::a11y::FocusPrevious, window, cx| {
-                this.switch_tab((this.tab_index() + Tab::ALL.len() - 1) % Tab::ALL.len(), window, cx)
+                this.switch_tab((this.tab.index() + Tab::ALL.len() - 1) % Tab::ALL.len(), window, cx)
             }))
             .flex_1()
             .min_h_0()
@@ -382,11 +379,7 @@ impl TimeChimpApp {
             .child(browse)
             .when(self.user_menu, |d| d.child(self.render_user_menu_backdrop(cx)))
             .when(self.show_detail, |d| d.child(self.render_detail(theme, cx)))
-            .when_some(self.form.as_ref(), |d, form| d.child(self.render_form(form, theme, window, cx)))
-    }
-
-    fn tab_index(&self) -> usize {
-        Tab::ALL.iter().position(|t| *t == self.tab).expect("tab in ALL")
+            .when_some(self.form.as_ref(), |d, form| d.child(self.render_form(form, theme, cx)))
     }
 
     fn render_toolbar(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1030,7 +1023,7 @@ impl TimeChimpApp {
         Self::modal(theme, "detail", 560., card, Some(Box::new(close))).into_any_element()
     }
 
-    fn render_form(&self, form: &Form, theme: &T, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_form(&self, form: &Form, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         // Only the mileage form has hints; the time form uses the full width for its fields.
         let show_help = matches!(form.body, FormBody::Mileage(_));
         let row = |label: &'static str, control: AnyElement, help: Option<&'static str>| {
@@ -1103,7 +1096,6 @@ impl TimeChimpApp {
             .map(IntoElement::into_any_element)
             .collect(),
         };
-        let _ = window;
         let card = v_stack()
             .id("form-card")
             .key_context("Modal")
