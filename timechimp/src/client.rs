@@ -107,9 +107,9 @@ impl Client {
         self.get("vatRate").await
     }
 
-    /// Tags of a given type. Observed: 1 = time entry tags, 6 = user tags; 5 and 7 are also used.
-    pub async fn tags(&self, tag_type: i32) -> Result<Vec<Tag>> {
-        self.get(&format!("tag/type/{tag_type}")).await
+    /// Tags of a given type.
+    pub async fn tags(&self, tag_type: TagType) -> Result<Vec<Tag>> {
+        self.get(&format!("tag/type/{}", i32::from(tag_type))).await
     }
 
     // ---- Customers, projects, tasks -------------------------------------------------------

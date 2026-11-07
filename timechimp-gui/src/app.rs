@@ -15,7 +15,7 @@ use gpuikit::elements::tabs::{TabChanged, Tabs, tab, tabs};
 use gpuikit::elements::toast::ToastExt;
 use gpuikit::input::{InputState, InputStateEvent};
 use timechimp::{
-    Authenticator, Client, CurrentUser, LoginOutcome, MfaChallenge, Mileage, NewMileage, NewTimeEntry, Project,
+    Authenticator, Client, CurrentUser, LoginOutcome, MfaChallenge, Mileage, MileageType, NewMileage, NewTimeEntry, Project,
     ProjectTask, Tag, Task, TimeEntry,
 };
 
@@ -485,7 +485,7 @@ impl TimeChimpApp {
         self.fx.sweep += 1;
         // The week replaces what the history had for it, so saves and deletes show up in Recent.
         let week_end = self.week_start + Duration::days(7);
-        self.history.retain(|_, e| !(self.week_start..week_end).contains(&e.date.date()));
+        self.history.retain(|_, e| !(self.week_start..week_end).contains(&e.date));
         self.history.extend(week.entries.iter().map(|e| (e.id, e.clone())));
         self.recent = logic::recent_items(self.history.values());
 
@@ -581,7 +581,7 @@ impl TimeChimpApp {
 
     /// Indices into `entries` of the rows currently shown on the Week tab.
     pub fn visible_entries(&self) -> Vec<usize> {
-        (0..self.entries.len()).filter(|&i| self.entries[i].date.date() == self.day).collect()
+        (0..self.entries.len()).filter(|&i| self.entries[i].date == self.day).collect()
     }
 
     /// Moves the selection by `delta` rows within what's visible on the current tab.
@@ -619,7 +619,7 @@ impl TimeChimpApp {
     /// Clicking a row: select it; a double click opens it for editing.
     pub fn click_entry(&mut self, index: usize, clicks: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.selected_entry = Some(index);
-        if let Some(day) = self.entries.get(index).map(|e| e.date.date()) {
+        if let Some(day) = self.entries.get(index).map(|e| e.date) {
             self.day = day;
         }
         window.focus(&self.focus, cx);
@@ -756,7 +756,7 @@ impl TimeChimpApp {
         let kept_tag_ids = entry.map(|e| self.unconfigured_tags(&e.tag_ids)).unwrap_or_default();
 
         let editing = entry.filter(|_| !copy);
-        let date = editing.map(|e| e.date.date()).unwrap_or(self.day);
+        let date = editing.map(|e| e.date).unwrap_or(self.day);
         let (start, end) = editing
             .and_then(|e| e.start_end.as_deref())
             .and_then(|s| s.split_once('-'))
@@ -1009,13 +1009,13 @@ impl TimeChimpApp {
             self.project_options(editing.as_deref().map(|m| (m.project_id, &*m.project_name, &*m.customer_name)));
         let (mut project, mut mileage_type, mut billable, mut return_trip) = (
             template.map(|m| m.project_id),
-            template.map(|m| m.mileage_type as i64),
+            template.map(|m| m.mileage_type),
             template.is_some_and(|m| m.billable),
             false,
         );
         if let Some(p) = preset {
             project = self.preset_project(p).map(|p| p.id).or(project);
-            mileage_type = p.mileage_type_id();
+            mileage_type = p.trip_type();
             billable = p.billable;
             return_trip = p.return_trip;
         }
@@ -1028,7 +1028,7 @@ impl TimeChimpApp {
                 p.notes.clone().unwrap_or_default(),
             ),
             (Some(m), _) => (
-                m.date.date(),
+                m.date,
                 m.from_address.clone().unwrap_or_default(),
                 m.to_address.clone().unwrap_or_default(),
                 format!("{}", m.distance),
@@ -1215,7 +1215,7 @@ impl TimeChimpApp {
                         to_address: to,
                         notes: Some(notes).filter(|n| !n.is_empty()),
                         billable: f.billable.read(cx).is_on(),
-                        mileage_type: chosen(&f.mileage_type, cx).unwrap_or(1) as i32,
+                        mileage_type: chosen(&f.mileage_type, cx).unwrap_or(MileageType::Business),
                         mileage_vehicle_id: f.editing.as_ref().and_then(|m| m.mileage_vehicle_id),
                     },
                     return_trip: f.editing.is_none() && f.return_trip.read(cx).is_on(),
@@ -1401,7 +1401,7 @@ impl TimeChimpApp {
     fn next_start_time(&self, date: NaiveDate) -> Option<String> {
         self.entries
             .iter()
-            .filter(|e| e.date.date() == date)
+            .filter(|e| e.date == date)
             .filter_map(|e| e.start_end.as_deref()?.split_once('-').map(|(_, end)| end.to_owned()))
             .max()
     }
@@ -1435,7 +1435,7 @@ impl TimeChimpApp {
     pub fn hours_per_day(&self) -> [f64; 7] {
         let mut totals = [0.0; 7];
         for e in &self.entries {
-            let offset = (e.date.date() - self.week_start).num_days();
+            let offset = (e.date - self.week_start).num_days();
             if (0..7).contains(&offset) {
                 totals[offset as usize] += e.hours;
             }

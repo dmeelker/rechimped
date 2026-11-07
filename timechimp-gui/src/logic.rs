@@ -8,14 +8,13 @@ use std::sync::OnceLock;
 use chrono::{DateTime, Datelike, Duration, FixedOffset, Local, Months, NaiveDate, NaiveTime};
 use chrono_tz::Tz;
 use timechimp::{
-    Client, CurrentUser, Mileage, MileageReportRow, Project, ProjectTask, QueryResult, Tag, Task, TimeEntry,
-    TimeReportRow,
+    Client, CurrentUser, Mileage, MileageReportRow, MileageType, Project, ProjectTask, QueryResult, Tag, TagType, Task,
+    TimeEntry, TimeReportRow,
 };
 
 /// Mileage trip types as observed in the API (names are a best guess).
-pub const MILEAGE_TYPES: [(i64, &str); 2] = [(1, "Business"), (3, "Home – work")];
-/// Tag type for time entry tags.
-const TIME_TAG_TYPE: i32 = 1;
+pub const MILEAGE_TYPES: [(MileageType, &str); 2] =
+    [(MileageType::Business, "Business"), (MileageType::HomeWork, "Home – work")];
 /// Timezone for start/end times when neither the entry nor the account names a known one.
 pub const FALLBACK_TIMEZONE: Tz = chrono_tz::Europe::Amsterdam;
 
@@ -49,7 +48,7 @@ pub struct Report {
 pub async fn load_base(client: &Client) -> timechimp::Result<Base> {
     let me = client.current_user().await?;
     let (projects, tasks, tags) =
-        tokio::try_join!(client.projects_for_user(me.id), client.tasks_for_time(me.id), client.tags(TIME_TAG_TYPE))?;
+        tokio::try_join!(client.projects_for_user(me.id), client.tasks_for_time(me.id), client.tags(TagType::Time))?;
     let project_tasks = futures::future::try_join_all(projects.iter().map(|p| client.project_tasks(p.id))).await?;
     Ok(Base {
         project_tasks: projects.iter().map(|p| p.id).zip(project_tasks).collect(),
@@ -121,7 +120,7 @@ pub fn recent_items<'a>(entries: impl IntoIterator<Item = &'a TimeEntry>) -> Vec
     }
     let mut items: Vec<RecentItem> = groups.into_values().collect();
     items.sort_by(|a, b| {
-        (b.entry.date.date(), b.uses, b.entry.modified).cmp(&(a.entry.date.date(), a.uses, a.entry.modified))
+        (b.entry.date, b.uses, b.entry.modified).cmp(&(a.entry.date, a.uses, a.entry.modified))
     });
     items
 }
@@ -315,13 +314,13 @@ mod tests {
         let [commute, client] = &config.trips[..] else { panic!("two trips") };
         assert_eq!(commute.distance, Some(23.5));
         assert!(commute.return_trip && !commute.billable);
-        assert_eq!(commute.mileage_type_id(), Some(3));
-        assert_eq!(client.mileage_type_id(), Some(1));
+        assert_eq!(commute.trip_type(), Some(MileageType::HomeWork));
+        assert_eq!(client.trip_type(), Some(MileageType::Business));
         assert_eq!(client.distance, None);
         assert!(parse_config("[[trips]]\nname = \"x\"\nproject = \"p\"\nfrom = \"a\"\nto = \"b\"\ntype = \"bike\"\n").is_err());
 
         // Round trip through the appended block.
-        assert_eq!(mileage_type_key(3).as_deref(), Some("home-work"));
+        assert_eq!(mileage_type_key(MileageType::HomeWork).as_deref(), Some("home-work"));
         let block = preset_toml(commute).unwrap();
         let text = format!("billable_goal = 70\n[projects]\nIntern = []\n\n{block}");
         assert_eq!(parse_config(&text).unwrap().trips, vec![TripPreset { name: "Commute".into(), ..commute.clone() }]);
@@ -432,7 +431,7 @@ pub enum Junction {
 
 /// Compares the end of `prev` with the start of `next` (entries without times are ignored).
 pub fn junction(prev: &TimeEntry, next: &TimeEntry) -> Option<Junction> {
-    if prev.date.date() != next.date.date() {
+    if prev.date != next.date {
         return None;
     }
     range_junction(time_range(prev)?, time_range(next)?)
@@ -464,11 +463,11 @@ pub fn json_strings(value: &serde_json::Value) -> Option<Vec<String>> {
     Some(value.as_array()?.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
 }
 
-pub fn mileage_type_name(mileage_type: i32) -> String {
+pub fn mileage_type_name(mileage_type: MileageType) -> String {
     MILEAGE_TYPES
         .iter()
-        .find(|(id, _)| *id == mileage_type as i64)
-        .map_or_else(|| format!("type {mileage_type}"), |(_, n)| n.to_string())
+        .find(|(t, _)| *t == mileage_type)
+        .map_or_else(|| format!("type {}", i32::from(mileage_type)), |(_, n)| n.to_string())
 }
 
 // ---- Config directory ---------------------------------------------------------------------
@@ -526,17 +525,17 @@ pub struct TripPreset {
 }
 
 impl TripPreset {
-    /// The trip type id; None when `type` names no known type.
-    pub fn mileage_type_id(&self) -> Option<i64> {
-        let Some(name) = &self.mileage_type else { return Some(MILEAGE_TYPES[0].0) };
+    /// The trip type; None when `type` names no known type.
+    pub fn trip_type(&self) -> Option<MileageType> {
+        let Some(name) = &self.mileage_type else { return Some(MileageType::Business) };
         let key = |s: &str| s.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
-        MILEAGE_TYPES.iter().find(|(_, n)| key(n) == key(name)).map(|(id, _)| *id)
+        MILEAGE_TYPES.iter().find(|(_, n)| key(n) == key(name)).map(|(t, _)| *t)
     }
 }
 
 /// How a trip type is written in `config.toml` (`Home – work` → `home-work`).
-pub fn mileage_type_key(id: i64) -> Option<String> {
-    let (_, name) = MILEAGE_TYPES.iter().find(|(i, _)| *i == id)?;
+pub fn mileage_type_key(mileage_type: MileageType) -> Option<String> {
+    let (_, name) = MILEAGE_TYPES.iter().find(|(t, _)| *t == mileage_type)?;
     let words: Vec<String> =
         name.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_lowercase).collect();
     Some(words.join("-"))
@@ -567,7 +566,7 @@ fn parse_config(text: &str) -> Result<Config, String> {
         Some(pct) => return Err(format!("billable_goal must be a percentage between 0 and 100, not {pct}")),
     };
     for trip in &file.trips {
-        if trip.mileage_type_id().is_none() {
+        if trip.trip_type().is_none() {
             let known: Vec<String> = MILEAGE_TYPES.iter().filter_map(|(id, _)| mileage_type_key(*id)).collect();
             return Err(format!(
                 "trip \"{}\": unknown type \"{}\" (use {})",

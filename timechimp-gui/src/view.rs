@@ -826,7 +826,7 @@ impl TimeChimpApp {
         let billable: f64 = report.time.iter().filter(|r| r.billable).map(|r| r.time).sum();
         let km: f64 = report.mileage.iter().map(|r| r.distance).sum();
         let amount: f64 = report.mileage.iter().filter_map(|r| r.amount).sum();
-        let days = report.time.iter().map(|r| r.date.date()).collect::<BTreeSet<_>>().len();
+        let days = report.time.iter().map(|r| r.date).collect::<BTreeSet<_>>().len();
         let pct = |h: f64| h / total.max(f64::EPSILON) * 100.0;
 
         let rows = groups.iter().map(|((project, task), (hours, billable))| {

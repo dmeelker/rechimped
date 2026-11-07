@@ -5,7 +5,7 @@ use gpuikit::elements::checkbox::{Checkbox, checkbox};
 use gpuikit::elements::select::{SelectState, select};
 use gpuikit::elements::switch::{Switch, switch};
 use gpuikit::input::InputState;
-use timechimp::Mileage;
+use timechimp::{Mileage, MileageType};
 
 pub enum TimeKind {
     New,
@@ -54,7 +54,7 @@ pub struct MileageForm {
     pub to: Entity<InputState>,
     pub distance: Entity<InputState>,
     pub return_trip: Entity<Switch>,
-    pub mileage_type: Entity<SelectState<i64>>,
+    pub mileage_type: Entity<SelectState<MileageType>>,
     pub billable: Entity<Switch>,
     pub notes: Entity<InputState>,
 }
@@ -95,15 +95,16 @@ pub fn text_input(cx: &mut App, value: impl Into<String>) -> Entity<InputState> 
 }
 
 /// A dropdown over `(id, label)` options; falls back to the first option.
-pub fn choice(
+pub fn choice<T: Clone + PartialEq + 'static>(
     cx: &mut App,
     id: &'static str,
     label: &'static str,
-    options: Vec<(i64, String)>,
-    selected: Option<i64>,
-) -> Entity<SelectState<i64>> {
-    let selected = selected.filter(|s| options.iter().any(|(id, _)| id == s)).or(options.first().map(|(id, _)| *id));
-    let options: Vec<(i64, SharedString)> = options.into_iter().map(|(id, l)| (id, l.into())).collect();
+    options: Vec<(T, String)>,
+    selected: Option<T>,
+) -> Entity<SelectState<T>> {
+    let selected =
+        selected.filter(|s| options.iter().any(|(id, _)| id == s)).or_else(|| options.first().map(|(id, _)| id.clone()));
+    let options: Vec<(T, SharedString)> = options.into_iter().map(|(id, l)| (id, l.into())).collect();
     cx.new(|_| {
         let mut builder = select(id, label, options).full_width(true).placeholder("(none available)");
         if let Some(s) = selected {
@@ -121,8 +122,8 @@ pub fn text(input: &Entity<InputState>, cx: &App) -> String {
     input.read(cx).content().trim().to_owned()
 }
 
-pub fn chosen(select: &Entity<SelectState<i64>>, cx: &App) -> Option<i64> {
-    select.read(cx).selected
+pub fn chosen<T: Clone + PartialEq + 'static>(select: &Entity<SelectState<T>>, cx: &App) -> Option<T> {
+    select.read(cx).selected.clone()
 }
 
 pub fn set_text(input: &Entity<InputState>, value: impl Into<String>, cx: &mut App) {

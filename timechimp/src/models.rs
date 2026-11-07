@@ -26,6 +26,11 @@ fn opt_datetime<'de, D: Deserializer<'de>>(d: D) -> Result<Option<NaiveDateTime>
         .transpose()
 }
 
+/// A date sent as a datetime at midnight (`2026-11-04T00:00:00`).
+fn date<'de, D: Deserializer<'de>>(d: D) -> Result<NaiveDate, D::Error> {
+    datetime(d).map(|dt| dt.date())
+}
+
 /// Treats `null` as the type's default (e.g. an empty `Vec`).
 fn null_default<'de, D: Deserializer<'de>, T: Default + Deserialize<'de>>(d: D) -> Result<T, D::Error> {
     Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
@@ -218,8 +223,8 @@ pub struct Holiday {
     pub id: i64,
     pub company_id: i64,
     pub name: String,
-    #[serde(deserialize_with = "datetime")]
-    pub date: NaiveDateTime,
+    #[serde(deserialize_with = "date")]
+    pub date: NaiveDate,
     pub blocked: bool,
     pub description: Option<String>,
 }
@@ -255,7 +260,36 @@ pub struct Tag {
     pub name: String,
     pub active: bool,
     #[serde(rename = "type")]
-    pub tag_type: i32,
+    pub tag_type: TagType,
+}
+
+/// What a tag applies to. Observed: 1 = time entries, 6 = users; 5 and 7 are also used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[serde(from = "i32")]
+pub enum TagType {
+    Time,
+    User,
+    Other(i32),
+}
+
+impl From<i32> for TagType {
+    fn from(value: i32) -> Self {
+        match value {
+            1 => TagType::Time,
+            6 => TagType::User,
+            n => TagType::Other(n),
+        }
+    }
+}
+
+impl From<TagType> for i32 {
+    fn from(value: TagType) -> Self {
+        match value {
+            TagType::Time => 1,
+            TagType::User => 6,
+            TagType::Other(n) => n,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -321,8 +355,8 @@ pub struct TimeEntry {
     pub task_id: i64,
     pub task_name: String,
     pub task_code: Option<String>,
-    #[serde(deserialize_with = "datetime")]
-    pub date: NaiveDateTime,
+    #[serde(deserialize_with = "date")]
+    pub date: NaiveDate,
     pub hours: f64,
     pub notes: Option<String>,
     /// Local `HH:mm-HH:mm` range, if start/end times were registered.
@@ -492,8 +526,8 @@ pub struct Mileage {
     pub project_id: i64,
     pub project_name: String,
     pub project_code: Option<String>,
-    #[serde(deserialize_with = "datetime")]
-    pub date: NaiveDateTime,
+    #[serde(deserialize_with = "date")]
+    pub date: NaiveDate,
     pub mileage_vehicle_id: Option<i64>,
     pub mileage_vehicle_name: Option<String>,
     pub from_address: Option<String>,
@@ -502,15 +536,43 @@ pub struct Mileage {
     /// Kilometres.
     pub distance: f64,
     pub billable: bool,
-    /// Trip type. Observed: 1 (business) and 3 (likely home–work); the company settings
-    /// enable private, business and living–work types.
     #[serde(rename = "type")]
-    pub mileage_type: i32,
+    pub mileage_type: MileageType,
     pub status: i32,
     pub status_intern: i32,
     pub status_extern: i32,
     #[serde(deserialize_with = "datetime")]
     pub modified: NaiveDateTime,
+}
+
+/// Trip type. Observed: 1 (business) and 3 (likely home–work); the company settings enable
+/// private, business and living–work types, so other values may show up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[serde(from = "i32")]
+pub enum MileageType {
+    Business,
+    HomeWork,
+    Other(i32),
+}
+
+impl From<i32> for MileageType {
+    fn from(value: i32) -> Self {
+        match value {
+            1 => MileageType::Business,
+            3 => MileageType::HomeWork,
+            n => MileageType::Other(n),
+        }
+    }
+}
+
+impl From<MileageType> for i32 {
+    fn from(value: MileageType) -> Self {
+        match value {
+            MileageType::Business => 1,
+            MileageType::HomeWork => 3,
+            MileageType::Other(n) => n,
+        }
+    }
 }
 
 /// Input for creating a mileage registration. For a return trip the app creates two
@@ -527,8 +589,7 @@ pub struct NewMileage {
     pub to_address: String,
     pub notes: Option<String>,
     pub billable: bool,
-    /// See [`Mileage::mileage_type`].
-    pub mileage_type: i32,
+    pub mileage_type: MileageType,
     pub mileage_vehicle_id: Option<i64>,
 }
 
@@ -544,7 +605,7 @@ impl NewMileage {
             "toAddress": self.to_address,
             "notes": self.notes.clone().unwrap_or_default(),
             "billable": self.billable,
-            "type": self.mileage_type,
+            "type": i32::from(self.mileage_type),
             "mileageVehicleId": self.mileage_vehicle_id,
             "status": 0,
             "statusIntern": 0,
@@ -569,8 +630,8 @@ pub struct QueryResult<T> {
 pub struct TimeReportRow {
     pub id: i64,
     pub week: i32,
-    #[serde(deserialize_with = "datetime")]
-    pub date: NaiveDateTime,
+    #[serde(deserialize_with = "date")]
+    pub date: NaiveDate,
     pub billable: bool,
     pub customer: String,
     pub customer_id: i64,
@@ -608,8 +669,8 @@ pub struct TimeReportRow {
 pub struct MileageReportRow {
     pub id: i64,
     pub week: i32,
-    #[serde(deserialize_with = "datetime")]
-    pub date: NaiveDateTime,
+    #[serde(deserialize_with = "date")]
+    pub date: NaiveDate,
     pub user: String,
     pub user_id: i64,
     pub customer: String,
@@ -622,7 +683,7 @@ pub struct MileageReportRow {
     pub distance: f64,
     pub billable: bool,
     #[serde(rename = "type")]
-    pub mileage_type: i32,
+    pub mileage_type: MileageType,
     /// Reimbursement amount.
     pub amount: Option<f64>,
     pub status: i32,
@@ -687,7 +748,9 @@ mod tests {
     #[test]
     fn decodes_time_entries() {
         let [plain, timed]: [TimeEntry; 2] = fixture("time_entries.json");
-        assert_eq!(plain.date.date(), NaiveDate::from_ymd_opt(2026, 11, 4).unwrap());
+        assert_eq!(plain.date, NaiveDate::from_ymd_opt(2026, 11, 4).unwrap());
+        assert_eq!(timed.date, plain.date, "with or without offset");
+        assert_eq!(timed.tags[0].tag_type, TagType::Time);
         assert_eq!((plain.start, &plain.start_end), (None, &None));
         assert!(plain.tag_ids.is_empty() && plain.tag_names.is_empty(), "null lists become empty");
         assert_eq!(timed.start_end.as_deref(), Some("09:00-10:30"));
@@ -702,7 +765,9 @@ mod tests {
     fn decodes_mileage() {
         let [trip]: [Mileage; 1] = fixture("mileage.json");
         assert_eq!(trip.distance, 23.5);
-        assert_eq!(trip.mileage_type, 3);
+        assert_eq!(trip.mileage_type, MileageType::HomeWork);
+        assert_eq!(MileageType::from(2), MileageType::Other(2));
+        assert_eq!(i32::from(MileageType::Other(2)), 2);
         assert_eq!(trip.from_address.as_deref(), Some("Home street 1, Town"));
         assert_eq!(trip.mileage_vehicle_id, None);
     }
@@ -764,7 +829,7 @@ mod tests {
             to_address: "B".into(),
             notes: None,
             billable: true,
-            mileage_type: 1,
+            mileage_type: MileageType::Business,
             mileage_vehicle_id: None,
         };
         assert_eq!(

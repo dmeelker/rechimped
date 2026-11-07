@@ -4,7 +4,7 @@
 //!     TIMECHIMP_REFRESH_TOKEN=... cargo run -p timechimp --example smoke [-- --write]
 
 use chrono::{Datelike, Duration, Local, NaiveTime};
-use timechimp::{Authenticator, Client, NewMileage, NewTimeEntry};
+use timechimp::{Authenticator, Client, MileageType, NewMileage, NewTimeEntry};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             to_address: route.destination.clone(),
             notes: Some("timechimp-rs API test (will be deleted)".into()),
             billable: false,
-            mileage_type: 1,
+            mileage_type: MileageType::Business,
             mileage_vehicle_id: None,
         })
         .await?;
