@@ -35,7 +35,7 @@ impl TimeChimpApp {
             .child(cell(Some(160.), m.notes.clone().unwrap_or_default()))
     }
 
-    /// The Mileage tab: the week's trips grouped per day (they're sorted by day in `apply_week`),
+    /// The Mileage tab: the week's trips grouped per day (`net::load_week` sorts them by day),
     /// each day under a header with its total.
     pub(super) fn render_mileage(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         let total: f64 = self.session.mileage.iter().map(|m| m.distance).sum();

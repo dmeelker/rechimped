@@ -1,4 +1,4 @@
-//! Application state, keyboard handling and the (async) actions. Rendering lives in `view.rs`.
+//! Application state, keyboard handling and the (async) actions. Rendering lives in `view/`.
 
 use std::future::Future;
 
@@ -405,7 +405,7 @@ impl TimeChimpApp {
                     this.session.report = report;
                 }
                 if generation == this.session.week_generation {
-                    this.apply_week(week, None);
+                    this.on_week_loaded(week, None);
                 }
             }
             Err(e) => this.api_error(e, window, cx),
@@ -447,7 +447,7 @@ impl TimeChimpApp {
             cx,
             move |this, result, window, cx| match result {
                 Ok(week) if generation == this.session.week_generation => {
-                    this.apply_week(week, select_id);
+                    this.on_week_loaded(week, select_id);
                     this.error = None;
                 }
                 Ok(_) => {}
@@ -456,7 +456,8 @@ impl TimeChimpApp {
         );
     }
 
-    fn apply_week(&mut self, week: net::Week, select_id: Option<i64>) {
+    /// A loaded week: into the session, with the sweep animation under the header.
+    fn on_week_loaded(&mut self, week: net::Week, select_id: Option<i64>) {
         self.fx.sweep += 1;
         self.session.apply_week(week, select_id);
     }
@@ -1417,9 +1418,6 @@ impl TimeChimpApp {
             Err(e) => this.api_error(e, window, cx),
         });
     }
-
-    // ---- Helpers ---------------------------------------------------------------------------
-
 }
 
 #[derive(Clone)]

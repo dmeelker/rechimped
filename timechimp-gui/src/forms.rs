@@ -32,8 +32,6 @@ pub struct TimeForm {
     pub project_sub: Subscription,
 }
 
-/// Filter field plus highlighted row of the Recent list; picking a row fills in project, task,
-/// notes and tags.
 impl TimeForm {
     /// What is filled in, for `validate::time_entry`.
     pub fn values(&self, cx: &App) -> TimeValues {
@@ -56,6 +54,8 @@ impl TimeForm {
     }
 }
 
+/// Filter field plus highlighted row of the Recent list; picking a row fills in project, task,
+/// notes and tags.
 pub struct RecentPicker {
     pub filter: Entity<InputState>,
     /// Index into the filtered list.
