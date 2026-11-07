@@ -1,5 +1,3 @@
-//! What the Week tab and the Recent picker derive from the loaded entries.
-
 use std::collections::HashMap;
 
 use chrono::{Datelike, NaiveDate, NaiveTime};
@@ -7,8 +5,6 @@ use timechimp::TimeEntry;
 
 use super::time::parse_time;
 
-/// Something worked on recently: a distinct project / task / notes combination. `entry` is its
-/// latest registration, which also supplies the tags.
 #[derive(Clone)]
 pub struct RecentItem {
     pub entry: TimeEntry,
@@ -20,8 +16,6 @@ impl RecentItem {
         self.entry.notes.as_deref().unwrap_or("").trim()
     }
 
-    /// Whether every word of `query` occurs (case-insensitively) in the notes, project, task,
-    /// customer or tags.
     pub fn matches(&self, query: &str) -> bool {
         let e = &self.entry;
         let haystack =
@@ -35,7 +29,6 @@ fn matches_words(haystack: &str, query: &str) -> bool {
     query.split_whitespace().all(|word| haystack.contains(&word.to_lowercase()))
 }
 
-/// Groups `entries` by project, task and notes; the most recently used first, then the most used.
 pub fn recent_items<'a>(entries: impl IntoIterator<Item = &'a TimeEntry>) -> Vec<RecentItem> {
     let mut groups: HashMap<(i64, i64, String), RecentItem> = HashMap::new();
     for e in entries {
@@ -53,29 +46,21 @@ pub fn recent_items<'a>(entries: impl IntoIterator<Item = &'a TimeEntry>) -> Vec
     items
 }
 
-/// Billable hours among `entries`.
 pub fn billable_hours(entries: &[TimeEntry]) -> f64 {
     // A fold from +0.0: `sum` of nothing is -0.0, which shows as "-0%".
     entries.iter().filter(|e| e.billable).fold(0.0, |total, e| total + e.hours)
 }
 
-/// Whether `entry` is leave (project "Intern", task "Verlof"), which the Week card leaves out.
 pub fn is_leave(entry: &TimeEntry) -> bool {
     super::same_name(&entry.project_name, "Intern") && super::same_name(&entry.task_name, "Verlof")
 }
 
-/// What the Week card shows, with leave left out: it counts neither as hours worked nor towards
-/// the contract, so a week with a day off isn't short.
+/// Leave counts neither as hours worked nor towards the contract, so a week with a day off isn't short.
 #[derive(Debug, PartialEq)]
 pub struct WeekCard {
-    /// Hours logged, leave excluded.
     pub hours: f64,
-    /// The billable ones among `hours`.
     pub billable: f64,
-    /// The contract hours minus the leave taken (never below 0).
     pub contract: f64,
-    /// The billable hours as a fraction of `contract`, or (without one) of `hours`; None when
-    /// there is neither.
     pub share: Option<f64>,
 }
 
@@ -90,15 +75,12 @@ pub fn week_card(entries: &[TimeEntry], contract_hours: f64) -> WeekCard {
     WeekCard { hours, billable, contract, share: (of > 0.0).then(|| billable / of) }
 }
 
-/// How many weeks the billability chart shows, the selected one included.
 pub const CHART_WEEKS: i64 = 5;
 
-/// The Mondays of the `count` weeks up to and including the one starting on `monday`, oldest first.
 pub fn weeks_up_to(monday: NaiveDate, count: i64) -> Vec<NaiveDate> {
     (0..count).rev().map(|k| monday - chrono::Duration::weeks(k)).collect()
 }
 
-/// The Week card's figures for each week starting on one of `mondays`, from the entries of all of them.
 pub fn week_cards(entries: &[TimeEntry], mondays: &[NaiveDate], contract_hours: f64) -> Vec<(NaiveDate, WeekCard)> {
     mondays
         .iter()
@@ -110,14 +92,11 @@ pub fn week_cards(entries: &[TimeEntry], mondays: &[NaiveDate], contract_hours: 
         .collect()
 }
 
-/// Whether the Week tab shows `day`: a work day (`work_days`, Monday first), today, or the selected
-/// day (so a day jumped to, e.g. after saving an entry on a Saturday, still has its card).
+/// The selected day too, so a day jumped to (e.g. after saving on a Saturday) still has its card.
 pub fn shows_day(day: NaiveDate, work_days: [bool; 7], today: NaiveDate, selected: NaiveDate) -> bool {
     work_days[day.weekday().num_days_from_monday() as usize] || day == today || day == selected
 }
 
-/// The day ←/→ moves to from `day` (`direction` ±1): the next work day or today, skipping the
-/// days the Week tab hides. Just the next day when no day is a work day.
 pub fn step_day(day: NaiveDate, direction: i64, work_days: [bool; 7], today: NaiveDate) -> NaiveDate {
     let next = |d: NaiveDate| d + chrono::Duration::days(direction);
     let mut candidate = next(day);
@@ -130,7 +109,6 @@ pub fn step_day(day: NaiveDate, direction: i64, work_days: [bool; 7], today: Nai
     next(day)
 }
 
-/// Hours registered per day of the week starting on `monday`, Monday first.
 pub fn hours_per_day(entries: &[TimeEntry], monday: NaiveDate) -> [f64; 7] {
     let mut totals = [0.0; 7];
     for e in entries {
@@ -142,22 +120,17 @@ pub fn hours_per_day(entries: &[TimeEntry], monday: NaiveDate) -> [f64; 7] {
     totals
 }
 
-/// The local start and end time of an entry, from its `HH:mm-HH:mm` range.
 pub fn time_range(entry: &TimeEntry) -> Option<(NaiveTime, NaiveTime)> {
     let (start, end) = entry.start_end.as_deref()?.split_once('-')?;
     Some((parse_time(start).ok()??, parse_time(end).ok()??))
 }
 
-/// How two consecutive entries on a day fit together, when they don't line up exactly.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Junction {
-    /// Nothing registered between `from` and `to`.
     Gap { from: NaiveTime, to: NaiveTime },
-    /// Both entries cover `from`–`to`.
     Overlap { from: NaiveTime, to: NaiveTime },
 }
 
-/// Compares the end of `prev` with the start of `next` (entries without times are ignored).
 pub fn junction(prev: &TimeEntry, next: &TimeEntry) -> Option<Junction> {
     if prev.date != next.date {
         return None;
@@ -191,7 +164,6 @@ mod tests {
             range_junction(r("830", "1000"), r("930", "1100")),
             Some(Junction::Overlap { from: tm("930"), to: tm("1000") })
         );
-        // Fully contained: the overlap is the inner entry.
         assert_eq!(
             range_junction(r("8", "12"), r("9", "10")),
             Some(Junction::Overlap { from: tm("9"), to: tm("10") })
@@ -231,7 +203,6 @@ mod tests {
     #[test]
     fn cards_per_week() {
         use crate::test_support::{date, entry};
-        // 2 Nov 2026 is a Monday.
         let mondays = weeks_up_to(date(9), 3);
         assert_eq!(mondays, [date(9) - chrono::Duration::weeks(2), date(2), date(9)]);
         let mut unbilled = entry(3, 8, "");
@@ -248,7 +219,6 @@ mod tests {
     #[test]
     fn shown_days() {
         use crate::test_support::date;
-        // 2 Nov 2026 is a Monday; 7 and 8 the weekend.
         let (fri, sat, sun) = (date(6), date(7), date(8));
         assert!(shows_day(fri, WEEKDAYS, fri, fri));
         assert!(!shows_day(sat, WEEKDAYS, fri, fri));

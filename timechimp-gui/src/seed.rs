@@ -1,6 +1,4 @@
-//! What the forms start out with, as plain data: which project, task, times and tags a time form
-//! shows for a new, edited, copied or prefilled entry, and what a trip form shows. `app` builds
-//! the gpuikit entities from these; working them out needs no window, so it is unit-tested here.
+//! Plain data rather than gpuikit entities, so working it out needs no window and is unit-tested.
 
 use chrono::NaiveDate;
 use timechimp::{Mileage, MileageType, TimeEntry};
@@ -9,7 +7,6 @@ use crate::session::Session;
 use crate::store::config::TripPreset;
 use crate::validate::TimeKind;
 
-/// A tag checkbox of the time form.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TagSeed {
     pub id: i64,
@@ -17,8 +14,6 @@ pub struct TagSeed {
     pub checked: bool,
 }
 
-/// The parts of the time form that follow the project: its tasks and tag checkboxes, and the tags
-/// it keeps without showing them (`Session::kept_tags`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProjectSeed {
     pub tasks: Vec<(i64, String)>,
@@ -28,7 +23,6 @@ pub struct ProjectSeed {
     pub kept_tag_ids: Vec<i64>,
 }
 
-/// A time form as it opens.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TimeSeed {
     pub kind: TimeKind,
@@ -40,11 +34,9 @@ pub struct TimeSeed {
     pub end: String,
     pub hours: String,
     pub notes: String,
-    /// Whether to offer the Recent picker (a new entry, with recent work to pick from).
     pub recent: bool,
 }
 
-/// What filling in a time form from a recent item or a preset puts in it; date and times stay.
 pub struct TimeFill {
     pub project_id: i64,
     pub project_task_id: Option<i64>,
@@ -52,7 +44,6 @@ pub struct TimeFill {
     pub tag_ids: Vec<i64>,
 }
 
-/// The time form after a `TimeFill`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FillSeed {
     pub projects: Vec<(i64, String)>,
@@ -61,7 +52,6 @@ pub struct FillSeed {
     pub notes: String,
 }
 
-/// A trip form as it opens.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TripSeed {
     pub date: NaiveDate,
@@ -74,21 +64,16 @@ pub struct TripSeed {
     pub return_trip: bool,
     pub mileage_type: Option<MileageType>,
     pub billable: bool,
-    /// What From and To suggest (`Session::saved_addresses`).
     pub addresses: Vec<String>,
 }
 
-/// Checkboxes for the tags `project_id` offers (`Session::tags_for`), checked where `checked` has
-/// the tag.
 pub fn tags(session: &Session, project_id: Option<i64>, checked: &[i64]) -> Vec<TagSeed> {
     session.tags_for(project_id).into_iter().map(|t| TagSeed { id: t.id, name: t.name.clone(), checked: checked.contains(&t.id) }).collect()
 }
 
-/// The time form for a new entry, for editing `entry`, or (with `copy`) for a copy of it.
 pub fn time_form(session: &Session, entry: Option<&TimeEntry>, copy: bool) -> TimeSeed {
     let projects = session.project_options(entry.map(|e| (e.project_id, &*e.project_name, &*e.customer_name)));
-    // New entries default to the project/task/tag of the most recently modified entry whose
-    // project is offered (not hidden or inactive).
+    // Only an offered project (not hidden or inactive) may become the default.
     let template = entry.or_else(|| {
         session.entries().iter().filter(|e| projects.iter().any(|(id, _)| *id == e.project_id)).max_by_key(|e| e.modified)
     });
@@ -129,8 +114,8 @@ pub fn time_form(session: &Session, entry: Option<&TimeEntry>, copy: bool) -> Ti
     }
 }
 
-/// The open time form filled with `fill` (`from`: the entry it comes from, so its project and task
-/// are offered even when no longer active).
+/// `from` is the entry the fill comes from, so its project and task are offered even when no
+/// longer active.
 pub fn time_fill(session: &Session, fill: TimeFill, from: Option<&TimeEntry>) -> FillSeed {
     let project_id = Some(fill.project_id);
     FillSeed {
@@ -146,10 +131,7 @@ pub fn time_fill(session: &Session, fill: TimeFill, from: Option<&TimeEntry>) ->
     }
 }
 
-/// The time form's tasks and tags after switching to `project_id`, given the tags it kept so far.
 pub fn project_changed(session: &Session, project_id: Option<i64>, kept_tag_ids: &[i64]) -> ProjectSeed {
-    // Pre-check the tags the project's most recently modified entry had, and the kept tags this
-    // project has a checkbox for; the rest stays kept.
     let last = session.entries().iter().filter(|e| Some(e.project_id) == project_id).max_by_key(|e| e.modified);
     let mut checked: Vec<i64> = last.map_or(&[][..], |e| &e.tag_ids).to_vec();
     checked.extend(kept_tag_ids);
@@ -161,8 +143,6 @@ pub fn project_changed(session: &Session, project_id: Option<i64>, kept_tag_ids:
     }
 }
 
-/// The trip form: for a new trip filled in from `preset`, or empty (project, type and billable
-/// from the last trip); or filled in with `editing`.
 pub fn trip_form(session: &Session, editing: Option<&Mileage>, preset: Option<&TripPreset>) -> TripSeed {
     let template = editing.or(session.mileage().last());
     let addresses = session.saved_addresses();
@@ -214,9 +194,6 @@ mod tests {
     use crate::store::config::TripPreset;
     use crate::test_support::*;
 
-    /// Projects 3 ("P", task 4, tag 10) and 6 ("Other", task 7, tag 20). On Wednesday the 4th:
-    /// entry 1 on project 3 at 09:00-10:00 with tags 10, 20 (another project's) and 99 (no
-    /// project's), modified last; entry 2 on project 6 at 10:00-11:30 with tag 20; one trip.
     fn session() -> Session {
         let mut s = Session::new(None, date(4));
         let mut me = user();

@@ -1,5 +1,3 @@
-//! The time form: opening it (new, edit, copy, preset), the Recent picker, and following the project.
-
 use gpui::{Context, Entity, Focusable, Subscription, Window};
 use gpuikit::elements::select::SelectChanged;
 use gpuikit::input::InputStateEvent;
@@ -35,14 +33,12 @@ impl TimeChimpApp {
         }
     }
 
-    /// Copies the selected entry as a new one on the selected day.
     pub fn copy_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(entry) = self.session.selected_entry().cloned() {
             self.open_time_form(Some(&entry), true, window, cx);
         }
     }
 
-    /// Form for a new time entry, for editing `entry`, or (with `copy`) for a copy of it.
     fn open_time_form(&mut self, entry: Option<&TimeEntry>, copy: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.overlay_open() {
             return;
@@ -67,8 +63,6 @@ impl TimeChimpApp {
             recent,
             project_sub,
         };
-        // A new entry starts in the Recent filter; editing jumps to the times, a copy to the end
-        // time when the start is already filled in.
         let focus = match &form.recent {
             Some(picker) => &picker.filter,
             None if editing || start_empty => &form.start,
@@ -76,7 +70,6 @@ impl TimeChimpApp {
         };
         window.focus(&focus.read(cx).focus_handle(cx), cx);
         let mut subscriptions = Vec::new();
-        // `+15` / `+1h` / `+1h30` in End becomes start + that duration when leaving the field.
         subscriptions.push(cx.subscribe_in(&form.end, window, |this, end, event: &InputStateEvent, _, cx| {
             let Some(form) = this.time_form() else { return };
             if !matches!(event, InputStateEvent::Blur) {
@@ -87,7 +80,6 @@ impl TimeChimpApp {
             }
         }));
         if let Some(picker) = &form.recent {
-            // A new filter text highlights the first match again.
             subscriptions.push(cx.subscribe_in(&picker.filter, window, |this, _, event: &InputStateEvent, _, cx| {
                 if matches!(event, InputStateEvent::TextChanged) {
                     if let Some(picker) = this.recent_picker_mut() {
@@ -115,8 +107,6 @@ impl TimeChimpApp {
         self.time_form_mut()?.recent.as_mut()
     }
 
-    /// The recent items matching the filter of the open time form, best first, at most `RECENT_ROWS`.
-    /// None while the filter is empty: the list only appears once you type.
     pub fn recent_matches(&self, cx: &gpui::App) -> Vec<&domain::week::RecentItem> {
         let Some(picker) = self.time_form().and_then(|f| f.recent.as_ref()) else { return Vec::new() };
         let query = text(&picker.filter, cx);
@@ -127,7 +117,6 @@ impl TimeChimpApp {
         recent.filter(|item| item.matches(&query)).take(RECENT_ROWS).collect()
     }
 
-    /// ↑/↓ in the Recent filter.
     pub fn move_recent(&mut self, delta: isize, cx: &mut Context<Self>) {
         let count = self.recent_matches(cx).len();
         if let Some(picker) = self.recent_picker_mut() {
@@ -136,7 +125,6 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// Enter in the Recent filter: fills in the highlighted item, or (without a match) moves on.
     pub fn pick_highlighted_recent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(selected) = self.time_form().and_then(|f| f.recent.as_ref()).map(|p| p.selected) else { return };
         match self.recent_matches(cx).get(selected).map(|item| item.entry.clone()) {
@@ -145,8 +133,6 @@ impl TimeChimpApp {
         }
     }
 
-    /// Fills the open time form with the project, task, notes and tags of `entry` (a recent item);
-    /// date and times stay. Focus moves on to the times.
     pub fn pick_recent(&mut self, entry: TimeEntry, window: &mut Window, cx: &mut Context<Self>) {
         let fill = TimeFill {
             project_id: entry.project_id,
@@ -157,9 +143,7 @@ impl TimeChimpApp {
         self.fill_time_form(fill, Some(&entry), window, cx);
     }
 
-    /// Fills the open time form with `fill` (`entry`: where it comes from, so its project and
-    /// task are offered even when no longer active); date and times stay. Focus moves on to the
-    /// times.
+    /// `entry` is where `fill` comes from, so its project and task are offered even when no longer active.
     fn fill_time_form(&mut self, fill: TimeFill, entry: Option<&TimeEntry>, window: &mut Window, cx: &mut Context<Self>) {
         let seed = seed::time_fill(&self.session, fill, entry);
         let project = forms::choice(cx, "form-project", "Project", seed.projects, Some(seed.project_id));
@@ -179,7 +163,6 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// The task list and the tag checkboxes follow the project.
     fn on_project_changed(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(form) = self.time_form() else { return };
         let seed = seed::project_changed(&self.session, chosen(&form.project, cx), &form.kept_tag_ids);
@@ -193,8 +176,6 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// A time preset in the "+ Add time" dropdown: a new time entry on the selected day, with the
-    /// project, task, notes and tags of `preset`.
     pub fn open_time_preset(&mut self, preset: TimePreset, window: &mut Window, cx: &mut Context<Self>) {
         self.menu = None;
         if self.session.me().is_none() || self.overlay_open() {
@@ -215,7 +196,6 @@ impl TimeChimpApp {
     }
 }
 
-/// Rows the Recent picker shows at most.
 const RECENT_ROWS: usize = 6;
 
 fn tag_checkboxes(tags: Vec<TagSeed>, cx: &mut Context<TimeChimpApp>) -> Vec<forms::TagCheckbox> {

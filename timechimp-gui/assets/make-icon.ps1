@@ -1,6 +1,3 @@
-# Draws the Rechimped app icon (a monkey face on an orange rounded square) and writes
-# rechimped.ico next to this script, with PNG frames from 16 to 256 px.
-# Run: pwsh timechimp-gui/assets/make-icon.ps1
 Add-Type -AssemblyName System.Drawing
 
 $accent = [System.Drawing.ColorTranslator]::FromHtml('#f36f21')
@@ -21,7 +18,6 @@ function New-RoundedRect([single]$x, [single]$y, [single]$w, [single]$h, [single
     $p
 }
 
-# Fills an ellipse given its centre and radii (all in fractions of the icon size $s).
 function Fill-Oval($g, $brush, [double]$s, [double]$cx, [double]$cy, [double]$rx, [double]$ry) {
     $g.FillEllipse($brush, [single](($cx - $rx) * $s), [single](($cy - $ry) * $s), [single](2 * $rx * $s), [single](2 * $ry * $s))
 }
@@ -34,7 +30,7 @@ function Draw-Icon([int]$s) {
     $g.Clear([System.Drawing.Color]::Transparent)
     $small = $s -le 24
 
-    # Background: rounded square, edge to edge on tiny sizes so it stays legible.
+    # Edge to edge on tiny sizes so it stays legible.
     $m = if ($small) { 0 } else { $s * 0.04 }
     $bg = New-RoundedRect $m $m ($s - 2 * $m) ($s - 2 * $m) ($s * 0.22)
     $g.FillPath((New-Object System.Drawing.SolidBrush $accent), $bg)
@@ -43,7 +39,6 @@ function Draw-Icon([int]$s) {
     $skinB = New-Object System.Drawing.SolidBrush $skin
     $inkB = New-Object System.Drawing.SolidBrush $ink
 
-    # Ears, then the head over them.
     Fill-Oval $g $furB $s 0.20 0.50 0.15 0.15
     Fill-Oval $g $furB $s 0.80 0.50 0.15 0.15
     if (-not $small) {
@@ -53,12 +48,10 @@ function Draw-Icon([int]$s) {
     }
     Fill-Oval $g $furB $s 0.50 0.50 0.33 0.33
 
-    # Face: two brow lobes merging into a wide muzzle (the classic heart-shaped monkey face).
     Fill-Oval $g $skinB $s 0.405 0.45 0.125 0.14
     Fill-Oval $g $skinB $s 0.595 0.45 0.125 0.14
     Fill-Oval $g $skinB $s 0.50 0.63 0.215 0.16
 
-    # Eyes, with a highlight from 48 px up.
     $eye = if ($small) { 0.055 } else { 0.045 }
     Fill-Oval $g $inkB $s 0.42 0.46 $eye ($eye * 1.15)
     Fill-Oval $g $inkB $s 0.58 0.46 $eye ($eye * 1.15)
@@ -67,7 +60,6 @@ function Draw-Icon([int]$s) {
         Fill-Oval $g ([System.Drawing.Brushes]::White) $s 0.592 0.445 0.014 0.014
     }
 
-    # Nostrils and smile; the smile only where there's room for it.
     if (-not $small) {
         Fill-Oval $g $inkB $s 0.475 0.585 0.016 0.012
         Fill-Oval $g $inkB $s 0.525 0.585 0.016 0.012
@@ -84,7 +76,6 @@ function Draw-Icon([int]$s) {
     , $ms.ToArray()
 }
 
-# ICO container: header, one directory entry per frame, then the PNG data.
 $frames = foreach ($s in $sizes) { , (Draw-Icon $s) }
 $out = New-Object System.IO.MemoryStream
 $bw = New-Object System.IO.BinaryWriter $out

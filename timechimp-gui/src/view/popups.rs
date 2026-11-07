@@ -1,5 +1,3 @@
-//! Popups: the entry details, the add/edit forms and the Recent picker.
-
 use gpui::{
     AnyElement, Context, ElementId, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, Window, deferred, div, prelude::FluentBuilder, px,
@@ -20,11 +18,9 @@ use crate::domain::week::RecentItem;
 
 use super::widgets::*;
 
-/// What a click on the dimmed backdrop around a popup does.
 type BackdropHandler = Box<dyn Fn(&gpui::MouseDownEvent, &mut Window, &mut gpui::App)>;
 
 impl TimeChimpApp {
-    /// A dimmed backdrop with a centred card, painted above everything else.
     pub(super) fn modal(
         theme: &T,
         id: &'static str,
@@ -122,7 +118,6 @@ impl TimeChimpApp {
                 row("Recent", f.recent.as_ref().map_or_else(|| div().into_any_element(), |p| self.render_recent(p, theme, cx)))
                     .when(f.recent.is_none(), |d| d.hidden())
                     .items_start(),
-                // Separates the picker from the fields it fills in.
                 h_stack().h(px(1.)).w_full().bg(theme.border()).when(f.recent.is_none(), |d| d.hidden()),
                 row("Date", self.render_date(&f.date, theme, cx)),
                 row("Project", f.project.clone().into_any_element()),
@@ -131,7 +126,6 @@ impl TimeChimpApp {
                 row("End", field(&f.end, "HH:MM, +15 or +1h30", cx)),
                 row("Notes", field(&f.notes, "What did you work on?", cx)),
                 row("Hours", field(&f.hours, "used without start/end, e.g. 1.5", cx)),
-                // Only projects with tags in config.toml get the row.
                 row(
                     "Tags",
                     h_stack()
@@ -227,8 +221,6 @@ impl TimeChimpApp {
         Self::modal(theme, "form", 720., card, None)
     }
 
-    /// The Date field: typed as YYYY-MM-DD, or picked from the calendar its icon (or ↓) opens;
-    /// the field keeps the focus and its arrow keys move through the calendar (`move_calendar`).
     fn render_date(&self, field: &DateField, theme: &T, cx: &mut Context<Self>) -> AnyElement {
         let color = if field.picker.is_some() { theme.accent() } else { theme.fg_muted() };
         let icon = div()
@@ -248,10 +240,8 @@ impl TimeChimpApp {
             );
         let input = text_field(&field.input, cx).placeholder("YYYY-MM-DD").suffix(Adornment::element(icon));
         let popup = field.picker.as_ref().map(|picker| {
-            // gpuikit colours its month buttons on the div, which doesn't reach their chevron svgs,
-            // so they draw nothing. These chevrons go on top, where the buttons are (inside the
-            // same border and padding as the calendar's); they take no mouse events, so clicks
-            // still reach the buttons underneath.
+            // gpuikit colours its month buttons on the div, which doesn't reach their chevron svgs, so
+            // they draw nothing. These chevrons take no mouse events, so clicks reach the buttons underneath.
             let m = theme.control(ControlSize::default());
             let chevron = |icon: gpui::Svg| {
                 div()
@@ -283,8 +273,6 @@ impl TimeChimpApp {
         div().relative().key_context("DateField").child(input).children(popup).into_any_element()
     }
 
-    /// From or To of the trip form: a text field for any address, whose ▾ (or ↓) lists the saved
-    /// addresses; typing filters that list. Picking one fills in the field.
     fn render_address(&self, form: &MileageForm, field: AddressField, theme: &T, cx: &mut Context<Self>) -> AnyElement {
         let (chevron_id, menu_id) = match field {
             AddressField::From => ("from-addresses-toggle", "from-addresses"),
@@ -343,8 +331,6 @@ impl TimeChimpApp {
         div().relative().key_context("AddressField").child(input).children(menu).into_any_element()
     }
 
-    /// The time form's Recent picker: a filter field over the recent items, the highlighted one
-    /// picked with Enter (or any one by clicking it).
     pub(super) fn render_recent(&self, picker: &RecentPicker, theme: &T, cx: &mut Context<Self>) -> AnyElement {
         let matches: Vec<RecentItem> = self.recent_matches(cx).into_iter().cloned().collect();
         let selected = picker.selected.min(matches.len().saturating_sub(1));

@@ -1,11 +1,8 @@
-//! `Client` against a local one-shot HTTP server: request shape, decoding and error mapping.
-
 mod common;
 
 use chrono::NaiveDate;
 use timechimp::{Authenticator, Client, Error};
 
-/// Serves one request with `status` and `body`; returns the base URL and the raw request.
 async fn serve_once(status: &'static str, body: String) -> (String, impl Future<Output = String>) {
     let (base, requests) = common::serve(vec![(status, body)]).await;
     (base, async { requests.await.unwrap().remove(0) })

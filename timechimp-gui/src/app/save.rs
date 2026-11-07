@@ -1,5 +1,3 @@
-//! What both forms share: saving (to the API or as a preset), errors, closing.
-
 use chrono::NaiveDate;
 use gpui::{Context, Window};
 use timechimp::NewMileage;
@@ -12,7 +10,6 @@ use crate::store::config;
 use super::{SAVING, TimeChimpApp};
 
 impl TimeChimpApp {
-    /// "Save as preset" in the time or trip form: appends it to `config.toml`.
     pub fn save_as_preset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let saved = match self.form() {
             Some(Form { body: FormBody::Mileage(f), .. }) => validate::preset(&f.values(cx), &self.session)
@@ -88,7 +85,6 @@ impl TimeChimpApp {
             if this.form().map(|f| f.id) == form_id {
                 this.close_overlay(window, cx);
             }
-            // Jump to the day of the saved item and select it.
             this.session.select_day(date);
             this.session.invalidate_report();
             this.load_week(Some(id), window, cx);
@@ -100,7 +96,6 @@ impl TimeChimpApp {
         });
     }
 
-    /// Validates the open form and turns it into an API request.
     fn build_save(&self, cx: &Context<Self>) -> Result<(NaiveDate, SaveRequest), String> {
         match &self.form().ok_or("No form open")?.body {
             FormBody::Time(f) => validate::time_entry(&f.values(cx), &self.session),
@@ -109,7 +104,6 @@ impl TimeChimpApp {
     }
 }
 
-/// What a save did: everything, with a message, or (a trip with its return) only the outbound trip.
 enum Saved {
     Done(i64, &'static str),
     Partial(i64, timechimp::Error),

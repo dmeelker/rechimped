@@ -1,5 +1,3 @@
-//! The Week tab: the week strip and the selected day's entries.
-
 use chrono::Duration;
 use gpui::{
     AnyElement, ClickEvent, Context, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
@@ -54,8 +52,6 @@ impl TimeChimpApp {
             .child(cell(Some(140.), e.tag_names.join(", ")).text_color(theme.fg_muted()))
     }
 
-    /// Rows for the entries at `indices` (one day, sorted by start), with a marker between two
-    /// entries whose times don't connect: a gap, or an overlap.
     pub(super) fn entry_rows_with_gaps(&self, theme: &T, indices: &[usize], cx: &mut Context<Self>) -> Vec<AnyElement> {
         let mut rows = Vec::new();
         for (n, &i) in indices.iter().enumerate() {
@@ -68,11 +64,9 @@ impl TimeChimpApp {
         rows
     }
 
-    /// The Week tab: a strip with the week's days on top, the selected day's entries below.
     pub(super) fn render_day(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         let per_day = self.session.hours_per_day();
 
-        // Only the work days (Settings), plus today and the selected day when they aren't one.
         let shown = self.session.shown_days(crate::domain::time::today());
         let strip = h_stack().flex_none().gap(px(8.)).children(shown.into_iter().map(|i| {
             let day = self.session.week_start() + Duration::days(i as i64);
@@ -105,8 +99,6 @@ impl TimeChimpApp {
                 .child(progress(fraction).variant(if hours >= target { ProgressVariant::Success } else { ProgressVariant::Default }))
         }));
 
-        // Week card: total against the contract, and billable hours against the contract (without
-        // one, against what was logged), coloured by the billable goal; leave left out of both.
         let crate::domain::week::WeekCard { hours: total, contract, share, .. } =
             crate::domain::week::week_card(self.session.entries(), self.session.contract_hours());
         let ratio = share.unwrap_or(0.0);
@@ -125,7 +117,6 @@ impl TimeChimpApp {
                     .justify_between()
                     .child(div().font_weight(FontWeight::SEMIBOLD).child("Week"))
                     .child(
-                        // Opens the billability chart of this week and the ones before.
                         h_stack()
                             .id("open-billability-chart")
                             .gap(px(4.))

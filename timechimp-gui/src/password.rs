@@ -1,5 +1,4 @@
-//! A minimal masked text field. gpuikit's `InputState` has no password mode, so this keeps the
-//! secret in a plain `String` and only ever renders bullets.
+//! gpuikit's `InputState` has no password mode.
 
 use gpui::{
     App, Context, EventEmitter, FocusHandle, Focusable, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
@@ -64,7 +63,6 @@ impl Render for PasswordField {
         let theme = cx.theme();
         let focused = self.focus.is_focused(window);
         let focus = self.focus.clone();
-        // Same box as gpuikit's text fields.
         let m = theme.control(ControlSize::Medium);
         div()
             .id("password")

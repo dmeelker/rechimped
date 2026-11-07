@@ -1,6 +1,3 @@
-//! The Settings dialog (work days, the billable target and the hidden projects) and the Project tags dialog (the
-//! tags per project), both kept in `config.toml`.
-
 use gpui::{AppContext, Context, ElementId, Focusable, Window};
 use gpuikit::elements::checkbox::checkbox;
 
@@ -12,7 +9,6 @@ use crate::validate;
 use super::{Overlay, TimeChimpApp};
 
 impl TimeChimpApp {
-    /// "Settings" in the user menu: opens the dialog with what `config.toml` holds now.
     pub fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.overlay_open() {
             return self.close_menu(cx);
@@ -21,7 +17,6 @@ impl TimeChimpApp {
         let work_days = (0..7u8)
             .zip(current.work_days)
             .map(|(i, on)| {
-                // "Mon", "Tue", …; Monday is 0, as in `Settings::work_days`.
                 let label = chrono::Weekday::try_from(i).expect("0..7 are weekdays").to_string();
                 cx.new(|_| checkbox(ElementId::NamedInteger("settings-day".into(), u64::from(i)), on).label(label))
             })
@@ -33,7 +28,6 @@ impl TimeChimpApp {
         window.focus(&focus, cx);
     }
 
-    /// A project's checkbox in the dialog: shows or hides it.
     pub fn toggle_project_hidden(&mut self, project_id: i64, cx: &mut Context<Self>) {
         if let Some(form) = self.settings_form_mut() {
             form.projects.toggle(project_id);
@@ -41,7 +35,6 @@ impl TimeChimpApp {
         }
     }
 
-    /// "Show all" (`true`) / "Hide all" in the dialog.
     pub fn show_all_projects(&mut self, shown: bool, cx: &mut Context<Self>) {
         if let Some(form) = self.settings_form_mut() {
             form.projects.set_all(shown);
@@ -49,7 +42,6 @@ impl TimeChimpApp {
         }
     }
 
-    /// Save in the dialog: checks the fields, writes `config.toml` and takes the settings in.
     pub fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(form) = self.settings_form() else { return };
         let saved = validate::settings(&form.values(cx))
@@ -71,7 +63,6 @@ impl TimeChimpApp {
 }
 
 impl TimeChimpApp {
-    /// "Project tags" in the user menu: which tags the time form offers per project.
     pub fn open_project_tags(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         if self.overlay_open() {
             return self.close_menu(cx);
@@ -94,7 +85,6 @@ impl TimeChimpApp {
         }
     }
 
-    /// "Select all" (`true`) / "Clear all" in the dialog, for the shown project.
     pub fn set_all_project_tags(&mut self, checked: bool, cx: &mut Context<Self>) {
         if let Some(form) = self.project_tags_form_mut() {
             form.set_all(checked);
@@ -102,7 +92,6 @@ impl TimeChimpApp {
         }
     }
 
-    /// Save in the dialog: writes the changed projects to `config.toml` and reads it back in.
     pub fn save_project_tags(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(form) = self.project_tags_form() else { return };
         let changes = form.changes();

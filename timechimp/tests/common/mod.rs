@@ -1,10 +1,7 @@
-//! A local HTTP server standing in for Cognito and the API in the integration tests.
-
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-/// Answers one request per entry of `responses` (status, JSON body), in order; returns the base
-/// URL and the raw requests (headers lowercased, body as sent).
+/// Request headers come back lowercased.
 pub async fn serve(responses: Vec<(&'static str, String)>) -> (String, tokio::task::JoinHandle<Vec<String>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}/api/", listener.local_addr().unwrap());

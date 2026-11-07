@@ -1,5 +1,3 @@
-//! Logging in and out.
-
 use gpui::{AppContext, Context, Focusable, Window};
 use timechimp::{Authenticator, Client, LoginOutcome};
 
@@ -46,7 +44,6 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// Enter on the login screen: move on from the email field, log in, or send the MFA code.
     pub fn login_confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Screen::Login(login) = &self.screen else { return };
         if login.mfa.is_some() {
@@ -107,7 +104,6 @@ impl TimeChimpApp {
 
     fn logged_in(&mut self, auth: Authenticator, window: &mut Window, cx: &mut Context<Self>) {
         let save_error = token::save_token(auth.refresh_token()).err();
-        // A new session (new epoch) for the logged-in account.
         self.session = Session::new(Some(Client::new(auth)), domain::time::today());
         self.screen = Screen::Main;
         window.focus(&self.focus, cx);

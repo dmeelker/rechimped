@@ -1,9 +1,3 @@
-//! Rechimped: desktop GUI for TimeChimp, built with gpui + gpuikit: log in, browse your time entries per
-//! day or week, register/edit/copy/delete time and mileage, and see a monthly report.
-//!
-//! The session is stored in `%APPDATA%\rechimped\refresh_token`, so you only log in once.
-//! `TIMECHIMP_REFRESH_TOKEN` overrides it.
-
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod app;
@@ -61,43 +55,39 @@ fn main() {
     );
 }
 
-/// Catppuccin Latte (light) with TimeChimp's orange as the accent.
 fn theme() -> Theme {
     let mut theme = Theme::catppuccin_latte();
     theme.name = "Rechimped".into();
     theme.accent_color = parse_hex("#f36f21");
     theme.input_border_focused_color = Some(parse_hex("#f36f21"));
-    // Text fields and selects a soft off-white, so they stand out from the dialog surface
-    // without glaring.
+    // Off-white so fields stand out from the dialog surface without glaring.
     theme.input_bg_color = Some(parse_hex("#f6f7fa"));
     theme.input_cursor_color = Some(parse_hex("#f36f21"));
     theme.accent_bg_color = Some(parse_hex("#f36f21").opacity(0.14));
     theme.accent_bg_hover_color = Some(parse_hex("#f36f21").opacity(0.22));
-    // Buttons: white on the grey-blue background (the default fill is the surface colour, which
-    // barely differs from it), warming towards the accent on hover/press.
+    // The default button fill is the surface colour, which barely differs from the background.
     theme.button_bg_color = Some(parse_hex("#ffffff"));
     theme.button_bg_hover_color = Some(parse_hex("#fdeee6"));
     theme.button_bg_active_color = Some(parse_hex("#fbdccb"));
     theme.button_border_color = Some(parse_hex("#bcc0cc"));
-    // gpuikit's default control rungs (20px medium, 12px text) feel cramped in a desktop window;
-    // every input, select, button, tab and checkbox sizes itself from these.
+    // gpuikit's default control sizes feel cramped in a desktop window.
     theme.controls.medium = ControlMetrics {
-        height: Rems(1.75),        // 28px
-        padding_x: Rems(0.75),     // 12
-        gap: Rems(0.375),          // 6
-        radius: Rems(0.375),       // 6
-        text_size: Rems(0.8125),   // 13
-        line_height: Rems(1.125),  // 18
-        ink: Rems(1.0),            // 16
+        height: Rems(1.75),
+        padding_x: Rems(0.75),
+        gap: Rems(0.375),
+        radius: Rems(0.375),
+        text_size: Rems(0.8125),
+        line_height: Rems(1.125),
+        ink: Rems(1.0),
     };
     theme.controls.large = ControlMetrics {
-        height: Rems(2.0),         // 32
-        padding_x: Rems(0.875),    // 14
-        gap: Rems(0.5),            // 8
-        radius: Rems(0.4375),      // 7
-        text_size: Rems(0.875),    // 14
-        line_height: Rems(1.25),   // 20
-        ink: Rems(1.125),          // 18
+        height: Rems(2.0),
+        padding_x: Rems(0.875),
+        gap: Rems(0.5),
+        radius: Rems(0.4375),
+        text_size: Rems(0.875),
+        line_height: Rems(1.25),
+        ink: Rems(1.125),
     };
     theme
 }
@@ -114,20 +104,15 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", Cancel, Some("Modal")),
         KeyBinding::new("ctrl-enter", Confirm, Some("Modal")),
         KeyBinding::new("ctrl-d", CalculateDistance, Some("Modal")),
-        // The time form's Recent filter: ↑/↓ move through the list, Enter picks.
         KeyBinding::new("up", RecentUp, Some("RecentPicker > Input")),
         KeyBinding::new("down", RecentDown, Some("RecentPicker > Input")),
         KeyBinding::new("enter", PickRecent, Some("RecentPicker > Input")),
-        // The trip form's From/To: ↑/↓ move through the saved addresses (opening the list), Enter
-        // takes the highlighted one, Escape closes the list. With nothing to do they pass the key
-        // on, so Enter still saves and Escape still cancels.
+        // With nothing to do these pass the key on, so Enter still saves and Escape still cancels.
         KeyBinding::new("up", AddressUp, Some("AddressField > Input")),
         KeyBinding::new("down", AddressDown, Some("AddressField > Input")),
         KeyBinding::new("enter", PickAddress, Some("AddressField > Input")),
         KeyBinding::new("escape", CloseAddresses, Some("AddressField > Input")),
-        // A form's Date field: ↓ opens the calendar; while it is open the arrows move by a day or
-        // a week and PageUp/PageDown by a month, and Enter/Escape close it (keeping the date).
-        // With it closed they pass the key on (caret movement, Enter saves, Escape cancels).
+        // With the calendar closed these pass the key on (caret movement, Enter saves, Escape cancels).
         KeyBinding::new("left", PreviousDay, Some("DateField > Input")),
         KeyBinding::new("right", NextDay, Some("DateField > Input")),
         KeyBinding::new("up", PreviousWeek, Some("DateField > Input")),
@@ -136,7 +121,6 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("pagedown", NextMonth, Some("DateField > Input")),
         KeyBinding::new("enter", CloseCalendar, Some("DateField > Input")),
         KeyBinding::new("escape", CloseCalendar, Some("DateField > Input")),
-        // Showcase mode: aurora behind the app plus the frame-time HUD.
         KeyBinding::new("f12", ToggleShowcase, None),
     ]);
 }

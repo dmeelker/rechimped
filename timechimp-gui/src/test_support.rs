@@ -1,5 +1,4 @@
-//! Builders for the API models in unit tests. Dates are in November 2026 (the 2nd is a Monday);
-//! fields not given get plain defaults and can be changed on the result.
+//! Dates are in November 2026; the 2nd is a Monday.
 
 use std::collections::HashMap;
 
@@ -9,12 +8,10 @@ use timechimp::{CurrentUser, Mileage, Project, ProjectTask, Tag, TimeEntry, Time
 
 use crate::session::Base;
 
-/// November `day`, 2026.
 pub fn date(day: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, 11, day).unwrap()
 }
 
-/// User 1, in Europe/Amsterdam.
 pub fn user() -> CurrentUser {
     serde_json::from_value(json!({
         "id": 1, "userName": "u", "displayName": "U", "companyId": 1, "companyName": "C",
@@ -26,7 +23,6 @@ pub fn user() -> CurrentUser {
     .unwrap()
 }
 
-/// An active project of customer 2 ("Us").
 pub fn project(id: i64, name: &str) -> Project {
     serde_json::from_value(json!({
         "id": id, "name": name, "customerId": 2, "customerName": "Us",
@@ -35,7 +31,6 @@ pub fn project(id: i64, name: &str) -> Project {
     .unwrap()
 }
 
-/// An active, non-billable task of `project_id`.
 pub fn task(id: i64, project_id: i64, name: &str) -> ProjectTask {
     serde_json::from_value(json!({
         "id": id, "name": name, "billable": false, "active": true, "projectId": project_id, "taskId": id + 1,
@@ -47,8 +42,6 @@ pub fn tag(id: i64, name: &str) -> Tag {
     serde_json::from_value(json!({ "id": id, "companyId": 1, "name": name, "active": true, "type": 1 })).unwrap()
 }
 
-/// An hour of task 4 of project 3 ("P" of customer "C") on November `day`, `start_end` like
-/// `09:00-10:00`, without notes or tags.
 pub fn entry(id: i64, day: u32, start_end: &str) -> TimeEntry {
     serde_json::from_value(json!({
         "id": id, "timeRowId": id, "userId": 1, "userDisplayName": "U",
@@ -62,7 +55,6 @@ pub fn entry(id: i64, day: u32, start_end: &str) -> TimeEntry {
     .unwrap()
 }
 
-/// A 10 km business trip from A to B for project 3 on November `day`.
 pub fn trip(id: i64, day: u32) -> Mileage {
     serde_json::from_value(json!({
         "id": id, "userId": 1, "userDisplayName": "U", "customerId": 2, "customerName": "C",
@@ -75,7 +67,6 @@ pub fn trip(id: i64, day: u32) -> Mileage {
     .unwrap()
 }
 
-/// A row of the time report: `hours` of `project` / `task` on November `day`.
 pub fn report_row(project: &str, task: &str, day: u32, hours: f64, billable: bool) -> TimeReportRow {
     serde_json::from_value(json!({
         "id": 1, "week": 45, "date": format!("2026-11-{day:02}T00:00:00"), "billable": billable,
@@ -87,7 +78,6 @@ pub fn report_row(project: &str, task: &str, day: u32, hours: f64, billable: boo
     .unwrap()
 }
 
-/// Base data for `Session::apply_base`: `user()` with these projects, project tasks and tags.
 pub fn base(projects: Vec<Project>, project_tasks: HashMap<i64, Vec<ProjectTask>>, tags: Vec<Tag>) -> Base {
     Base { me: user(), projects, project_tasks, tags }
 }

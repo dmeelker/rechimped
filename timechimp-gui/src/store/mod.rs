@@ -1,5 +1,3 @@
-//! Files in the config directory (`%APPDATA%\rechimped`): `config.toml` and the session token.
-
 pub mod config;
 pub mod token;
 

@@ -1,7 +1,4 @@
-//! Checking what was typed in the forms and turning it into API requests or presets. Works on
-//! plain snapshots of the form (`forms::TimeForm::values`, `forms::MileageForm::values`,
-//! `forms::SettingsForm::values`), so it
-//! needs no window and is unit-tested.
+//! Works on plain snapshots of the forms, so it needs no window and is unit-tested.
 
 use chrono::NaiveDate;
 use timechimp::{Mileage, MileageType, NewMileage, NewTimeEntry};
@@ -11,34 +8,29 @@ use crate::domain::time::{local, parse_decimal, parse_end, parse_time};
 use crate::session::Session;
 use crate::store::config::{self, Settings, TimePreset, TripPreset};
 
-/// Whether the time form creates an entry or edits one.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TimeKind {
     New,
-    /// Keeps what the form doesn't edit, so an update doesn't drop it.
+    /// Carries what the form doesn't edit, so an update doesn't drop it.
     Edit { id: i64, pause: f64, timezone: Option<String>, task: (i64, i64) },
 }
 
-/// The time form's fields, as typed (trimmed).
 #[derive(Clone, Debug)]
 pub struct TimeValues {
     pub kind: TimeKind,
     pub date: String,
     pub project_id: Option<i64>,
-    /// The chosen project task (`ProjectTask::id`).
     pub project_task_id: Option<i64>,
     pub start: String,
     pub end: String,
     pub hours: String,
     pub notes: String,
-    /// Checked tags plus the ones kept because the form can't show them.
+    /// Includes the kept tags the form has no checkbox for.
     pub tag_ids: Vec<i64>,
 }
 
-/// The trip form's fields, as typed (trimmed).
 #[derive(Clone, Debug)]
 pub struct MileageValues {
-    /// The trip being edited; None for a new one.
     pub editing: Option<Box<Mileage>>,
     pub date: String,
     pub project_id: Option<i64>,
@@ -53,11 +45,9 @@ pub struct MileageValues {
 
 pub enum SaveRequest {
     Time { id: Option<i64>, entry: NewTimeEntry },
-    /// `editing` is the trip being replaced; None creates `trip` (and its return with `return_trip`).
     Mileage { trip: NewMileage, return_trip: bool, editing: Option<Box<Mileage>> },
 }
 
-/// The date and customer every request needs.
 fn date_and_customer(date: &str, project_id: Option<i64>, session: &Session) -> Result<(NaiveDate, i64, i64), String> {
     let date = NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|_| "Date must be YYYY-MM-DD")?;
     let project_id = project_id.ok_or("Pick a project")?;
@@ -77,7 +67,6 @@ fn optional(text: &str) -> Option<String> {
     Some(text.to_owned()).filter(|t| !t.is_empty())
 }
 
-/// A time entry to create or update, and its date.
 pub fn time_entry(v: &TimeValues, session: &Session) -> Result<(NaiveDate, SaveRequest), String> {
     let user_id = user_id(session)?;
     let (date, project_id, customer_id) = date_and_customer(&v.date, v.project_id, session)?;
@@ -94,7 +83,7 @@ pub fn time_entry(v: &TimeValues, session: &Session) -> Result<(NaiveDate, SaveR
         })
         .ok_or("Unknown task")?;
 
-    // An edited entry keeps its pause and its own timezone; the times are read on that wall clock.
+    // An edited entry's times are read on its own wall clock, not the account's.
     let (pause, own_timezone) = match &v.kind {
         TimeKind::Edit { pause, timezone, .. } => (*pause, timezone.as_deref()),
         TimeKind::New => (0.0, None),
@@ -141,7 +130,6 @@ pub fn time_entry(v: &TimeValues, session: &Session) -> Result<(NaiveDate, SaveR
     Ok((date, SaveRequest::Time { id, entry }))
 }
 
-/// A trip to create (with its return trip) or update, and its date.
 pub fn trip(v: &MileageValues, session: &Session) -> Result<(NaiveDate, SaveRequest), String> {
     let user_id = user_id(session)?;
     let (date, project_id, customer_id) = date_and_customer(&v.date, v.project_id, session)?;
@@ -167,7 +155,6 @@ pub fn trip(v: &MileageValues, session: &Session) -> Result<(NaiveDate, SaveRequ
     Ok((date, SaveRequest::Mileage { trip, return_trip, editing: v.editing.clone() }))
 }
 
-/// "Save as preset" in the trip form: the `[[trips]]` entry for it.
 pub fn preset(v: &MileageValues, session: &Session) -> Result<TripPreset, String> {
     if v.from.is_empty() || v.to.is_empty() {
         return Err("Fill in both addresses first".into());
@@ -195,8 +182,6 @@ pub fn preset(v: &MileageValues, session: &Session) -> Result<TripPreset, String
     })
 }
 
-/// "Save as preset" in the time form: the `[[time_entries]]` entry for it (project, task, notes
-/// and tags; the date and times differ per day).
 pub fn time_preset(v: &TimeValues, session: &Session) -> Result<TimePreset, String> {
     let project = v.project_id.and_then(|id| session.project(id)).ok_or("Pick a project first")?;
     let task = v
@@ -220,14 +205,10 @@ pub fn time_preset(v: &TimeValues, session: &Session) -> Result<TimePreset, Stri
     Ok(preset)
 }
 
-/// The Settings dialog's fields, as typed (trimmed).
 #[derive(Clone, Debug)]
 pub struct SettingsValues {
-    /// Monday first.
     pub work_days: [bool; 7],
-    /// Percentage; a trailing `%` is allowed.
     pub billable_goal: String,
-    /// Project names.
     pub hidden_projects: Vec<String>,
 }
 

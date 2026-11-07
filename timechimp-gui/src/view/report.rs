@@ -1,5 +1,3 @@
-//! The Report tab: hours per project / task and the month's totals.
-
 use gpui::{FontWeight, IntoElement, ParentElement, Styled, div, prelude::FluentBuilder, px};
 use gpuikit::elements::progress::progress;
 use gpuikit::layout::{h_stack, v_stack};
@@ -69,7 +67,6 @@ impl TimeChimpApp {
                 .child(stat("Distance", format!("{:.0} km", s.km)))
                 .child(stat("Reimbursement", format!("€ {:.2}", s.reimbursement))),
         );
-        // Panels are at most as tall as the body (`max_h_full`), so a long table scrolls.
         h_stack()
             .flex_1()
             .min_h_0()

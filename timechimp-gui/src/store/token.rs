@@ -1,5 +1,3 @@
-//! The session's refresh token, so the app only asks for the password once.
-
 use std::path::PathBuf;
 
 use super::config_dir;

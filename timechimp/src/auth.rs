@@ -6,15 +6,14 @@ use tokio::sync::Mutex;
 use crate::error::{Error, Result};
 use crate::srp::{self, ChallengeParams, SrpClient};
 
-/// TimeChimp's Cognito user pool.
 pub const USER_POOL_ID: &str = "eu-central-1_NIGD97pvM";
-/// TimeChimp's public Cognito app client (no client secret).
+/// A public app client: no client secret, so no `SECRET_HASH`.
 pub const CLIENT_ID: &str = "7nq87ee95nibpha7loi8pb7lnp";
 
 const COGNITO_URL: &str = "https://cognito-idp.eu-central-1.amazonaws.com/";
 const REFRESH_MARGIN: Duration = Duration::from_secs(5 * 60);
-/// Cognito errors that turn the credentials down, so logging in again is the fix. Anything else
-/// (`TooManyRequestsException`, `InternalErrorException`, ...) may pass and keeps the session.
+/// Only these mean logging in again is the fix; other Cognito errors (throttling, internal) may
+/// pass and keep the session.
 const REJECTIONS: &[&str] = &[
     "NotAuthorizedException",
     "UserNotFoundException",
@@ -24,11 +23,9 @@ const REJECTIONS: &[&str] = &[
     "ExpiredCodeException",
 ];
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-/// Per request, including reading the body; generous because report pages can be slow.
+/// Generous because report pages can be slow.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// The HTTP client shared by an `Authenticator` and its `Client`. With timeouts, so a hung
-/// connection fails instead of keeping a request (and the app's busy state) open forever.
 fn http_client() -> reqwest::Client {
     reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
@@ -37,11 +34,8 @@ fn http_client() -> reqwest::Client {
         .expect("the HTTP client builder has no failing options")
 }
 
-/// Obtains and refreshes access tokens for the TimeChimp API.
 pub struct Authenticator {
-    /// Shared with the `Client` built on it, so both use one connection pool.
     pub(crate) http: reqwest::Client,
-    /// `COGNITO_URL`, or a test server.
     cognito_url: String,
     refresh_token: String,
     access: Mutex<Option<AccessToken>>,
@@ -57,7 +51,6 @@ pub enum LoginOutcome {
     MfaRequired(MfaChallenge),
 }
 
-/// A pending 2FA challenge after a successful password check.
 pub struct MfaChallenge {
     http: reqwest::Client,
     cognito_url: String,
@@ -67,12 +60,10 @@ pub struct MfaChallenge {
 }
 
 impl Authenticator {
-    /// Logs in with email and password using SRP (the password is never sent).
     pub async fn login(email: &str, password: &str) -> Result<LoginOutcome> {
         Self::login_at(COGNITO_URL, email, password).await
     }
 
-    /// [`Authenticator::login`] against another Cognito endpoint than AWS's, for tests.
     #[doc(hidden)]
     pub async fn login_at(cognito_url: &str, email: &str, password: &str) -> Result<LoginOutcome> {
         let http = http_client();
@@ -146,12 +137,10 @@ impl Authenticator {
         }
     }
 
-    /// Resumes a session from a refresh token obtained earlier via [`Authenticator::refresh_token`].
     pub fn from_refresh_token(refresh_token: impl Into<String>) -> Self {
         Self::from_refresh_token_at(COGNITO_URL, refresh_token)
     }
 
-    /// [`Authenticator::from_refresh_token`] against another Cognito endpoint, for tests.
     #[doc(hidden)]
     pub fn from_refresh_token_at(cognito_url: &str, refresh_token: impl Into<String>) -> Self {
         Self {
@@ -162,9 +151,7 @@ impl Authenticator {
         }
     }
 
-    /// Uses `token` as the access token for an hour, without a refresh token, for tests against
-    /// a server that takes any bearer token. A refresh (after a 401) goes to a closed local port
-    /// and fails at once, rather than to AWS.
+    /// A refresh goes to a closed local port and fails at once, so a test never reaches AWS.
     #[doc(hidden)]
     pub fn with_access_token(token: impl Into<String>) -> Self {
         let token = AccessToken { token: token.into(), expires_at: Instant::now() + Duration::from_secs(3600) };
@@ -176,12 +163,10 @@ impl Authenticator {
         }
     }
 
-    /// Long-lived token; persist it to avoid logging in with a password every time.
     pub fn refresh_token(&self) -> &str {
         &self.refresh_token
     }
 
-    /// Returns a valid access token, refreshing it when it is (nearly) expired.
     pub async fn access_token(&self) -> Result<String> {
         let mut access = self.access.lock().await;
         if let Some(t) = access.as_ref().filter(|t| Instant::now() + REFRESH_MARGIN < t.expires_at) {
@@ -190,8 +175,7 @@ impl Authenticator {
         self.refresh(&mut access).await
     }
 
-    /// A new access token after the server turned down `rejected`. When requests in parallel
-    /// all get a 401, only the first refreshes; the others get the token it fetched.
+    /// When parallel requests all get a 401, only the first refreshes; the others reuse its token.
     pub(crate) async fn refresh_after_rejection(&self, rejected: &str) -> Result<String> {
         let mut access = self.access.lock().await;
         if let Some(t) = access.as_ref().filter(|t| t.token != rejected) {
@@ -232,17 +216,13 @@ impl Authenticator {
     }
 }
 
-/// The kind of code an [`MfaChallenge`] asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MfaKind {
-    /// Sent by SMS (`SMS_MFA`).
     Sms,
-    /// From an authenticator app (`SOFTWARE_TOKEN_MFA`).
     Totp,
 }
 
 impl MfaChallenge {
-    /// Where the code comes from.
     pub fn kind(&self) -> MfaKind {
         if self.challenge_name == "SMS_MFA" { MfaKind::Sms } else { MfaKind::Totp }
     }
@@ -310,8 +290,6 @@ mod tests {
 
     #[tokio::test]
     async fn a_token_refreshed_meanwhile_is_reused() {
-        // The cached token differs from the rejected one, so another request already refreshed:
-        // no request to Cognito (which would fail here, with no refresh token).
         let auth = Authenticator::with_access_token("new");
         assert_eq!(auth.refresh_after_rejection("old").await.unwrap(), "new");
     }

@@ -1,5 +1,3 @@
-//! The billability chart popup: one bar per week, the Week card's billable share, against the goal.
-
 use chrono::{Datelike, Duration};
 use gpui::{
     Context, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement,
@@ -14,12 +12,9 @@ use crate::domain::week::WeekCard;
 
 use super::widgets::*;
 
-/// Height of the plot area (the bars' full scale).
 const PLOT_HEIGHT: f32 = 200.;
-/// Room above the plot for the value label of a bar at full scale.
 const LABEL_ROOM: f32 = 22.;
 const BAR_WIDTH: f32 = 44.;
-/// Room right of the bars for the goal line's label.
 const GUTTER: f32 = 60.;
 
 impl TimeChimpApp {
@@ -66,7 +61,6 @@ impl TimeChimpApp {
     }
 }
 
-/// The bars, a baseline and the goal line; full scale is 100% (or more, when a week exceeds it).
 fn plot(theme: &T, weeks: &[(chrono::NaiveDate, WeekCard)], goal: f64) -> impl IntoElement {
     let scale = weeks.iter().filter_map(|(_, c)| c.share).fold(1.0_f64, f64::max).max(goal);
     let y = |share: f64| (share / scale) as f32 * PLOT_HEIGHT;

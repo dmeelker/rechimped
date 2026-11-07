@@ -1,5 +1,3 @@
-//! Moving around: tabs, days, weeks, months, the selection, and the browse-mode keyboard.
-
 use chrono::{Duration, Months, NaiveDate};
 use gpui::{Context, KeyDownEvent, Window};
 
@@ -23,13 +21,10 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// Moves the selected day; loads data only when the week changes.
     pub fn shift_day(&mut self, days: i64, window: &mut Window, cx: &mut Context<Self>) {
         self.select_day(self.session.day() + Duration::days(days), window, cx);
     }
 
-    /// The ‹/› buttons and ←/→: a shown day on the Week tab (skipping the days off it hides), a
-    /// week on the Mileage tab.
     pub fn step(&mut self, direction: i64, window: &mut Window, cx: &mut Context<Self>) {
         if self.tab == Tab::Week {
             let work_days = self.session.settings.work_days;
@@ -64,7 +59,6 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// Moves the selection by `delta` rows within what's visible on the current tab.
     fn move_selection(&mut self, delta: isize) {
         if self.tab == Tab::Mileage {
             self.session.move_mileage_selection(delta);
@@ -73,7 +67,6 @@ impl TimeChimpApp {
         }
     }
 
-    /// Clicking a row: select it; a double click opens it for editing.
     pub fn click_entry(&mut self, id: i64, clicks: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.session.select_entry(id);
         window.focus(&self.focus, cx);
@@ -96,7 +89,6 @@ impl TimeChimpApp {
         if !matches!(self.screen, Screen::Main) {
             return;
         }
-        // Any key closes a menu or a read-only popup; forms and dialogs handle their own keys.
         match self.overlay {
             Overlay::None if self.menu.is_none() => {}
             Overlay::None | Overlay::Detail | Overlay::Chart(_) => {
@@ -145,17 +137,14 @@ impl TimeChimpApp {
     }
 }
 
-/// What a key does in browse mode (no form or dialog open).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Command {
     Quit,
-    /// Index into `Tab::ALL`.
     SwitchTab(usize),
     Reload,
     Logout,
     ShiftMonth(i32),
     Today,
-    /// To the previous (-1) or next (1) shown day.
     Step(i64),
     ShiftDay(i64),
     MoveSelection(isize),
@@ -166,8 +155,6 @@ enum Command {
     Delete,
 }
 
-/// The browse-mode keymap: `key` as gpui names it, on `tab`; `has_entry` says whether a time
-/// entry is selected. None: the key does nothing (and goes on to other handlers).
 fn browse_command(key: &str, shift: bool, ctrl: bool, tab: Tab, has_entry: bool) -> Option<Command> {
     let week_tab = tab == Tab::Week;
     Some(match (key, ctrl) {
@@ -180,7 +167,6 @@ fn browse_command(key: &str, shift: bool, ctrl: bool, tab: Tab, has_entry: bool)
         ("right" | "l", _) if tab == Tab::Report => Command::ShiftMonth(1),
         ("t", _) => Command::Today,
         (_, _) if !matches!(tab, Tab::Week | Tab::Mileage) => return None,
-        // ←/→ move a day on the Week tab, a week on Mileage; Shift+←/→ and [ ] always a week.
         ("left" | "h", _) if week_tab && !shift => Command::Step(-1),
         ("right" | "l", _) if week_tab && !shift => Command::Step(1),
         ("left" | "h" | "[", _) => Command::ShiftDay(-7),

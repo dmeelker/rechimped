@@ -1,5 +1,3 @@
-//! Loading data: the full reload, `config.toml`, a week, a month's report.
-
 use gpui::{Context, Window};
 
 use crate::domain;
@@ -10,11 +8,9 @@ use crate::store::config;
 use super::{Tab, TimeChimpApp};
 
 impl TimeChimpApp {
-    /// Loads everything.
     pub fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(client) = self.session.client().cloned() else { return };
         let (report_month, want_report) = (self.session.report_month(), self.tab == Tab::Report);
-        // The report is stale from here on; the Report tab loads it again when shown.
         self.session.invalidate_report();
         let (generation, week_start) = self.session.begin_week_load();
         let today = domain::time::today();
@@ -56,7 +52,6 @@ impl TimeChimpApp {
         });
     }
 
-    /// Reads `config.toml`, creating a starter file (listing projects and tags) if missing.
     pub(super) fn load_config(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match config::path().and_then(|path| Ok((config::load(&path)?, path))) {
             Ok((Some(config), _)) => {
@@ -78,7 +73,6 @@ impl TimeChimpApp {
         }
     }
 
-    /// Loads the current week; afterwards selects the item with `select_id`, if given.
     pub(super) fn load_week(&mut self, select_id: Option<i64>, window: &mut Window, cx: &mut Context<Self>) {
         let (Some(client), Some(me)) = (self.session.client().cloned(), self.session.me()) else { return };
         let user_id = me.id;
@@ -99,7 +93,6 @@ impl TimeChimpApp {
         );
     }
 
-    /// A loaded week: into the session, with the sweep animation under the header.
     fn on_week_loaded(&mut self, week: session::Week, select_id: Option<i64>) {
         self.fx.sweep += 1;
         self.session.apply_week(week, select_id);

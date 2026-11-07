@@ -1,5 +1,4 @@
-// Embeds the app icon in the Windows executable. gpui loads icon resource 1 for its windows,
-// so it shows in the title bar and taskbar as well as on the .exe itself.
+// gpui loads icon resource 1 for its windows, so it also shows in the title bar and taskbar.
 fn main() {
     println!("cargo:rerun-if-changed=assets/rechimped.rc");
     println!("cargo:rerun-if-changed=assets/rechimped.ico");

@@ -1,7 +1,3 @@
-//! `config.toml`: the work settings (work days, billable goal), the tags each project may use (shown as checkboxes in the
-//! time form), preset trips and preset time entries. Earlier versions called it `projects.toml`; that file is renamed
-//! on first load.
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -10,26 +6,19 @@ use timechimp::{MileageType, Project, Tag};
 use crate::domain::same_name;
 
 
-/// Share of hours that should be billable, unless `billable_goal` in `config.toml` says otherwise.
 pub const DEFAULT_BILLABLE_GOAL: f64 = 0.8;
 
-/// How the days of the week are written in `work_days`, Monday first.
 pub const DAY_NAMES: [&str; 7] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
-/// The key `work_days` uses for day `i` (Monday = 0): `mon`, `tue`, …
 fn day_key(i: usize) -> &'static str {
     &DAY_NAMES[i][..3]
 }
 
-/// What the Settings dialog edits: the top-level keys of `config.toml`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
-    /// The days worked, Monday first.
     pub work_days: [bool; 7],
-    /// Fraction, e.g. `0.8`.
+    /// A fraction, while `config.toml` holds a percentage.
     pub billable_goal: f64,
-    /// Names of the projects the forms don't offer (matched case-insensitively); their entries
-    /// still show everywhere, and editing one still offers its project.
     pub hidden_projects: Vec<String>,
 }
 
@@ -43,21 +32,17 @@ impl Default for Settings {
     }
 }
 
-/// Where `config.toml` lives (in `store::config_dir`).
 pub fn path() -> Result<PathBuf, String> {
     Ok(super::config_dir().ok_or("no config directory (APPDATA, XDG_CONFIG_HOME and HOME are unset)")?.join("config.toml"))
 }
 
 #[derive(serde::Deserialize, Default)]
 struct ConfigFile {
-    /// Day names (`DAY_KEYS`; full names and any case work too).
     work_days: Option<Vec<String>>,
-    /// Percentage, e.g. `80`.
+    /// A percentage, not a fraction.
     billable_goal: Option<f64>,
-    /// Project names.
     #[serde(default)]
     hidden_projects: Vec<String>,
-    /// Project name → tag names.
     #[serde(default)]
     projects: HashMap<String, Vec<String>>,
     #[serde(default)]
@@ -66,14 +51,11 @@ struct ConfigFile {
     time_entries: Vec<TimePreset>,
 }
 
-/// A kind of preset: an array of tables in `config.toml`, appended to and removed from as text so
-/// the rest of the file (comments included) stays as it is.
+/// Presets are appended to and removed from `config.toml` as text, so the rest of the file
+/// (comments included) stays as it is.
 pub trait Preset: serde::Serialize {
-    /// The `[[KEY]]` the presets are listed under.
     const KEY: &'static str;
-    /// The comment written above the first one.
     const COMMENT: &'static str;
-    /// Whether `table` (one of the `[[KEY]]` entries) is this preset.
     fn is(&self, table: &toml_edit::Table) -> bool;
 }
 
@@ -81,21 +63,17 @@ fn str_field<'a>(table: &'a toml_edit::Table, key: &str) -> Option<&'a str> {
     table.get(key).and_then(|v| v.as_str())
 }
 
-/// A `[[trips]]` entry in `config.toml`: a trip made often (a commute, a regular client visit),
-/// offered in the dropdown of "+ Add trip", which opens the trip form filled in.
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug, PartialEq)]
 pub struct TripPreset {
     pub name: String,
-    /// Project name, matched case-insensitively.
     pub project: String,
     pub from: String,
     pub to: String,
-    /// Kilometres one way; left out, the form's Calculate fills it in.
+    /// Optional because the form's Calculate can fill it in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub distance: Option<f64>,
     #[serde(default)]
     pub return_trip: bool,
-    /// A key from `TRIP_TYPE_KEYS` ("business", "home-work"); defaults to business.
     #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
     pub mileage_type: Option<String>,
     #[serde(default)]
@@ -107,25 +85,18 @@ pub struct TripPreset {
 impl Preset for TripPreset {
     const KEY: &'static str = "trips";
     const COMMENT: &'static str = TRIPS_COMMENT;
-    /// Trips are known by name.
     fn is(&self, table: &toml_edit::Table) -> bool {
         str_field(table, "name").is_some_and(|n| same_name(n, &self.name))
     }
 }
 
-/// A `[[time_entries]]` entry in `config.toml`: work done often (a standup, a regular project),
-/// offered in the dropdown of "+ Add time", which opens the time form filled in.
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug, PartialEq)]
 pub struct TimePreset {
-    /// Project name, matched case-insensitively.
     pub project: String,
-    /// Task name (case-insensitive); left out, the project's first task.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<String>,
-    /// The entry's description.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
-    /// Tag names (case-insensitive).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
 }
@@ -142,8 +113,6 @@ impl Preset for TimePreset {
 }
 
 impl TripPreset {
-    /// The trip type; None when `type` names no known type. Matching ignores case and anything
-    /// but letters and digits, so `Home work` and `homework` work too.
     pub fn trip_type(&self) -> Option<MileageType> {
         let Some(name) = &self.mileage_type else { return Some(MileageType::Business) };
         let key = |s: &str| s.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
@@ -151,16 +120,14 @@ impl TripPreset {
     }
 }
 
-/// How each trip type is written in `config.toml`. Part of the file format, so kept apart from the
-/// labels the forms show (`domain::MILEAGE_TYPES`): rewording those mustn't break existing files.
+/// Part of the file format, so kept apart from the labels the forms show (`domain::MILEAGE_TYPES`):
+/// rewording those mustn't break existing files.
 const TRIP_TYPE_KEYS: [(MileageType, &str); 2] = [(MileageType::Business, "business"), (MileageType::HomeWork, "home-work")];
 
-/// How a trip type is written in `config.toml`.
 pub fn mileage_type_key(mileage_type: MileageType) -> Option<String> {
     TRIP_TYPE_KEYS.iter().find(|(t, _)| *t == mileage_type).map(|(_, key)| (*key).to_owned())
 }
 
-/// A short name for a new preset: its notes, else the start of each address ("A → B").
 pub fn preset_name(from: &str, to: &str, notes: &str) -> String {
     if !notes.trim().is_empty() {
         return notes.trim().to_owned();
@@ -171,7 +138,6 @@ pub fn preset_name(from: &str, to: &str, notes: &str) -> String {
 
 pub struct Config {
     pub settings: Settings,
-    /// Project name → tag names.
     pub projects: HashMap<String, Vec<String>>,
     pub trips: Vec<TripPreset>,
     pub time_entries: Vec<TimePreset>,
@@ -213,14 +179,13 @@ fn parse_config(text: &str) -> Result<Config, String> {
     Ok(Config { settings, projects: file.projects, trips: file.trips, time_entries: file.time_entries })
 }
 
-/// Monday = 0 for `mon`, `Monday`, `TUES`, …: the start (three letters or more) of a day's name.
 fn day_index(name: &str) -> Option<usize> {
     let name = name.trim().to_lowercase();
     (name.len() >= 3).then(|| DAY_NAMES.iter().position(|full| full.starts_with(&name))).flatten()
 }
 
-/// Writes `text` to `path` via a temporary file next to it and a rename, so a crash or full disk
-/// halfway leaves the old file (often edited by hand) intact rather than truncated.
+/// Via a temporary file and a rename, so a crash or full disk halfway leaves the old file (often
+/// edited by hand) intact rather than truncated.
 fn replace_file(path: &Path, text: &str) -> Result<(), String> {
     let temp = path.with_extension("toml.tmp");
     std::fs::write(&temp, text)
@@ -231,13 +196,11 @@ fn replace_file(path: &Path, text: &str) -> Result<(), String> {
         })
 }
 
-/// A whole number as an integer (`40`, not `40.0`), as people write it.
+/// `40`, not `40.0`, as people write it.
 fn number(value: f64) -> toml_edit::Item {
     if value.fract() == 0.0 && value.abs() < 1e15 { toml_edit::value(value as i64) } else { toml_edit::value(value) }
 }
 
-/// Writes `settings` to the top-level keys of `config.toml`, leaving the rest of the file
-/// (comments included) as it is. Creates the file when missing.
 pub fn save_settings(path: &Path, settings: &Settings) -> Result<(), String> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
@@ -282,10 +245,6 @@ fn with_settings(text: &str, settings: &Settings) -> Result<String, String> {
     Ok(text)
 }
 
-/// Writes the tag names of the given projects to `[projects]`, leaving the other projects and the
-/// rest of the file (comments included) as they are. A project's existing key (matched
-/// case-insensitively) is changed in place; a project not in the file yet is added unless it gets
-/// no tags. Creates the file when missing.
 pub fn save_project_tags(path: &Path, changes: &[(String, Vec<String>)]) -> Result<(), String> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
@@ -325,12 +284,11 @@ fn with_project_tags(text: &str, changes: &[(String, Vec<String>)]) -> Result<St
     Ok(text)
 }
 
-/// The `[[KEY]]` block for `preset`, as appended to `config.toml`.
 fn preset_toml<P: Preset>(preset: &P) -> Result<String, String> {
     toml::to_string(&std::collections::BTreeMap::from([(P::KEY, [preset])])).map_err(|e| e.to_string())
 }
 
-/// Adds `preset` to the end of `config.toml` (as text, so the comments stay).
+/// As text, so the comments stay.
 pub fn append_preset<P: Preset>(path: &Path, preset: &P) -> Result<(), String> {
     let block = preset_toml(preset)?;
     let mut text = match std::fs::read_to_string(path) {
@@ -347,13 +305,11 @@ pub fn append_preset<P: Preset>(path: &Path, preset: &P) -> Result<(), String> {
     }
     text.push('\n');
     text.push_str(&block);
-    // Make sure the result still parses before touching the file.
     parse_config(&text).map_err(|e| format!("Error in {}: {e}", path.display()))?;
     std::fs::create_dir_all(path.parent().expect("has parent")).map_err(|e| e.to_string())?;
     replace_file(path, &text)
 }
 
-/// Removes `preset` from `config.toml`, leaving the rest of the file (comments included) as it is.
 pub fn remove_preset<P: Preset>(path: &Path, preset: &P) -> Result<(), String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
     let text = without(&text, preset).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -387,11 +343,10 @@ const TRIPS_COMMENT: &str = "# Preset trips, in the dropdown of \"+ Add trip\" o
 const TIME_ENTRIES_COMMENT: &str = "# Preset time entries, in the dropdown of \"+ Add time\" on the Week tab. Fields: project,\n\
      # task (optional; the project's first task), notes (optional), tags (optional list of names).\n";
 
-/// Reads `config.toml`. `Ok(None)` if the file doesn't exist.
 pub fn load(path: &Path) -> Result<Option<Config>, String> {
     let legacy = path.with_file_name("projects.toml");
     if !path.exists() && legacy.exists() {
-        // Move it over with the (then new) settings on top, where top-level keys must go.
+        // Earlier versions used projects.toml. The settings go on top, where top-level keys must be.
         let old = std::fs::read_to_string(&legacy).map_err(|e| format!("Could not read {}: {e}", legacy.display()))?;
         let migrated = format!("{}\n{old}", settings_toml());
         std::fs::write(path, migrated).map_err(|e| format!("Could not write {}: {e}", path.display()))?;
@@ -405,8 +360,6 @@ pub fn load(path: &Path) -> Result<Option<Config>, String> {
     parse_config(&text).map(Some).map_err(|e| format!("Error in {}: {e}", path.display()))
 }
 
-/// Resolves the configured names against the user's projects and tags (case-insensitive).
-/// Returns project id → tags, plus a warning for names that don't match anything.
 pub fn resolve_project_tags(
     config: &HashMap<String, Vec<String>>,
     projects: &[Project],
@@ -432,12 +385,10 @@ pub fn resolve_project_tags(
     (resolved, warning)
 }
 
-/// The default settings with their comments, for the top of a new `config.toml`.
 fn settings_toml() -> String {
     with_settings("", &Settings::default()).expect("the defaults are valid")
 }
 
-/// Writes a starter `config.toml` listing the user's projects and current (non-`z_`) tags.
 pub fn write_template(path: &Path, projects: &[Project], tags: &[Tag]) -> std::io::Result<()> {
     let mut text = format!(
         "# Reload the app (R) after editing. In the menu under your name, Settings edits the\n\
@@ -471,7 +422,6 @@ pub fn write_template(path: &Path, projects: &[Project], tags: &[Tag]) -> std::i
 mod tests {
     use super::*;
 
-    /// A fresh directory under the system temp dir, removed again on drop.
     struct TempDir(PathBuf);
 
     impl TempDir {
@@ -495,7 +445,6 @@ mod tests {
         let path = dir.0.join("config.toml");
         assert!(load(&path).unwrap().is_none(), "no file yet");
 
-        // An old projects.toml is moved over, with the goal setting on top.
         std::fs::write(dir.0.join("projects.toml"), "[projects]\nIntern = [\"x\"]\n").unwrap();
         let config = load(&path).unwrap().unwrap();
         assert!(!dir.0.join("projects.toml").exists());
@@ -540,7 +489,6 @@ mod tests {
         assert!(remove_preset(&path, &preset).is_err());
         assert!(remove_preset(&path, &standup).is_err());
 
-        // A broken file is reported, not overwritten.
         std::fs::write(&path, "billable_goal = [").unwrap();
         assert!(load(&path).is_err());
         assert!(append_preset(&path, &preset_named("X")).is_err());
@@ -628,7 +576,6 @@ mod tests {
             billable_goal: 0.7,
             hidden_projects: vec!["Old \"one\"".into()],
         };
-        // Missing keys are added at the top, with a comment; existing ones change in place.
         let text = "# top\n# goal\nbillable_goal = 75 # inline\n\n[projects]\n# keep me\nIntern = []\n";
         let saved = with_settings(text, &settings).unwrap();
         assert_eq!(parse_config(&saved).unwrap().settings, settings);
@@ -640,7 +587,6 @@ mod tests {
         let none_hidden = Settings { hidden_projects: Vec::new(), ..settings.clone() };
         assert!(with_settings(&saved, &none_hidden).unwrap().contains("\nhidden_projects = []"), "an existing key stays");
         assert!(!with_settings("", &none_hidden).unwrap().contains("hidden_projects"), "no key while nothing is hidden");
-        // Saving again changes nothing.
         assert_eq!(with_settings(&saved, &settings).unwrap(), saved);
         let fraction = Settings { billable_goal: 0.825, ..settings.clone() };
         assert_eq!(parse_config(&with_settings(&saved, &fraction).unwrap()).unwrap().settings, fraction);
@@ -671,9 +617,7 @@ mod tests {
         assert_eq!(client.distance, None);
         assert!(parse_config("[[trips]]\nname = \"x\"\nproject = \"p\"\nfrom = \"a\"\nto = \"b\"\ntype = \"bike\"\n").is_err());
 
-        // Round trip through the appended block.
         assert_eq!(mileage_type_key(MileageType::HomeWork).as_deref(), Some("home-work"));
-        // Every type the trip form offers can be saved in a preset.
         assert!(crate::domain::MILEAGE_TYPES.iter().all(|(t, _)| mileage_type_key(*t).is_some()));
         let block = preset_toml(commute).unwrap();
         let text = format!("billable_goal = 70\n[projects]\nIntern = []\n\n{block}");

@@ -1,5 +1,3 @@
-//! The trip form: opening it (new, edit, preset), the address suggestions, and the route distance.
-
 use gpui::{Context, Focusable, Window};
 use gpuikit::input::InputStateEvent;
 use timechimp::Mileage;
@@ -12,8 +10,6 @@ use crate::store::config;
 use super::{Overlay, TimeChimpApp};
 
 impl TimeChimpApp {
-    /// A trip preset in the "+ Add trip" dropdown: the trip form for the selected day, filled in
-    /// from `preset`.
     pub fn open_trip_preset(&mut self, preset: config::TripPreset, window: &mut Window, cx: &mut Context<Self>) {
         self.menu = None;
         if self.session.me().is_none() || self.overlay_open() {
@@ -22,8 +18,6 @@ impl TimeChimpApp {
         self.open_mileage_form(None, Some(&preset), window, cx);
     }
 
-    /// The trip form: for a new trip filled in from `preset`, or empty (project, type and billable
-    /// from the last trip); or filled in with `editing`.
     pub(super) fn open_mileage_form(
         &mut self,
         editing: Option<Box<Mileage>>,
@@ -50,7 +44,6 @@ impl TimeChimpApp {
             addresses: seed.addresses,
             address_menu: None,
         };
-        // Typing in From/To filters the suggestions; leaving the field closes them.
         let mut subscriptions = Vec::new();
         for field in [AddressField::From, AddressField::To] {
             let input = form.address_input(field);
@@ -69,8 +62,6 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// Opens the suggestions under `field`: filtered by its text after typing (nothing
-    /// highlighted, so Enter keeps what was typed), or all of them from ↓ or ▾.
     pub fn open_addresses(&mut self, field: AddressField, filtered: bool, cx: &mut Context<Self>) {
         if let Some(form) = self.mileage_form_mut() {
             let highlighted = (!filtered).then_some(0);
@@ -79,7 +70,6 @@ impl TimeChimpApp {
         }
     }
 
-    /// Closes the suggestions if they are open under `field`.
     pub fn close_addresses(&mut self, field: AddressField, cx: &mut Context<Self>) {
         if let Some(form) = self.mileage_form_mut()
             && form.address_menu.as_ref().is_some_and(|m| m.field == field)
@@ -89,7 +79,6 @@ impl TimeChimpApp {
         }
     }
 
-    /// The ▾ of an address field: focuses it and shows all suggestions, or closes them.
     pub fn toggle_addresses(&mut self, field: AddressField, window: &mut Window, cx: &mut Context<Self>) {
         let Some(form) = self.mileage_form() else { return };
         let open = form.address_menu.as_ref().is_some_and(|m| m.field == field);
@@ -101,7 +90,6 @@ impl TimeChimpApp {
         }
     }
 
-    /// ↑/↓ in an address field: moves through the suggestions, opening the full list first.
     pub fn move_address(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(form) = self.mileage_form() else { return cx.propagate() };
         let Some(field) = form.focused_address(window, cx) else { return cx.propagate() };
@@ -117,7 +105,7 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// Enter in an address field: takes the highlighted suggestion; with none, Enter saves the form.
+    /// With nothing highlighted, propagate so Enter saves the form.
     pub fn pick_highlighted_address(&mut self, cx: &mut Context<Self>) {
         let Some(form) = self.mileage_form() else { return cx.propagate() };
         let picked = form
@@ -135,7 +123,6 @@ impl TimeChimpApp {
         }
     }
 
-    /// Puts `address` in `field` and closes the suggestions.
     pub fn pick_address(&mut self, field: AddressField, address: String, cx: &mut Context<Self>) {
         let Some(form) = self.mileage_form_mut() else { return };
         form.address_menu = None;
@@ -144,7 +131,7 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// Escape in an address field: closes the suggestions; with none open, Escape closes the form.
+    /// With no suggestions open, propagate so Escape closes the form.
     pub fn dismiss_addresses(&mut self, cx: &mut Context<Self>) {
         match self.mileage_form_mut() {
             Some(form) if form.address_menu.is_some() => {
@@ -173,7 +160,6 @@ impl TimeChimpApp {
             let route = client.route_distance(&from_place.place_id, &to_place.place_id).await?;
             timechimp::Result::Ok((from_place.description, to_place.description, route))
         };
-        // An unknown address or no route is an Error::NotFound, shown in the form.
         self.run("Calculating distance…", future, window, cx, move |this, result, window, cx| match result {
             Ok((from, to, route)) => {
                 // Only into the form it was asked for: it may have been closed or replaced meanwhile.

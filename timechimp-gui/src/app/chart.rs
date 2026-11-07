@@ -1,5 +1,3 @@
-//! The billability chart: the Week card's billable share for the selected week and the ones before.
-
 use chrono::NaiveDate;
 use gpui::{Context, Window};
 
@@ -8,17 +6,13 @@ use crate::net;
 
 use super::{Overlay, TimeChimpApp};
 
-/// The open billability chart.
 pub struct BillabilityChart {
-    /// The Mondays of the weeks shown, oldest first; the last is the week selected when it opened.
     pub mondays: Vec<NaiveDate>,
-    /// Each week's figures, in `mondays` order; None while loading or after loading failed.
     pub weeks: Option<Vec<(NaiveDate, WeekCard)>>,
 }
 
 impl TimeChimpApp {
-    /// Opens the chart for the selected week and the ones before it, fetched afresh (the weeks
-    /// may lie outside what is loaded already).
+    /// Fetched afresh: the weeks may lie outside what is loaded already.
     pub fn open_chart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (Some(client), Some(me)) = (self.session.client().cloned(), self.session.me()) else { return };
         let (user_id, contract) = (me.id, self.session.contract_hours());

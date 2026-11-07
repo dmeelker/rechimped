@@ -1,9 +1,6 @@
-//! Dates, times of day, timezones and numbers as typed in the forms.
-
 use chrono::{DateTime, Datelike, Duration, FixedOffset, Local, Months, NaiveDate, NaiveTime};
 use chrono_tz::Tz;
 
-/// Timezone for start/end times when neither the entry nor the account names a known one.
 pub const FALLBACK_TIMEZONE: Tz = chrono_tz::Europe::Amsterdam;
 
 pub fn last_of_month(month: NaiveDate) -> NaiveDate {
@@ -18,8 +15,6 @@ pub fn first_of_month(date: NaiveDate) -> NaiveDate {
     date.with_day(1).expect("day 1 exists")
 }
 
-/// `date` moved by `months` (clamped to the month's last day: 31 Jan + 1 month = 28/29 Feb) and
-/// then by `days`; None outside chrono's range.
 pub fn shift_date(date: NaiveDate, days: i64, months: i32) -> Option<NaiveDate> {
     let shifted = match months {
         0 => Some(date),
@@ -33,8 +28,6 @@ pub fn today() -> NaiveDate {
     Local::now().date_naive()
 }
 
-/// Parses a time of day, leniently: `12` → 12:00, `930` → 9:30, `1230` → 12:30, and `12:30` or
-/// `12.30` as written. Empty means "not given".
 pub fn parse_time(s: &str) -> Result<Option<NaiveTime>, String> {
     let s = s.trim();
     if s.is_empty() {
@@ -57,7 +50,6 @@ pub fn parse_time(s: &str) -> Result<Option<NaiveTime>, String> {
     NaiveTime::from_hms_opt(hours, minutes, 0).map(Some).ok_or_else(invalid)
 }
 
-/// A duration after `+` in the end field: `15` / `15m` minutes, `1h`, `1.5h`, `1h30` / `1h30m`.
 fn parse_offset(s: &str) -> Option<i64> {
     let s = s.trim().to_ascii_lowercase();
     let minutes = |m: &str| -> Option<f64> {
@@ -72,7 +64,6 @@ fn parse_offset(s: &str) -> Option<i64> {
     (total.is_finite() && total >= 0.0).then(|| total.round() as i64)
 }
 
-/// Parses the end time; `+15`, `+1h`, `+1h30` mean that long after `start`, otherwise as `parse_time`.
 pub fn parse_end(start: Option<NaiveTime>, s: &str) -> Result<Option<NaiveTime>, String> {
     let Some(offset) = s.trim().strip_prefix('+') else { return parse_time(s) };
     let minutes = parse_offset(offset).ok_or_else(|| format!("Invalid end '{}', use e.g. +15 or +1h30", s.trim()))?;
@@ -84,8 +75,6 @@ pub fn parse_end(start: Option<NaiveTime>, s: &str) -> Result<Option<NaiveTime>,
     Ok(Some(end))
 }
 
-/// The `HH:MM` an end field of `+N` stands for, given the start field; None when it isn't one
-/// (or can't be resolved yet).
 pub fn expand_end(start: &str, end: &str) -> Option<String> {
     if !end.trim().starts_with('+') {
         return None;
@@ -94,12 +83,10 @@ pub fn expand_end(start: &str, end: &str) -> Option<String> {
     Some(end.format("%H:%M").to_string())
 }
 
-/// The first of `names` that is a known IANA timezone, else `FALLBACK_TIMEZONE`.
 pub fn timezone<'a>(names: impl IntoIterator<Item = Option<&'a str>>) -> Tz {
     names.into_iter().flatten().find_map(|n| n.parse().ok()).unwrap_or(FALLBACK_TIMEZONE)
 }
 
-/// `date` at `time` on the wall clock of `tz`.
 pub fn local(date: NaiveDate, time: NaiveTime, tz: Tz) -> Result<DateTime<FixedOffset>, String> {
     date.and_time(time)
         .and_local_timezone(tz)
@@ -108,7 +95,6 @@ pub fn local(date: NaiveDate, time: NaiveTime, tz: Tz) -> Result<DateTime<FixedO
         .ok_or_else(|| format!("{date} {time} does not exist in {tz}"))
 }
 
-/// A number as typed in a form: surrounding spaces allowed, `,` as the decimal separator too.
 pub fn parse_decimal(s: &str) -> Option<f64> {
     s.trim().replace(',', ".").parse().ok()
 }

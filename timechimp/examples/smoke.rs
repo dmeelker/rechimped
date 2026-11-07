@@ -1,8 +1,3 @@
-//! Exercises the client against the real API. Writes are self-cleaning: a test time entry
-//! and mileage registration are created on the internal project and deleted again.
-//!
-//!     TIMECHIMP_REFRESH_TOKEN=... cargo run -p timechimp --example smoke [-- --write]
-
 use chrono::{Datelike, Duration, Local, NaiveTime};
 use timechimp::{Authenticator, Client, MileageType, NewMileage, NewTimeEntry};
 
@@ -45,7 +40,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // ---- Time entry: create, read, update, delete --------------------------------------
     let project = client.projects_for_user(me.id).await?.into_iter().find(|p| p.intern).ok_or("no internal project")?;
     let task = client.project_tasks(project.id).await?.into_iter().next().ok_or("project has no tasks")?;
     let at = |h, m| today.and_time(NaiveTime::from_hms_opt(h, m, 0).unwrap()).and_local_timezone(Local).unwrap().fixed_offset();
@@ -58,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let created = client.create_time_entry(&input).await?;
     println!("\ncreated time entry {}: {} {:?} {}h '{}'", created.id, created.date, created.start_end, created.hours, created.notes.clone().unwrap_or_default());
 
-    // Checked without panicking or returning early, so the entry is deleted whatever happens.
+    // No panicking or early return, so the entry is deleted whatever happens.
     let checks: Result<(), Box<dyn std::error::Error>> = async {
         let fetched = client.time_entry(created.id).await?;
         check(fetched.hours == 0.25, format!("fetched {}h, expected 0.25h", fetched.hours))?;
@@ -78,7 +72,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gone = client.time_entries_for_week(me.id, monday).await?.iter().all(|e| e.id != created.id);
     println!("deleted time entry {}: gone from week = {gone}", created.id);
 
-    // ---- Mileage: create, delete --------------------------------------------------------
     let mileage = client
         .create_mileage(&NewMileage {
             user_id: me.id,

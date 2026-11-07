@@ -1,5 +1,3 @@
-//! The monthly report and its totals.
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::NaiveDate;
@@ -12,7 +10,6 @@ pub struct Report {
     pub mileage: Vec<MileageReportRow>,
 }
 
-/// Hours on one project / task in the report.
 #[derive(Debug, PartialEq)]
 pub struct HoursGroup {
     pub project: String,
@@ -21,10 +18,8 @@ pub struct HoursGroup {
     pub billable: bool,
 }
 
-/// What the Report tab shows.
 #[derive(Debug, PartialEq)]
 pub struct Summary {
-    /// Hours per project / task, most first.
     pub groups: Vec<HoursGroup>,
     pub total: f64,
     pub billable: f64,
@@ -65,12 +60,10 @@ impl Report {
 }
 
 impl Summary {
-    /// `hours` as a fraction of the month's total (0 when nothing was registered).
     pub fn share(&self, hours: f64) -> f64 {
         if self.total > 0.0 { hours / self.total } else { 0.0 }
     }
 
-    /// The billable fraction of the hours registered; None without any.
     pub fn billable_share(&self) -> Option<f64> {
         (self.total > 0.0).then(|| self.billable / self.total)
     }

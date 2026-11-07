@@ -1,5 +1,3 @@
-//! The Mileage tab: the week's trips per day.
-
 use gpui::{
     AnyElement, ClickEvent, Context, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
@@ -35,8 +33,6 @@ impl TimeChimpApp {
             .child(cell(Some(160.), m.notes.clone().unwrap_or_default()))
     }
 
-    /// The Mileage tab: the week's trips grouped per day (`net::load_week` sorts them by day),
-    /// each day under a header with its total.
     pub(super) fn render_mileage(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         let total: f64 = self.session.mileage().iter().map(|m| m.distance).sum();
         let actions = self.selection_actions(theme, cx);

@@ -1,5 +1,3 @@
-//! The main screen around the tabs: header, user menu, toolbar, footer and the row actions.
-
 use std::rc::Rc;
 
 use gpui::{
@@ -29,8 +27,7 @@ impl TimeChimpApp {
             .items_end()
             .border_b_1()
             .border_color(theme.border())
-            // The tab strip draws its own rule; pulled 1px down it lies on the header's border, so the
-            // two read as one line (and the selected tab's underline covers it).
+            // Pulled 1px down so the tab strip's rule lies on the header's border and reads as one line.
             .child(div().mb(px(-1.)).font_weight(FontWeight::MEDIUM).child(self.tabs.clone()))
             .child(div().flex_1())
             .child(div().relative().mb(px(6.)).child(self.render_user_button(theme, title, cx)).when(
@@ -59,12 +56,11 @@ impl TimeChimpApp {
             .child(header)
             .child(crate::fx::sweep_bar(self.fx.sweep, self.busy().is_some(), theme.accent()))
             .child(self.render_toolbar(theme, cx))
-            // The body fills the rest of the window; tables scroll inside their panels (`table_rows`).
             .child(div().id("body").flex_1().min_h_0().flex().flex_col().px(px(16.)).pb(px(12.)).child(body))
             .child(self.render_footer(theme));
 
         let focus = self.focus.clone();
-        // Disclaimer painted first, so it sits in the window background behind the panels.
+        // Painted first so it sits behind the panels.
         let disclaimer = div()
             .absolute()
             .right(px(24.))
@@ -138,7 +134,6 @@ impl TimeChimpApp {
         .text_color(theme.fg())
     }
 
-    /// The user name in the header; a click opens the user menu.
     pub(super) fn render_user_button(&self, theme: &T, title: String, cx: &mut Context<Self>) -> impl IntoElement {
         h_stack()
             .id("user-button")
@@ -156,8 +151,6 @@ impl TimeChimpApp {
             .on_click(cx.listener(|this, _, _, cx| this.toggle_menu(Menu::User, cx)))
     }
 
-    /// "+ Add time" / "+ Add trip" as a split button: the left part opens an empty form, the ▾ a
-    /// dropdown with the presets of that kind (`render_presets_menu`).
     pub(super) fn render_add(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         let (label, kind) = match self.tab {
             Tab::Week => ("+ Add time", Menu::AddTime),
@@ -182,9 +175,6 @@ impl TimeChimpApp {
             .when(self.menu == Some(kind), |d| d.child(self.render_presets_menu(theme, kind, cx)))
     }
 
-    /// The presets from `config.toml` under the ▾ of "+ Add time" (`[[time_entries]]`, shown as
-    /// description over project) or "+ Add trip" (`[[trips]]`, by name). Clicking one opens the
-    /// form for the selected day, filled in; its × asks to delete it.
     fn render_presets_menu(&self, theme: &T, kind: Menu, cx: &mut Context<Self>) -> impl IntoElement {
         // Each row's actions hold a copy of its preset, so they act on the one that was shown even
         // if config.toml is reread in between.
@@ -254,7 +244,6 @@ impl TimeChimpApp {
         deferred(div().absolute().top_full().right_0().mt(px(4.)).child(menu)).with_priority(2)
     }
 
-    /// Transparent, window-wide layer under an open dropdown: any click outside closes it.
     pub(super) fn render_menu_backdrop(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let close = cx.listener(|this, _: &gpui::MouseDownEvent, _, cx| {
             this.close_menu(cx);
@@ -264,7 +253,6 @@ impl TimeChimpApp {
             .with_priority(1)
     }
 
-    /// The dropdown under the user name (a child of its `relative()` wrapper).
     pub(super) fn render_user_menu(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         let menu = menu_panel(theme, "user-menu")
             .child(
@@ -279,7 +267,6 @@ impl TimeChimpApp {
         deferred(div().absolute().top_full().right_0().mt(px(4.)).child(menu)).with_priority(2)
     }
 
-    /// Buttons acting on the selected row, for the right of the Week/Mileage panel header.
     pub(super) fn selection_actions(&self, theme: &T, cx: &mut Context<Self>) -> AnyElement {
         let nav = |id: &'static str, label: &'static str, f: fn(&mut Self, &mut Window, &mut Context<Self>)| {
             button(id, label).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| f(this, window, cx)))

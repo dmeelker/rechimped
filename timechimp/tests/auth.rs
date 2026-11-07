@@ -1,6 +1,3 @@
-//! The Cognito flows (refresh, retry after a 401, SRP login with MFA) against a local server that
-//! stands in for both Cognito and the API.
-
 mod common;
 
 use common::serve;

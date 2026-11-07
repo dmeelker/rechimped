@@ -2,7 +2,6 @@ use reqwest::StatusCode;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// The request didn't get an answer (no network, DNS, timeout, ...).
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
 
@@ -12,29 +11,20 @@ pub enum Error {
     #[error("could not parse response from {url}: {source}")]
     Decode { url: String, source: serde_json::Error },
 
-    /// Cognito turned the credentials down, e.g. `NotAuthorizedException` for a wrong password or
-    /// a revoked or expired refresh token.
     #[error("authentication failed: {kind}: {message}")]
     Rejected { kind: String, message: String },
 
-    /// Any other Cognito error, e.g. `TooManyRequestsException` or `InternalErrorException`:
-    /// trouble on the way, not a verdict on the credentials.
     #[error("login service error: {kind}: {message}")]
     Cognito { kind: String, message: String },
 
-    /// The login flow went somewhere this client doesn't handle (an unexpected challenge, a
-    /// response without tokens).
     #[error("authentication failed: {0}")]
     Auth(String),
 
-    /// A lookup found nothing, e.g. no route between two addresses.
     #[error("{0}")]
     NotFound(String),
 }
 
 impl Error {
-    /// Whether the session itself is no good (logging in again is the fix), as opposed to a
-    /// network or server problem that may pass.
     pub fn is_auth(&self) -> bool {
         match self {
             Error::Rejected { .. } | Error::Auth(_) => true,

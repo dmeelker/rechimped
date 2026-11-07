@@ -1,14 +1,10 @@
-//! Models inferred from observed responses. Large objects map the most useful fields and keep the
-//! rest in `extra`. Dates are returned without an offset; `start`/`end` on time entries are UTC.
-
 use std::collections::HashMap;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, Utc};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 
-/// Parses dates both with and without offset: reads return `2026-11-04T00:00:00`,
-/// writes return `2026-11-04T00:00:00Z` / `2026-11-04T09:23:00.7720557Z`.
+/// Reads return `2026-11-04T00:00:00`, writes `2026-11-04T00:00:00Z` / `2026-11-04T09:23:00.7720557Z`.
 fn parse_datetime(s: &str) -> Result<NaiveDateTime, String> {
     if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
         return Ok(dt.naive_utc());
@@ -26,22 +22,18 @@ fn opt_datetime<'de, D: Deserializer<'de>>(d: D) -> Result<Option<NaiveDateTime>
         .transpose()
 }
 
-/// A date sent as a datetime at midnight (`2026-11-04T00:00:00`).
 fn date<'de, D: Deserializer<'de>>(d: D) -> Result<NaiveDate, D::Error> {
     datetime(d).map(|dt| dt.date())
 }
 
-/// A datetime, or the Unix epoch when missing or null.
 fn datetime_or_epoch<'de, D: Deserializer<'de>>(d: D) -> Result<NaiveDateTime, D::Error> {
     Ok(opt_datetime(d)?.unwrap_or_default())
 }
 
-/// Treats `null` as the type's default (e.g. an empty `Vec`).
 fn null_default<'de, D: Deserializer<'de>, T: Default + Deserialize<'de>>(d: D) -> Result<T, D::Error> {
     Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
 }
 
-/// A list of strings, leniently: null is empty, and items that aren't strings are left out.
 fn strings<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
     let items: Option<Vec<Value>> = Option::deserialize(d)?;
     Ok(items.unwrap_or_default().into_iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
@@ -79,14 +71,12 @@ pub struct CurrentUser {
     pub user_availability: Option<UserAvailability>,
     #[serde(default, deserialize_with = "null_default")]
     pub manager_of_team_ids: Vec<i64>,
-    /// The addresses saved for trips (the web app's suggestions); anything but a string is skipped.
     #[serde(default, deserialize_with = "strings")]
     pub mileage_addresses: Vec<String>,
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
 }
 
-/// Contracted hours per weekday.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserAvailability {
@@ -101,7 +91,6 @@ pub struct UserAvailability {
 }
 
 impl UserAvailability {
-    /// Hours for a weekday, Monday = 0.
     pub fn for_day(&self, days_from_monday: usize) -> Option<f64> {
         [self.monday, self.tuesday, self.wednesday, self.thursday, self.friday, self.saturday, self.sunday]
             .get(days_from_monday)
@@ -203,7 +192,6 @@ pub struct Subscription {
     pub extra: HashMap<String, Value>,
 }
 
-/// Company-wide form settings (which fields are visible/required) and feature toggles.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompanySettings {
@@ -277,7 +265,7 @@ pub struct Tag {
     pub tag_type: TagType,
 }
 
-/// What a tag applies to. Observed: 1 = time entries, 6 = users; 5 and 7 are also used.
+/// Observed: 1 = time entries, 6 = users; 5 and 7 also occur.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(from = "i32")]
 pub enum TagType {
@@ -351,9 +339,8 @@ pub struct Task {
     pub common: bool,
 }
 
-/// Ids, the date, hours and billable are required; display names, statuses and `modified` fall
-/// back to defaults when missing or null, so one odd entry from the undocumented API doesn't fail
-/// a whole week.
+/// Lenient on display names, statuses and `modified`, so one odd entry from the undocumented API
+/// doesn't fail a whole week.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeEntry {
@@ -381,12 +368,9 @@ pub struct TimeEntry {
     pub date: NaiveDate,
     pub hours: f64,
     pub notes: Option<String>,
-    /// Local `HH:mm-HH:mm` range, if start/end times were registered.
     pub start_end: Option<String>,
-    /// UTC.
     #[serde(default, deserialize_with = "opt_datetime")]
     pub start: Option<NaiveDateTime>,
-    /// UTC.
     #[serde(default, deserialize_with = "opt_datetime")]
     pub end: Option<NaiveDateTime>,
     #[serde(default, deserialize_with = "null_default")]
@@ -406,7 +390,6 @@ pub struct TimeEntry {
     pub tags: Vec<Tag>,
     pub external_url: Option<String>,
     pub external_name: Option<String>,
-    /// 1970 when missing or null.
     #[serde(default, deserialize_with = "datetime_or_epoch")]
     pub modified: NaiveDateTime,
     pub timezone: Option<String>,
@@ -428,9 +411,7 @@ pub struct ExpenseCategory {
     pub cost_rate: Option<f64>,
 }
 
-// ---- Project tasks ----------------------------------------------------------------------
-
-/// A task as linked to a specific project; its `id` is the `project_task_id` of a time entry.
+/// Its `id` is a time entry's `project_task_id`.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectTask {
@@ -442,35 +423,25 @@ pub struct ProjectTask {
     pub task_id: i64,
 }
 
-// ---- Writing time entries ---------------------------------------------------------------
-
-/// Input for creating or updating a time entry.
 #[derive(Debug, Clone)]
 pub struct NewTimeEntry {
     pub user_id: i64,
     pub customer_id: i64,
     pub project_id: i64,
-    /// [`ProjectTask::id`].
     pub project_task_id: i64,
-    /// [`ProjectTask::task_id`].
     pub task_id: i64,
     pub date: NaiveDate,
-    /// Used for entries without start/end; with both set, the hours follow from them (see
-    /// [`NewTimeEntry::effective_hours`]).
     pub hours: f64,
     pub notes: Option<String>,
-    /// Optional start/end times, with the offset of `timezone` on that date:
-    /// the local `HH:mm` is shown in the app, the UTC value is stored.
+    /// In `timezone`'s offset: the app shows the local `HH:mm`, the API stores UTC.
     pub start: Option<DateTime<FixedOffset>>,
     pub end: Option<DateTime<FixedOffset>>,
     pub pause: f64,
     pub tag_ids: Vec<i64>,
-    /// IANA timezone name, e.g. `Europe/Amsterdam`.
     pub timezone: Option<String>,
 }
 
 impl NewTimeEntry {
-    /// An entry of `hours` on `task` of `project`, without start/end times.
     pub fn new(user_id: i64, project: &Project, task: &ProjectTask, date: NaiveDate, hours: f64) -> Self {
         Self {
             user_id,
@@ -489,14 +460,12 @@ impl NewTimeEntry {
         }
     }
 
-    /// Sets start and end; the hours then follow from them (minus the pause).
     pub fn with_times(mut self, start: DateTime<FixedOffset>, end: DateTime<FixedOffset>) -> Self {
         self.start = Some(start);
         self.end = Some(end);
         self
     }
 
-    /// The hours sent: end − start − pause when both times are set, else `hours`.
     pub fn effective_hours(&self) -> f64 {
         match (self.start, self.end) {
             (Some(start), Some(end)) => ((end - start).num_minutes() as f64 / 60.0 - self.pause).max(0.0),
@@ -509,7 +478,6 @@ impl NewTimeEntry {
         self
     }
 
-    /// The request body, in the same shape the web app sends.
     pub(crate) fn to_json(&self) -> Value {
         let mut body = json!({
             "userId": self.user_id,
@@ -540,8 +508,6 @@ impl NewTimeEntry {
     }
 }
 
-// ---- Mileage ----------------------------------------------------------------------------
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Mileage {
@@ -560,7 +526,6 @@ pub struct Mileage {
     pub from_address: Option<String>,
     pub to_address: Option<String>,
     pub notes: Option<String>,
-    /// Kilometres.
     pub distance: f64,
     pub billable: bool,
     #[serde(rename = "type")]
@@ -572,8 +537,8 @@ pub struct Mileage {
     pub modified: NaiveDateTime,
 }
 
-/// Trip type. Observed: 1 (business) and 3 (likely home–work); the company settings enable
-/// private, business and living–work types, so other values may show up.
+/// Observed: 1 (business) and 3 (likely home–work); the company settings also enable private
+/// trips, so other values may show up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(from = "i32")]
 pub enum MileageType {
@@ -602,15 +567,13 @@ impl From<MileageType> for i32 {
     }
 }
 
-/// Input for creating a mileage registration. For a return trip the app creates two
-/// registrations with the addresses swapped.
+/// The API has no return trips: the web app creates two registrations with the addresses swapped.
 #[derive(Debug, Clone)]
 pub struct NewMileage {
     pub user_id: i64,
     pub customer_id: i64,
     pub project_id: i64,
     pub date: NaiveDate,
-    /// Kilometres.
     pub distance: f64,
     pub from_address: String,
     pub to_address: String,
@@ -641,9 +604,7 @@ impl NewMileage {
     }
 }
 
-// ---- Reports (server-side grid queries) -------------------------------------------------
-
-/// A page of a report query. `row_count` is the total number of matching rows.
+/// `row_count` counts all matching rows, not just this page.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryResult<T> {
@@ -651,7 +612,6 @@ pub struct QueryResult<T> {
     pub row_count: i64,
 }
 
-/// A row of the time report (`time/query`).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeReportRow {
@@ -671,7 +631,6 @@ pub struct TimeReportRow {
     pub user_id: i64,
     pub team: Option<String>,
     pub team_id: Option<i64>,
-    /// Hours.
     pub time: f64,
     pub notes: Option<String>,
     pub start_end: Option<String>,
@@ -681,7 +640,6 @@ pub struct TimeReportRow {
     pub end: Option<NaiveDateTime>,
     pub pause: f64,
     pub amount: Option<f64>,
-    /// Comma-separated tag names.
     pub tags: Option<String>,
     pub status: i32,
     pub client_status: i32,
@@ -690,7 +648,6 @@ pub struct TimeReportRow {
     pub extra: HashMap<String, Value>,
 }
 
-/// A row of the mileage report (`mileage/query`).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MileageReportRow {
@@ -711,15 +668,12 @@ pub struct MileageReportRow {
     pub billable: bool,
     #[serde(rename = "type")]
     pub mileage_type: MileageType,
-    /// Reimbursement amount.
     pub amount: Option<f64>,
     pub status: i32,
     pub team: Option<String>,
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
 }
-
-// ---- Google Maps (proxied by TimeChimp) -------------------------------------------------
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct PlacePrediction {
@@ -854,7 +808,6 @@ mod tests {
                 "timezone": "Europe/Amsterdam",
             })
         );
-        // Without times: the hours as given, no start/end keys.
         let body = NewTimeEntry { hours: 2.0, ..entry.clone() };
         let body = NewTimeEntry { start: None, end: None, ..body }.to_json();
         assert_eq!(body["hours"], 2.0);

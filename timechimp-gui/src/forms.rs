@@ -1,5 +1,3 @@
-//! The add/edit dialogs, built from gpuikit inputs, selects and switches.
-
 use std::collections::{BTreeSet, HashMap};
 
 use chrono::{Datelike, NaiveDate};
@@ -25,19 +23,15 @@ pub struct TimeForm {
     pub end: Entity<InputState>,
     pub hours: Entity<InputState>,
     pub notes: Entity<InputState>,
-    /// One checkbox per tag configured for the selected project (`config.toml`).
     pub tags: Vec<TagCheckbox>,
-    /// Tags on the entry that the selected project has no checkbox for (e.g. old `z_wbso_*` ones);
-    /// kept on save (`Session::kept_tags`).
+    /// Tags the selected project has no checkbox for; kept so saving doesn't drop them.
     pub kept_tag_ids: Vec<i64>,
-    /// Picker over recent work, on a new (not copied) entry only.
     pub recent: Option<RecentPicker>,
-    /// Follows `project` (task list and tags); replaced together with it.
+    /// Replaced together with `project`, since selects can't change options in place.
     pub project_sub: Subscription,
 }
 
 impl TimeForm {
-    /// What is filled in, for `validate::time_entry`.
     pub fn values(&self, cx: &App) -> TimeValues {
         TimeValues {
             kind: self.kind.clone(),
@@ -58,11 +52,8 @@ impl TimeForm {
     }
 }
 
-/// Filter field plus highlighted row of the Recent list; picking a row fills in project, task,
-/// notes and tags.
 pub struct RecentPicker {
     pub filter: Entity<InputState>,
-    /// Index into the filtered list.
     pub selected: usize,
 }
 
@@ -72,7 +63,6 @@ pub struct TagCheckbox {
 }
 
 pub struct MileageForm {
-    /// The trip being edited (None for a new one); its vehicle and statuses are kept.
     pub editing: Option<Box<Mileage>>,
     pub date: DateField,
     pub project: Entity<SelectState<i64>>,
@@ -83,25 +73,20 @@ pub struct MileageForm {
     pub mileage_type: Entity<SelectState<MileageType>>,
     pub billable: Entity<Switch>,
     pub notes: Entity<InputState>,
-    /// What From and To suggest: the saved addresses, then this week's (`Session::saved_addresses`).
     pub addresses: Vec<String>,
-    /// The suggestion list open under From or To, if any.
     pub address_menu: Option<AddressMenu>,
 }
 
-/// The two address fields of the trip form, each a text field with a list of suggestions.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AddressField {
     From,
     To,
 }
 
-/// The suggestion list under an address field.
 pub struct AddressMenu {
     pub field: AddressField,
-    /// Filtered by the field's text (opened by typing) or all addresses (opened with ↓ or ▾).
     pub filtered: bool,
-    /// Index into `MileageForm::address_matches`. None after typing, so Enter keeps the typed text.
+    /// None after typing, so Enter keeps the typed text.
     pub highlighted: Option<usize>,
 }
 
@@ -113,20 +98,17 @@ impl MileageForm {
         }
     }
 
-    /// The address field that has focus, if any.
     pub fn focused_address(&self, window: &Window, cx: &App) -> Option<AddressField> {
         [AddressField::From, AddressField::To]
             .into_iter()
             .find(|f| self.address_input(*f).read(cx).focus_handle(cx).is_focused(window))
     }
 
-    /// The suggestions the open list shows (empty while none is open).
     pub fn address_matches(&self, cx: &App) -> Vec<&str> {
         let Some(menu) = &self.address_menu else { return Vec::new() };
         let query = if menu.filtered { text(self.address_input(menu.field), cx) } else { String::new() };
         crate::domain::matching_addresses(&self.addresses, &query)
     }
-    /// What is filled in, for `validate::trip` and `validate::preset`.
     pub fn values(&self, cx: &App) -> MileageValues {
         MileageValues {
             editing: self.editing.clone(),
@@ -143,11 +125,8 @@ impl MileageForm {
     }
 }
 
-/// The Date field of both forms: a text field (a date can still be typed) whose calendar icon,
-/// or the down arrow, opens a month grid under it.
 pub struct DateField {
     pub input: Entity<InputState>,
-    /// The calendar while it is open.
     pub picker: Option<DatePicker>,
 }
 
@@ -156,13 +135,11 @@ impl DateField {
         Self { input: text_input(cx, date.to_string()), picker: None }
     }
 
-    /// The date typed in, if it is one.
     pub fn parsed(&self, cx: &App) -> Option<NaiveDate> {
         NaiveDate::parse_from_str(&text(&self.input, cx), "%Y-%m-%d").ok()
     }
 }
 
-/// An open calendar, with its subscriptions (a day picked, focus leaving it).
 pub struct DatePicker {
     pub calendar: Entity<Calendar>,
     pub _subscriptions: Vec<Subscription>,
@@ -182,8 +159,7 @@ pub enum FormBody {
 }
 
 pub struct Form {
-    /// Unique per opened form (`TimeChimpApp::new_form_id`), so a request's result can tell
-    /// whether the form it came from is still the one open.
+    /// Lets a request's result tell whether the form it came from is still the one open.
     pub id: u64,
     pub body: FormBody,
     pub error: Option<String>,
@@ -243,7 +219,6 @@ impl Form {
     }
 }
 
-/// A single-line text input that takes part in Tab navigation.
 pub fn text_input(cx: &mut App, value: impl Into<String>) -> Entity<InputState> {
     let value = value.into();
     let input = cx.new(|cx| {
@@ -256,7 +231,6 @@ pub fn text_input(cx: &mut App, value: impl Into<String>) -> Entity<InputState> 
     input
 }
 
-/// A dropdown over `(id, label)` options; falls back to the first option.
 pub fn choice<T: Clone + PartialEq + 'static>(
     cx: &mut App,
     id: &'static str,
@@ -276,18 +250,14 @@ pub fn choice<T: Clone + PartialEq + 'static>(
     })
 }
 
-/// The Settings dialog (in the menu under the user name): what `config.toml`'s top-level keys hold.
 pub struct SettingsForm {
-    /// One checkbox per day, Monday first.
     pub work_days: Vec<Entity<Checkbox>>,
-    /// Percentage.
     pub billable_goal: Entity<InputState>,
     pub projects: ProjectVisibility,
     pub error: Option<String>,
 }
 
 impl SettingsForm {
-    /// What is filled in, for `validate::settings`.
     pub fn values(&self, cx: &App) -> SettingsValues {
         let mut work_days = [false; 7];
         for (day, checkbox) in work_days.iter_mut().zip(&self.work_days) {
@@ -301,14 +271,10 @@ impl SettingsForm {
     }
 }
 
-/// The Settings dialog's project list: which projects the forms offer. Plain data; the view draws
-/// the checkboxes (checked = shown).
 pub struct ProjectVisibility {
-    /// The active projects, by name: (id, name, customer).
     pub projects: Vec<(i64, String, String)>,
-    /// Ids of the hidden ones, as edited.
     pub hidden: BTreeSet<i64>,
-    /// Hidden names that match no active project (gone, or inactive for now): kept as they are.
+    /// Hidden names matching no active project (gone or inactive), kept so saving doesn't drop them.
     others: Vec<String>,
 }
 
@@ -339,12 +305,10 @@ impl ProjectVisibility {
         }
     }
 
-    /// Shows (`true`) or hides every project.
     pub fn set_all(&mut self, shown: bool) {
         self.hidden = if shown { BTreeSet::new() } else { self.projects.iter().map(|(id, ..)| *id).collect() };
     }
 
-    /// What `Settings::hidden_projects` becomes: the hidden projects by name, then the others.
     pub fn hidden_names(&self) -> Vec<String> {
         let listed = self.projects.iter().filter(|(id, ..)| self.hidden.contains(id)).map(|(_, name, _)| name.clone());
         listed.chain(self.others.iter().cloned()).collect()
@@ -373,25 +337,17 @@ pub fn tag_checkbox(cx: &mut App, tag_id: i64, label: String, checked: bool) -> 
     TagCheckbox { tag_id, checkbox: cx.new(|_| checkbox(id, checked).label(label)) }
 }
 
-/// The Project tags dialog (in the menu under the user name): which tags the time form offers
-/// per project, i.e. `[projects]` in `config.toml`. Plain data; the view draws the checkboxes.
 pub struct ProjectTagsForm {
-    /// Active projects plus inactive ones that have tags, by name: (id, name, customer).
     pub projects: Vec<(i64, String, String)>,
-    /// The tags offered: all but the `z_` ones, plus any `z_` tag a project already has; by name.
     pub tags: Vec<(i64, String)>,
-    /// The project whose tags are shown (an index into `projects`).
     pub current: usize,
-    /// Project id → checked tag ids, as edited.
     pub chosen: HashMap<i64, BTreeSet<i64>>,
-    /// As it was on opening, so only the projects changed are written.
+    /// So only the projects changed are written.
     original: HashMap<i64, BTreeSet<i64>>,
     pub error: Option<String>,
 }
 
 impl ProjectTagsForm {
-    /// Opens with what each project offers now (`Session::tags_for`): while nothing is configured,
-    /// that is every tag, and saving then writes all projects.
     pub fn new(session: &Session) -> Self {
         let original: HashMap<i64, BTreeSet<i64>> = session
             .project_tags
@@ -429,12 +385,10 @@ impl ProjectTagsForm {
         self.chosen.get(&project_id).is_some_and(|t| t.contains(&tag_id))
     }
 
-    /// How many tags `project_id` has checked.
     pub fn count(&self, project_id: i64) -> usize {
         self.chosen.get(&project_id).map_or(0, BTreeSet::len)
     }
 
-    /// Checks or unchecks `tag_id` for the shown project.
     pub fn toggle(&mut self, tag_id: i64) {
         let Some(project) = self.current_project() else { return };
         let tags = self.chosen.entry(project).or_default();
@@ -443,15 +397,12 @@ impl ProjectTagsForm {
         }
     }
 
-    /// Checks (`true`) or unchecks every tag for the shown project.
     pub fn set_all(&mut self, checked: bool) {
         let Some(project) = self.current_project() else { return };
         let all = if checked { self.tags.iter().map(|(id, _)| *id).collect() } else { BTreeSet::new() };
         self.chosen.insert(project, all);
     }
 
-    /// The projects whose tags changed, as (project name, tag names) for
-    /// `store::config::save_project_tags`.
     pub fn changes(&self) -> Vec<(String, Vec<String>)> {
         let none = BTreeSet::new();
         self.projects
@@ -518,7 +469,6 @@ mod tests {
         form.set_all(false);
         assert_eq!(form.count(3), 0);
 
-        // Nothing configured: every project starts with all tags but the z_ ones, and is written.
         s.project_tags = HashMap::new();
         let form = ProjectTagsForm::new(&s);
         assert_eq!(form.count(6), 2);

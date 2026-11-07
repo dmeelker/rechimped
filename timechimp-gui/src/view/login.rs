@@ -1,5 +1,3 @@
-//! The login screen.
-
 use gpui::{
     Animation, AnimationExt, Context, FontWeight, InteractiveElement, IntoElement, ParentElement, Styled, Window, div,
     prelude::FluentBuilder, px,

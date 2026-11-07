@@ -1,5 +1,3 @@
-//! Small building blocks shared by the screens: table cells, panels, buttons, hints.
-
 use std::sync::Arc;
 
 use chrono::{Datelike, Duration};
@@ -27,7 +25,6 @@ pub(super) fn hours_colour(theme: &T, hours: f64, target: f64) -> Hsla {
     }
 }
 
-/// A table cell with a fixed width (or flexible with `None`) that truncates its text.
 pub(super) fn cell(width: Option<f32>, content: impl Into<SharedString>) -> gpui::Div {
     let d = div().overflow_hidden().whitespace_nowrap().text_ellipsis().px(px(6.)).child(content.into());
     match width {
@@ -54,8 +51,7 @@ pub(super) fn header_row(theme: &T, cells: impl IntoIterator<Item = gpui::Div>) 
         .children(cells)
 }
 
-/// A bordered card with a title bar. It may shrink below its content (`min_h_0`), so put its
-/// rows in `table_rows` to have them scroll while the title and column header stay put.
+/// Shrinks below its content (`min_h_0`), so rows must go in `table_rows` to scroll.
 pub(super) fn panel(theme: &T, title: impl IntoElement, right: Option<AnyElement>) -> gpui::Div {
     v_stack()
         .min_h_0()
@@ -77,7 +73,6 @@ pub(super) fn panel(theme: &T, title: impl IntoElement, right: Option<AnyElement
         )
 }
 
-/// The rows of a table inside a `panel`: scrolls vertically when the panel runs out of room.
 pub(super) fn table_rows(id: &'static str, rows: impl IntoIterator<Item = impl IntoElement>) -> gpui::Stateful<gpui::Div> {
     div().id(id).flex().flex_col().min_h_0().overflow_y_scroll().children(rows)
 }
@@ -86,15 +81,13 @@ pub(super) fn muted(theme: &T, text: impl Into<SharedString>) -> gpui::Div {
     div().text_color(theme.fg_muted()).child(text.into())
 }
 
-/// The empty message of a table whose data failed to load (the error toast says why).
 pub(super) const NOT_LOADED: &str = "Not loaded. Press R to try again.";
 
 pub(super) fn empty_message(theme: &T, text: &'static str) -> gpui::Div {
     div().w_full().py(px(32.)).flex().justify_center().text_color(theme.fg_muted()).child(text)
 }
 
-/// Outline + soft drop shadow around a gpuikit button, so it stands off the background.
-/// Drawn as box-shadows, so the button keeps its size.
+/// Drawn as box-shadows so the button keeps its size.
 pub(super) fn pop(theme: &T, button: impl IntoElement) -> gpui::Div {
     let m = theme.control(ControlSize::Medium);
     div().flex_none().rounded(m.radius).shadow(button_shadow(theme.border_secondary(), 0.10)).child(button)
@@ -113,8 +106,7 @@ pub(super) fn button_shadow(outline: Hsla, drop: f32) -> Vec<BoxShadow> {
     ]
 }
 
-/// The main action of a screen: solid accent with white text. gpuikit's button has no primary
-/// variant, so this mirrors its metrics (same height/padding/radius as the other controls).
+/// gpuikit's button has no primary variant, so this mirrors its metrics.
 pub(super) fn primary_button(
     theme: &T,
     id: &'static str,
@@ -155,8 +147,6 @@ pub(super) fn primary_button(
         })
 }
 
-/// The ‹ Today › control of a toolbar: three joined segments under one outline (the `pop` look),
-/// so they read as one widget. `at_today` shows the middle segment as selected (accent tint).
 pub(super) fn period_nav(
     theme: &T,
     prev: (&'static str, &'static str, ClickHandler),
@@ -224,7 +214,6 @@ fn nav_segment(
         })
 }
 
-/// The heading next to a `period_nav`: the period in large type, an optional muted suffix.
 pub(super) fn period_title(theme: &T, main: String, suffix: Option<String>) -> gpui::Div {
     h_stack()
         .pl(px(12.))
@@ -238,7 +227,6 @@ pub(super) fn hint(key: &'static str, label: &'static str) -> gpui::Div {
     h_stack().gap(px(4.)).items_center().child(kbd(key).small()).child(label)
 }
 
-/// A thin marker between two entries: amber for a gap, red for an overlap.
 pub(super) fn junction_row(theme: &T, junction: &crate::domain::week::Junction) -> impl IntoElement {
     use crate::domain::week::Junction;
     let (colour, from, to, what) = match *junction {
@@ -263,7 +251,6 @@ pub(super) fn junction_row(theme: &T, junction: &crate::domain::week::Junction) 
         .child(div().flex_1().h(px(1.)).bg(colour.opacity(0.4)))
 }
 
-/// The colour of a billable share against the goal: met, missed, or muted when there is none.
 pub(super) fn goal_colour(theme: &T, share: Option<f64>, goal: f64) -> gpui::Hsla {
     match share {
         None => theme.fg_muted(),
@@ -272,8 +259,6 @@ pub(super) fn goal_colour(theme: &T, share: Option<f64>, goal: f64) -> gpui::Hsl
     }
 }
 
-/// "Week 45 · 2–8 Nov 2026", "Week 44 · 26 Oct – 1 Nov 2026", "Week 1 · 29 Dec 2025 – 4 Jan 2026".
-/// The shown week as (date range, "Week 45").
 pub(super) fn week_title(app: &TimeChimpApp) -> (String, String) {
     let (start, end) = (app.session.week_start(), app.session.week_start() + Duration::days(6));
     let range = if start.year() != end.year() {
@@ -286,7 +271,6 @@ pub(super) fn week_title(app: &TimeChimpApp) -> (String, String) {
     (range, format!("Week {}", start.iso_week().week()))
 }
 
-/// The box of a dropdown menu; its items are `menu_item`s.
 pub(super) fn menu_panel(theme: &T, id: &'static str) -> gpui::Stateful<gpui::Div> {
     v_stack()
         .id(id)

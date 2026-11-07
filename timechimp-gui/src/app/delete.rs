@@ -1,5 +1,3 @@
-//! Deleting entries, trips and presets, after confirmation.
-
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use timechimp::Client;
@@ -48,8 +46,6 @@ impl TimeChimpApp {
         self.confirm_delete(target, question, label, window, cx);
     }
 
-    /// The × of a trip preset in the "+ Add trip" dropdown: removes `preset` from `config.toml`,
-    /// after confirmation.
     pub fn ask_delete_trip_preset(&mut self, preset: config::TripPreset, window: &mut Window, cx: &mut Context<Self>) {
         self.menu = None;
         let label = format!("\"{}\": {} → {}", preset.name, preset.from, preset.to);
@@ -57,8 +53,6 @@ impl TimeChimpApp {
         self.confirm_delete(target, "Delete preset?", label, window, cx);
     }
 
-    /// The × of a time preset in the "+ Add time" dropdown: removes `preset` from `config.toml`,
-    /// after confirmation.
     pub fn ask_delete_time_preset(&mut self, preset: config::TimePreset, window: &mut Window, cx: &mut Context<Self>) {
         self.menu = None;
         let task = preset.task.as_deref().map(|t| format!(" / {t}")).unwrap_or_default();
@@ -107,7 +101,6 @@ impl TimeChimpApp {
         }
     }
 
-    /// Deletes an entry or trip in TimeChimp; `request` makes the call.
     fn delete_remote(
         &mut self,
         window: &mut Window,
@@ -125,7 +118,6 @@ impl TimeChimpApp {
         });
     }
 
-    /// A preset only lives in `config.toml`, so no request is needed.
     fn delete_preset(&mut self, preset: &impl config::Preset, window: &mut Window, cx: &mut Context<Self>) {
         match config::path().and_then(|path| config::remove_preset(&path, preset)) {
             Ok(()) => {
@@ -141,8 +133,6 @@ impl TimeChimpApp {
 enum DeleteTarget {
     Time(i64),
     Mileage(i64),
-    /// A `[[trips]]` preset in `config.toml`.
     TripPreset(config::TripPreset),
-    /// A `[[time_entries]]` preset in `config.toml`.
     TimePreset(config::TimePreset),
 }

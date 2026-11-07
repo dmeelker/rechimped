@@ -1,11 +1,5 @@
-//! GPU effects: an animated aurora (blurred "orbs" from gpui's Gaussian shadow shader, gradient
-//! ribbons tessellated as paths, twinkling sparks), a glowing border for the login card, a light
-//! sweep under the header, and a frame-time HUD.
-//!
-//! gpui has no custom-shader hook, so everything here is built from its GPU primitives and redrawn
-//! every frame from the elapsed time. Animation only runs where it is wanted: the login screen,
-//! the busy bar, a short sweep on navigation, and showcase mode (F12: aurora behind the whole app
-//! plus the HUD). Otherwise the app stays event-driven and draws nothing while idle.
+//! gpui has no custom-shader hook, so these effects are built from its GPU primitives and redrawn
+//! every frame. Animation only runs while wanted, so the app otherwise stays idle.
 
 use std::cell::Cell;
 use std::collections::VecDeque;
@@ -19,18 +13,14 @@ use gpui::{
     relative, size,
 };
 
-/// Frames kept for the HUD's FPS figure and sparkline.
 const HISTORY: usize = 120;
 
 pub struct Fx {
     start: Instant,
-    /// F12: aurora behind the main screen and the frame-time HUD.
     pub showcase: bool,
-    /// Bumped on navigation; restarts the header's light sweep (its element id changes).
+    /// Bumping it changes the sweep's element id, which restarts it.
     pub sweep: u64,
     frames: VecDeque<Instant>,
-    /// Render start → end of paint of the previous frame (CPU side), written by a canvas at the
-    /// end of the tree.
     cpu: Rc<Cell<Duration>>,
     cpu_avg: f32,
 }
@@ -47,19 +37,17 @@ impl Fx {
         }
     }
 
-    /// F12: toggles showcase mode, starting the HUD's statistics afresh.
     pub fn toggle_showcase(&mut self) {
         self.showcase = !self.showcase;
         self.frames.clear();
         self.cpu_avg = 0.;
     }
 
-    /// Seconds since start, or a still frame with reduced motion.
     pub fn time(&self, cx: &App) -> f32 {
         if cx.reduce_motion() { 4.0 } else { self.start.elapsed().as_secs_f32() }
     }
 
-    /// Call at the start of every render: records the frame and, when `animate`, asks for the next.
+    /// Call at the start of every render.
     pub fn begin_frame(&mut self, animate: bool, window: &mut Window, cx: &App) -> Instant {
         let now = Instant::now();
         self.frames.push_back(now);
@@ -75,13 +63,12 @@ impl Fx {
         now
     }
 
-    /// Put last in the tree: measures this frame's CPU time up to the end of paint.
+    /// Must be last in the tree: measures CPU time up to the end of paint.
     pub fn end_frame(&self, started: Instant) -> impl IntoElement {
         let cpu = self.cpu.clone();
         canvas(|_, _, _| (), move |_, _, _, _| cpu.set(started.elapsed())).absolute().size_0()
     }
 
-    /// Frame-time HUD: FPS, frame interval, CPU time per frame and an interval sparkline.
     pub fn hud(&self, fg: Hsla, muted: Hsla, accent: Hsla, surface: Hsla) -> impl IntoElement {
         let intervals: Vec<f32> = self
             .frames
@@ -150,13 +137,11 @@ fn sparkline(intervals: Vec<f32>, worst: f32, accent: Hsla, muted: Hsla) -> gpui
                 return;
             }
             let ceiling = worst.max(20.);
-            // 16.7 ms (60 Hz) guide line.
             let y60 = b.bottom() - b.size.height * (16.7 / ceiling);
             window.paint_quad(fill(bounds(point(b.left(), y60), size(b.size.width, px(1.))), muted.opacity(0.35)));
             let step = b.size.width / (HISTORY - 1) as f32;
             let x0 = b.right() - step * (intervals.len() - 1) as f32;
             let at = |i: usize, v: f32| point(x0 + step * i as f32, b.bottom() - b.size.height * (v / ceiling).min(1.));
-            // Filled area under the line, fading down.
             let mut area = PathBuilder::fill();
             area.move_to(point(x0, b.bottom()));
             for (i, v) in intervals.iter().enumerate() {
@@ -182,20 +167,18 @@ fn sparkline(intervals: Vec<f32>, worst: f32, accent: Hsla, muted: Hsla) -> gpui
     )
 }
 
-/// Catppuccin Latte hues around TimeChimp orange.
 fn palette(accent: Hsla) -> [Hsla; 6] {
     [
         accent,
-        hsla(0.74, 0.84, 0.58, 1.),  // mauve
-        hsla(0.53, 0.70, 0.45, 1.),  // sapphire
-        hsla(0.88, 0.73, 0.69, 1.),  // pink
-        hsla(0.10, 0.90, 0.60, 1.),  // peach / yellow
-        hsla(0.62, 0.80, 0.60, 1.),  // blue
+        hsla(0.74, 0.84, 0.58, 1.),
+        hsla(0.53, 0.70, 0.45, 1.),
+        hsla(0.88, 0.73, 0.69, 1.),
+        hsla(0.10, 0.90, 0.60, 1.),
+        hsla(0.62, 0.80, 0.60, 1.),
     ]
 }
 
-/// Full-size animated aurora; place in an `absolute().inset_0()` parent behind the content.
-/// `strength` scales every alpha (1.0 on the login screen, softer behind the main UI).
+/// Place in an `absolute().inset_0()` parent behind the content.
 pub fn aurora(t: f32, accent: Hsla, base: Hsla, strength: f32) -> gpui::Canvas<()> {
     canvas(
         |_, _, _| (),
@@ -209,7 +192,6 @@ fn paint_aurora(b: Bounds<Pixels>, t: f32, accent: Hsla, base: Hsla, strength: f
     let (w, h) = (b.size.width.as_f32(), b.size.height.as_f32());
     let center = b.center();
 
-    // Slowly turning base wash.
     let warm = hsla(accent.h, 0.9, 0.93, 1.);
     window.paint_quad(fill(
         b,
@@ -220,7 +202,6 @@ fn paint_aurora(b: Bounds<Pixels>, t: f32, accent: Hsla, base: Hsla, strength: f
         ),
     ));
 
-    // Orbs: rounded rects with a huge Gaussian blur, drifting on Lissajous curves.
     let r = w.min(h) * 0.30;
     for (i, colour) in colours.iter().enumerate() {
         let k = i as f32;
@@ -247,7 +228,6 @@ fn paint_aurora(b: Bounds<Pixels>, t: f32, accent: Hsla, base: Hsla, strength: f
         );
     }
 
-    // Flowing ribbons: two summed sine waves per edge, tessellated and gradient-filled on the GPU.
     const SEGMENTS: usize = 64;
     for (i, colour) in colours.iter().take(3).enumerate() {
         let k = i as f32;
@@ -283,7 +263,6 @@ fn paint_aurora(b: Bounds<Pixels>, t: f32, accent: Hsla, base: Hsla, strength: f
         }
     }
 
-    // Sparks: tiny glowing dots on a fixed pseudo-random field, twinkling out of phase.
     for i in 0..48u32 {
         let hash = |n: u32| ((n.wrapping_mul(2_654_435_761) >> 8) & 0xffff) as f32 / 65535.;
         let (sx, sy, sp) = (hash(i * 3 + 1), hash(i * 3 + 2), hash(i * 3 + 3));
@@ -310,8 +289,6 @@ fn paint_aurora(b: Bounds<Pixels>, t: f32, accent: Hsla, base: Hsla, strength: f
     }
 }
 
-/// Wraps `content` in a 1.5px border whose two-colour gradient turns over time, with a pulsing
-/// accent glow behind it.
 pub fn glow_frame(t: f32, accent: Hsla, radius: Pixels, content: impl IntoElement) -> gpui::Div {
     let mauve = palette(accent)[1];
     let pulse = 0.5 + 0.5 * (t * 1.3).sin();
@@ -338,8 +315,6 @@ pub fn glow_frame(t: f32, accent: Hsla, radius: Pixels, content: impl IntoElemen
         .child(content)
 }
 
-/// A 2px track with a light streak sweeping across: once per `sweep` (navigation), or looping
-/// while `busy`.
 pub fn sweep_bar(sweep: u64, busy: bool, accent: Hsla) -> impl IntoElement {
     let half = |angle: f32| {
         div().flex_1().h_full().bg(linear_gradient(

@@ -1,5 +1,3 @@
-//! The Settings and Project tags dialogs, opened from the menu under the user name.
-
 use gpui::{Context, ElementId, FontWeight, InteractiveElement, StatefulInteractiveElement, IntoElement, ParentElement, Styled, div, prelude::FluentBuilder, px};
 use gpuikit::elements::button::button;
 use gpuikit::elements::checkbox::{CheckState, checkbox_box};
@@ -63,7 +61,6 @@ impl TimeChimpApp {
         Self::modal(theme, "settings", 660., card, None)
     }
 
-    /// The Settings dialog's project list: unchecked projects aren't offered in the forms.
     fn render_project_visibility(&self, form: &SettingsForm, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
         let p = &form.projects;
         let rows = p.projects.iter().map(|(id, name, customer)| {
@@ -123,13 +120,11 @@ impl TimeChimpApp {
     }
 }
 
-/// A short number field with its unit after it.
 fn number_field(field: TextField, unit: gpui::Div) -> gpui::AnyElement {
     h_stack().gap(px(8.)).items_center().child(div().w(px(100.)).child(field)).child(unit).into_any_element()
 }
 
 impl TimeChimpApp {
-    /// The Project tags dialog: the projects on the left, the tags of the selected one on the right.
     pub(super) fn render_project_tags(&self, form: &ProjectTagsForm, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         let list = |id: &'static str| {
             v_stack()
@@ -195,7 +190,7 @@ impl TimeChimpApp {
                     .on_click(cx.listener(move |this, _, _, cx| this.set_all_project_tags(checked, cx))),
             )
         };
-        // Each column: a header row as tall as a button, then its list, so both lists line up.
+        // Header rows as tall as a button, so both lists line up.
         let column = |header: gpui::Div, list: gpui::Stateful<gpui::Div>| {
             v_stack().gap(px(8.)).child(header.h(theme.control(ControlSize::Medium).height).items_center()).child(list)
         };
