@@ -13,6 +13,19 @@ pub const CLIENT_ID: &str = "7nq87ee95nibpha7loi8pb7lnp";
 
 const COGNITO_URL: &str = "https://cognito-idp.eu-central-1.amazonaws.com/";
 const REFRESH_MARGIN: Duration = Duration::from_secs(5 * 60);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Per request, including reading the body; generous because report pages can be slow.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// The HTTP client shared by an `Authenticator` and its `Client`. With timeouts, so a hung
+/// connection fails instead of keeping a request (and the app's busy state) open forever.
+fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .expect("the HTTP client builder has no failing options")
+}
 
 /// Obtains and refreshes access tokens for the TimeChimp API.
 pub struct Authenticator {
@@ -52,7 +65,7 @@ impl Authenticator {
     /// [`Authenticator::login`] against another Cognito endpoint than AWS's, for tests.
     #[doc(hidden)]
     pub async fn login_at(cognito_url: &str, email: &str, password: &str) -> Result<LoginOutcome> {
-        let http = reqwest::Client::new();
+        let http = http_client();
         let srp = SrpClient::new();
 
         let init = cognito(
@@ -132,7 +145,7 @@ impl Authenticator {
     #[doc(hidden)]
     pub fn from_refresh_token_at(cognito_url: &str, refresh_token: impl Into<String>) -> Self {
         Self {
-            http: reqwest::Client::new(),
+            http: http_client(),
             cognito_url: cognito_url.to_owned(),
             refresh_token: refresh_token.into(),
             access: Mutex::new(None),
@@ -145,7 +158,7 @@ impl Authenticator {
     pub fn with_access_token(token: impl Into<String>) -> Self {
         let token = AccessToken { token: token.into(), expires_at: Instant::now() + Duration::from_secs(3600) };
         Self {
-            http: reqwest::Client::new(),
+            http: http_client(),
             cognito_url: COGNITO_URL.to_owned(),
             refresh_token: String::new(),
             access: Mutex::new(Some(token)),
