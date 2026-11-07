@@ -52,7 +52,7 @@ impl Tab {
 
     fn label(self) -> &'static str {
         match self {
-            Tab::Week => "Week",
+            Tab::Week => "Time",
             Tab::Mileage => "Mileage",
             Tab::Report => "Report",
             Tab::Projects => "Projects",
