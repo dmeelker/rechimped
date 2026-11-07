@@ -156,25 +156,21 @@ impl TimeChimpApp {
         if from.is_empty() || to.is_empty() {
             return self.form_error("Fill in both addresses first", cx);
         }
-        // Ok(Err(message)): an address the lookup doesn't know.
         let future = async move {
             let lookup = |query: String| {
                 let client = client.clone();
                 async move {
                     let place = client.place_predictions(&query).await?.into_iter().next();
-                    timechimp::Result::Ok(place.ok_or(format!("Address not found: {query}")))
+                    place.ok_or_else(|| timechimp::Error::NotFound(format!("Address not found: {query}")))
                 }
             };
             let (from_place, to_place) = tokio::try_join!(lookup(from), lookup(to))?;
-            let (from_place, to_place) = match (from_place, to_place) {
-                (Ok(from), Ok(to)) => (from, to),
-                (Err(message), _) | (_, Err(message)) => return Ok(Err(message)),
-            };
             let route = client.route_distance(&from_place.place_id, &to_place.place_id).await?;
-            timechimp::Result::Ok(Ok((from_place.description, to_place.description, route)))
+            timechimp::Result::Ok((from_place.description, to_place.description, route))
         };
+        // An unknown address or no route is an Error::NotFound, shown in the form.
         self.run("Calculating distance…", future, window, cx, |this, result, window, cx| match result {
-            Ok(Ok((from, to, route))) => {
+            Ok((from, to, route)) => {
                 if let Some(form) = &mut this.form {
                     form.error = None;
                     if let Some(f) = form.trip() {
@@ -189,7 +185,6 @@ impl TimeChimpApp {
                     cx,
                 );
             }
-            Ok(Err(message)) => this.form_error(message, cx),
             Err(e) => this.form_api_error(e, window, cx),
         });
     }

@@ -1,6 +1,5 @@
 //! The calendar under the Date field of both forms.
 
-use chrono::{Duration, Months};
 use gpui::{AppContext, Context, Focusable, Window};
 use gpuikit::date::Weekday;
 use gpuikit::elements::calendar::{Calendar, CalendarEvent};
@@ -92,22 +91,23 @@ impl TimeChimpApp {
         }
     }
 
+    /// ↓ in the Date field: opens a closed calendar, or moves a week down in an open one.
+    pub fn calendar_down(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match &self.form {
+            Some(form) if form.date().picker.is_none() => self.open_calendar(window, cx),
+            _ => self.move_calendar(7, 0, cx),
+        }
+    }
+
     /// The arrows and PageUp/PageDown in the Date field while the calendar is open: move the date
-    /// by `days` and `months`, in the field and the calendar. ↓ opens a closed calendar; other keys
-    /// then do what they normally do in a text field.
-    pub fn move_calendar(&mut self, days: i64, months: i32, window: &mut Window, cx: &mut Context<Self>) {
+    /// by `days` and `months`, in the field and the calendar. With it closed the key does what it
+    /// normally does in a text field.
+    pub fn move_calendar(&mut self, days: i64, months: i32, cx: &mut Context<Self>) {
         let Some(form) = &self.form else { return cx.propagate() };
         let field = form.date();
-        let Some(picker) = &field.picker else {
-            return if days == 7 { self.open_calendar(window, cx) } else { cx.propagate() };
-        };
+        let Some(picker) = &field.picker else { return cx.propagate() };
         let current = field.parsed(cx).unwrap_or(self.session.day());
-        let shifted = match months {
-            0 => Some(current),
-            m if m > 0 => current.checked_add_months(Months::new(m.unsigned_abs())),
-            m => current.checked_sub_months(Months::new(m.unsigned_abs())),
-        };
-        let Some(date) = shifted.and_then(|d| d.checked_add_signed(Duration::days(days))) else { return };
+        let Some(date) = domain::time::shift_date(current, days, months) else { return };
         field.input.update(cx, |input, cx| input.set_content_silent(date.to_string(), cx));
         picker.calendar.update(cx, |c, cx| c.set_selected(Some(forms::to_calendar_date(date)), cx));
         cx.notify();

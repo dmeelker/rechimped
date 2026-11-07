@@ -18,6 +18,17 @@ pub fn first_of_month(date: NaiveDate) -> NaiveDate {
     date.with_day(1).expect("day 1 exists")
 }
 
+/// `date` moved by `months` (clamped to the month's last day: 31 Jan + 1 month = 28/29 Feb) and
+/// then by `days`; None outside chrono's range.
+pub fn shift_date(date: NaiveDate, days: i64, months: i32) -> Option<NaiveDate> {
+    let shifted = match months {
+        0 => Some(date),
+        m if m > 0 => date.checked_add_months(Months::new(m.unsigned_abs())),
+        m => date.checked_sub_months(Months::new(m.unsigned_abs())),
+    };
+    shifted?.checked_add_signed(Duration::days(days))
+}
+
 pub fn today() -> NaiveDate {
     Local::now().date_naive()
 }
@@ -105,6 +116,16 @@ pub fn parse_decimal(s: &str) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shifting_dates() {
+        let d = |y, m, d| NaiveDate::from_ymd_opt(y, m, d).unwrap();
+        assert_eq!(shift_date(d(2026, 11, 4), 7, 0), Some(d(2026, 11, 11)));
+        assert_eq!(shift_date(d(2026, 1, 2), -7, 0), Some(d(2025, 12, 26)));
+        assert_eq!(shift_date(d(2026, 1, 31), 0, 1), Some(d(2026, 2, 28)), "clamped to the month's end");
+        assert_eq!(shift_date(d(2026, 3, 31), 0, -1), Some(d(2026, 2, 28)));
+        assert_eq!(shift_date(NaiveDate::MAX, 1, 0), None);
+    }
 
     #[test]
     fn relative_end() {

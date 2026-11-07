@@ -1,6 +1,8 @@
 //! Deleting entries, trips and presets, after confirmation.
 
 use futures::FutureExt;
+use futures::future::BoxFuture;
+use timechimp::Client;
 
 use gpui::{AppContext, Context, Window};
 use gpuikit::elements::dialog::{DialogClosed, DialogState, dialog};
@@ -93,28 +95,27 @@ impl TimeChimpApp {
     }
 
     fn delete(&mut self, target: DeleteTarget, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(client) = self.session.client.clone() else { return };
-        let future = match &target {
-            &DeleteTarget::Time(id) => async move { client.delete_time_entry(id).await }.boxed(),
-            &DeleteTarget::Mileage(id) => async move { client.delete_mileage(id).await }.boxed(),
-            // A preset only lives in config.toml; no request needed.
-            DeleteTarget::TripPreset(_) | DeleteTarget::TimePreset(_) => {
-                let removed = config::path().and_then(|path| match &target {
-                    DeleteTarget::TripPreset(p) => config::remove_preset(&path, p),
-                    DeleteTarget::TimePreset(p) => config::remove_preset(&path, p),
-                    _ => unreachable!(),
-                });
-                match removed {
-                    Ok(_) => {
-                        self.load_config(window, cx);
-                        self.set_info("Preset deleted from config.toml", window, cx);
-                    }
-                    Err(e) => self.set_error(e, window, cx),
-                }
-                return;
+        match target {
+            DeleteTarget::Time(id) => {
+                self.delete_remote(window, cx, move |client| async move { client.delete_time_entry(id).await }.boxed())
             }
-        };
-        self.run("Deleting…", future, window, cx, |this, result, window, cx| match result {
+            DeleteTarget::Mileage(id) => {
+                self.delete_remote(window, cx, move |client| async move { client.delete_mileage(id).await }.boxed())
+            }
+            DeleteTarget::TripPreset(p) => self.delete_preset(&p, window, cx),
+            DeleteTarget::TimePreset(p) => self.delete_preset(&p, window, cx),
+        }
+    }
+
+    /// Deletes an entry or trip in TimeChimp; `request` makes the call.
+    fn delete_remote(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        request: impl FnOnce(Client) -> BoxFuture<'static, timechimp::Result<()>>,
+    ) {
+        let Some(client) = self.session.client.clone() else { return };
+        self.run("Deleting…", request(client), window, cx, |this, result, window, cx| match result {
             Ok(()) => {
                 this.session.invalidate_report();
                 this.load_week(None, window, cx);
@@ -122,6 +123,17 @@ impl TimeChimpApp {
             }
             Err(e) => this.api_error(e, window, cx),
         });
+    }
+
+    /// A preset only lives in `config.toml`, so no request is needed.
+    fn delete_preset(&mut self, preset: &impl config::Preset, window: &mut Window, cx: &mut Context<Self>) {
+        match config::path().and_then(|path| config::remove_preset(&path, preset)) {
+            Ok(()) => {
+                self.load_config(window, cx);
+                self.set_info("Preset deleted from config.toml", window, cx);
+            }
+            Err(e) => self.set_error(e, window, cx),
+        }
     }
 }
 
