@@ -291,8 +291,10 @@ impl TimeChimpApp {
             })
             .child(pop(
                 theme,
+                // Red only while it can act: gpuikit greys a disabled button's text but keeps the
+                // red fill, which leaves the label unreadable.
                 nav("delete", "Delete", |this, w, cx| this.ask_delete(w, cx))
-                    .variant(ButtonVariant::Destructive)
+                    .variant(if has { ButtonVariant::Destructive } else { ButtonVariant::Filled })
                     .disabled(!has),
             ))
             .into_any_element()
