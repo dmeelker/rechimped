@@ -240,11 +240,22 @@ impl TimeChimpApp {
 
     /// A failed request: back to the login screen when the session is no good, otherwise just
     /// the message (the network or the server may recover; R retries).
+    /// The stored token is deleted then: it would fail the same way on the next start.
     fn api_error(&mut self, error: timechimp::Error, window: &mut Window, cx: &mut Context<Self>) {
         if error.is_auth() {
+            token::delete_token();
             self.show_login(Some(format!("Session expired or invalid, please log in again ({error})")), window, cx);
         } else {
             self.set_error(format!("Error: {error}"), window, cx);
+        }
+    }
+
+    /// A failed request of the open form: the message in the form, unless the session is no good.
+    fn form_api_error(&mut self, error: timechimp::Error, window: &mut Window, cx: &mut Context<Self>) {
+        if error.is_auth() {
+            self.api_error(error, window, cx);
+        } else {
+            self.form_error(error.to_string(), cx);
         }
     }
 
@@ -1190,26 +1201,25 @@ impl TimeChimpApp {
         if from.is_empty() || to.is_empty() {
             return self.form_error("Fill in both addresses first", cx);
         }
+        // Ok(Err(message)): an address the lookup doesn't know.
         let future = async move {
             let lookup = |query: String| {
                 let client = client.clone();
                 async move {
-                    client
-                        .place_predictions(&query)
-                        .await
-                        .map_err(|e| e.to_string())?
-                        .into_iter()
-                        .next()
-                        .ok_or_else(|| format!("Address not found: {query}"))
+                    let place = client.place_predictions(&query).await?.into_iter().next();
+                    timechimp::Result::Ok(place.ok_or(format!("Address not found: {query}")))
                 }
             };
             let (from_place, to_place) = tokio::try_join!(lookup(from), lookup(to))?;
-            let route =
-                client.route_distance(&from_place.place_id, &to_place.place_id).await.map_err(|e| e.to_string())?;
-            Ok::<_, String>((from_place.description, to_place.description, route))
+            let (from_place, to_place) = match (from_place, to_place) {
+                (Ok(from), Ok(to)) => (from, to),
+                (Err(message), _) | (_, Err(message)) => return Ok(Err(message)),
+            };
+            let route = client.route_distance(&from_place.place_id, &to_place.place_id).await?;
+            timechimp::Result::Ok(Ok((from_place.description, to_place.description, route)))
         };
         self.run("Calculating distance…", future, window, cx, |this, result, window, cx| match result {
-            Ok((from, to, route)) => {
+            Ok(Ok((from, to, route))) => {
                 if let Some(form) = &mut this.form {
                     form.error = None;
                     if let FormBody::Mileage(f) = &form.body {
@@ -1224,7 +1234,8 @@ impl TimeChimpApp {
                     cx,
                 );
             }
-            Err(e) => this.form_error(e, cx),
+            Ok(Err(message)) => this.form_error(message, cx),
+            Err(e) => this.form_api_error(e, window, cx),
         });
     }
 
@@ -1238,19 +1249,18 @@ impl TimeChimpApp {
             Err(message) => return self.form_error(message, cx),
         };
         let future = async move {
-            let e = |e: timechimp::Error| e.to_string();
             match request {
                 SaveRequest::Time { id: Some(id), entry } => {
-                    Ok(Saved::Done(client.update_time_entry(id, &entry).await.map_err(e)?.id, "Time entry updated."))
+                    Ok(Saved::Done(client.update_time_entry(id, &entry).await?.id, "Time entry updated."))
                 }
                 SaveRequest::Time { id: None, entry } => {
-                    Ok(Saved::Done(client.create_time_entry(&entry).await.map_err(e)?.id, "Time entry saved."))
+                    Ok(Saved::Done(client.create_time_entry(&entry).await?.id, "Time entry saved."))
                 }
                 SaveRequest::Mileage { trip, editing: Some(original), .. } => {
-                    Ok(Saved::Done(client.update_mileage(&original, &trip).await.map_err(e)?.id, "Trip updated."))
+                    Ok(Saved::Done(client.update_mileage(&original, &trip).await?.id, "Trip updated."))
                 }
                 SaveRequest::Mileage { trip, return_trip, editing: None } => {
-                    let id = client.create_mileage(&trip).await.map_err(e)?.id;
+                    let id = client.create_mileage(&trip).await?.id;
                     if !return_trip {
                         return Ok(Saved::Done(id, "Mileage saved."));
                     }
@@ -1258,15 +1268,16 @@ impl TimeChimpApp {
                     match client.create_mileage(&back).await {
                         Ok(_) => Ok(Saved::Done(id, "Mileage saved (return trip included).")),
                         // The outbound trip is in: closing the form keeps Save from adding it twice.
-                        Err(error) => Ok(Saved::Partial(id, e(error))),
+                        Err(error) => Ok(Saved::Partial(id, error)),
                     }
                 }
             }
         };
-        self.run("Saving…", future, window, cx, move |this, result: Result<Saved, String>, window, cx| {
-            let id = match &result {
-                Ok(Saved::Done(id, _) | Saved::Partial(id, _)) => *id,
-                Err(e) => return this.form_error(e.clone(), cx),
+        self.run("Saving…", future, window, cx, move |this, result: timechimp::Result<Saved>, window, cx| {
+            let (id, outcome) = match result {
+                Ok(Saved::Done(id, message)) => (id, Ok(message)),
+                Ok(Saved::Partial(id, e)) => (id, Err(e)),
+                Err(e) => return this.form_api_error(e, window, cx),
             };
             this.close_form(window, cx);
             // Jump to the day of the saved item and select it.
@@ -1274,12 +1285,10 @@ impl TimeChimpApp {
             this.session.week_start = domain::time::monday_of(date);
             this.session.report = Report::default();
             this.load_week(Some(id), window, cx);
-            match result {
-                Ok(Saved::Done(_, message)) => this.set_info(message, window, cx),
-                Ok(Saved::Partial(_, e)) => {
-                    this.set_error(format!("Outbound trip saved, but the return trip failed: {e}"), window, cx)
-                }
-                Err(_) => {}
+            match outcome {
+                Ok(message) => this.set_info(message, window, cx),
+                Err(e) if e.is_auth() => this.api_error(e, window, cx),
+                Err(e) => this.set_error(format!("Outbound trip saved, but the return trip failed: {e}"), window, cx),
             }
         });
     }
@@ -1426,7 +1435,7 @@ enum DeleteTarget {
 /// What a save did: everything, with a message, or (a trip with its return) only the outbound trip.
 enum Saved {
     Done(i64, &'static str),
-    Partial(i64, String),
+    Partial(i64, timechimp::Error),
 }
 
 /// What `fill_time_form` puts in the open time form.
