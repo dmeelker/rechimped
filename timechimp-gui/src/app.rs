@@ -368,6 +368,8 @@ impl TimeChimpApp {
     pub fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(client) = self.session.client.clone() else { return };
         let (week_start, report_month, want_report) = (self.session.week_start, self.session.report_month, self.tab == Tab::Report);
+        // The report is stale from here on; the Report tab loads it again when shown.
+        self.session.report = Report::default();
         self.session.week_generation += 1;
         let generation = self.session.week_generation;
         let today = domain::time::today();
@@ -387,7 +389,10 @@ impl TimeChimpApp {
                 let history = history.map_err(|e| this.set_error(format!("Could not load recent entries: {e}"), window, cx));
                 this.session.apply_base(base, history.ok(), &week.entries);
                 this.load_config(window, cx);
-                this.session.report = report.unwrap_or_default();
+                // A report loaded meanwhile (tab switch, other month) is newer than this one.
+                if let Some(report) = report.filter(|r| r.month == Some(this.session.report_month)) {
+                    this.session.report = report;
+                }
                 if generation == this.session.week_generation {
                     this.apply_week(week, None);
                 }
