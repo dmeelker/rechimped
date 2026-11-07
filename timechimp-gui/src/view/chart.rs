@@ -74,12 +74,7 @@ fn plot(theme: &T, weeks: &[(chrono::NaiveDate, WeekCard)], goal: f64) -> impl I
 
     let columns = weeks.iter().enumerate().map(|(i, (monday, card))| {
         let share = card.share.unwrap_or(0.0);
-        let met = card.share.is_some_and(|s| s >= goal);
-        let colour = match card.share {
-            None => theme.fg_muted(),
-            Some(_) if met => theme.success(),
-            Some(_) => theme.warning(),
-        };
+        let colour = goal_colour(theme, card.share, goal);
         let label = card.share.map_or("–".into(), |s| format!("{:.0}%", s * 100.0));
         let sunday = *monday + Duration::days(6);
         let tip = format!(
@@ -87,9 +82,9 @@ fn plot(theme: &T, weeks: &[(chrono::NaiveDate, WeekCard)], goal: f64) -> impl I
             monday.iso_week().week(),
             monday.format("%-d %b"),
             sunday.format("%-d %b"),
-            trim_hours(card.billable),
-            trim_hours(card.contract),
-            trim_hours(card.hours),
+            plain_number(card.billable),
+            plain_number(card.contract),
+            plain_number(card.hours),
         );
         let is_selected = Some(*monday) == selected;
         // The column is the hover target, larger than the bar itself.
@@ -118,8 +113,8 @@ fn plot(theme: &T, weeks: &[(chrono::NaiveDate, WeekCard)], goal: f64) -> impl I
             )
             .child(div().text_xs().text_color(theme.fg_muted()).child(format!(
                 "{}h / {}h",
-                trim_hours(card.hours),
-                trim_hours(card.contract)
+                plain_number(card.hours),
+                plain_number(card.contract)
             )))
     });
 

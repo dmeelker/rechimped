@@ -13,6 +13,7 @@ use gpuikit::theme::{ControlSize, Theme, Themeable};
 use gpuikit::traits::control_sized::ControlSized;
 
 use crate::app::TimeChimpApp;
+pub(super) use crate::domain::plain_number;
 
 pub(super) type T = Arc<Theme>;
 
@@ -262,10 +263,13 @@ pub(super) fn junction_row(theme: &T, junction: &crate::domain::week::Junction) 
         .child(div().flex_1().h(px(1.)).bg(colour.opacity(0.4)))
 }
 
-/// Hours without trailing zeros: 24 → "24", 24.5 → "24.5", 24.75 → "24.75".
-pub(super) fn trim_hours(hours: f64) -> String {
-    let s = format!("{hours:.2}");
-    s.trim_end_matches('0').trim_end_matches('.').to_owned()
+/// The colour of a billable share against the goal: met, missed, or muted when there is none.
+pub(super) fn goal_colour(theme: &T, share: Option<f64>, goal: f64) -> gpui::Hsla {
+    match share {
+        None => theme.fg_muted(),
+        Some(s) if s >= goal => theme.success(),
+        Some(_) => theme.warning(),
+    }
 }
 
 /// "Week 45 · 2–8 Nov 2026", "Week 44 · 26 Oct – 1 Nov 2026", "Week 1 · 29 Dec 2025 – 4 Jan 2026".

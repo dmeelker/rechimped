@@ -61,7 +61,7 @@ pub fn billable_hours(entries: &[TimeEntry]) -> f64 {
 
 /// Whether `entry` is leave (project "Intern", task "Verlof"), which the Week card leaves out.
 pub fn is_leave(entry: &TimeEntry) -> bool {
-    entry.project_name.trim().eq_ignore_ascii_case("Intern") && entry.task_name.trim().eq_ignore_ascii_case("Verlof")
+    super::same_name(&entry.project_name, "Intern") && super::same_name(&entry.task_name, "Verlof")
 }
 
 /// What the Week card shows, with leave left out: it counts neither as hours worked nor towards

@@ -6,6 +6,7 @@
 use chrono::NaiveDate;
 use timechimp::{Mileage, MileageType, NewMileage, NewTimeEntry};
 
+use crate::domain::same_name;
 use crate::domain::time::{local, parse_decimal, parse_end, parse_time};
 use crate::session::Session;
 use crate::store::config::{self, Settings, TimePreset, TripPreset};
@@ -61,9 +62,7 @@ fn date_and_customer(date: &str, project_id: Option<i64>, session: &Session) -> 
     let date = NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|_| "Date must be YYYY-MM-DD")?;
     let project_id = project_id.ok_or("Pick a project")?;
     let customer_id = session
-        .projects
-        .iter()
-        .find(|p| p.id == project_id)
+        .project(project_id)
         .map(|p| p.customer_id)
         .or(session.entries.iter().find(|e| e.project_id == project_id).map(|e| e.customer_id))
         .ok_or("Unknown project")?;
@@ -173,14 +172,14 @@ pub fn preset(v: &MileageValues, session: &Session) -> Result<TripPreset, String
     if v.from.is_empty() || v.to.is_empty() {
         return Err("Fill in both addresses first".into());
     }
-    let project = v.project_id.and_then(|id| session.projects.iter().find(|p| p.id == id)).ok_or("Pick a project first")?;
+    let project = v.project_id.and_then(|id| session.project(id)).ok_or("Pick a project first")?;
     let distance = match parse_decimal(&v.distance) {
         Some(km) => Some(km),
         None if v.distance.is_empty() => None,
         None => return Err("Distance must be a number (or empty)".into()),
     };
     let name = config::preset_name(&v.from, &v.to, &v.notes);
-    if session.trip_presets.iter().any(|p| p.name.eq_ignore_ascii_case(&name)) {
+    if session.trip_presets.iter().any(|p| same_name(&p.name, &name)) {
         return Err(format!("There already is a preset \"{name}\" in config.toml"));
     }
     Ok(TripPreset {
@@ -199,7 +198,7 @@ pub fn preset(v: &MileageValues, session: &Session) -> Result<TripPreset, String
 /// "Save as preset" in the time form: the `[[time_entries]]` entry for it (project, task, notes
 /// and tags; the date and times differ per day).
 pub fn time_preset(v: &TimeValues, session: &Session) -> Result<TimePreset, String> {
-    let project = v.project_id.and_then(|id| session.projects.iter().find(|p| p.id == id)).ok_or("Pick a project first")?;
+    let project = v.project_id.and_then(|id| session.project(id)).ok_or("Pick a project first")?;
     let task = v
         .project_task_id
         .and_then(|id| session.project_tasks.get(&project.id)?.iter().find(|t| t.id == id))
@@ -211,8 +210,8 @@ pub fn time_preset(v: &TimeValues, session: &Session) -> Result<TimePreset, Stri
         tags: v.tag_ids.iter().filter_map(|id| session.tags.iter().find(|t| t.id == *id)).map(|t| t.name.clone()).collect(),
     };
     let same = |p: &TimePreset| {
-        p.project.eq_ignore_ascii_case(&preset.project)
-            && p.task.as_deref().is_some_and(|t| t.eq_ignore_ascii_case(&task.name))
+        same_name(&p.project, &preset.project)
+            && p.task.as_deref().is_some_and(|t| same_name(t, &task.name))
             && p.notes.as_deref().map(str::trim) == preset.notes.as_deref()
     };
     if session.time_presets.iter().any(same) {

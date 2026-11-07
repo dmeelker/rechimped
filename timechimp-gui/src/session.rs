@@ -9,7 +9,7 @@ use chrono::{Duration, NaiveDate};
 use timechimp::{Client, CurrentUser, Mileage, Project, ProjectTask, Tag, Task, TimeEntry};
 
 use crate::domain::report::Report;
-use crate::domain::{self, week::RecentItem};
+use crate::domain::{self, same_name, week::RecentItem};
 use crate::store::config::{self, Config, Settings, TimePreset, TripPreset};
 
 pub struct Session {
@@ -354,7 +354,12 @@ impl Session {
 
     /// The project a preset names (case-insensitive), among the user's projects.
     pub fn project_named(&self, name: &str) -> Option<&Project> {
-        self.projects.iter().find(|p| p.name.eq_ignore_ascii_case(name.trim()))
+        self.projects.iter().find(|p| same_name(&p.name, name))
+    }
+
+    /// The user's project with this id.
+    pub fn project(&self, id: i64) -> Option<&Project> {
+        self.projects.iter().find(|p| p.id == id)
     }
 
     /// The ids a time preset's names stand for; Err names the project or task that matches nothing.
@@ -365,7 +370,7 @@ impl Session {
             Some(name) => Some(
                 tasks
                     .iter()
-                    .find(|t| t.name.eq_ignore_ascii_case(name.trim()))
+                    .find(|t| same_name(&t.name, name))
                     .ok_or_else(|| format!("task \"{name}\" of project \"{}\"", project.name))?
                     .id,
             ),
@@ -373,7 +378,7 @@ impl Session {
         };
         let (mut tag_ids, mut unknown_tags) = (Vec::new(), Vec::new());
         for name in &preset.tags {
-            match self.tags.iter().find(|t| t.name.eq_ignore_ascii_case(name.trim())) {
+            match self.tags.iter().find(|t| same_name(&t.name, name)) {
                 Some(tag) => tag_ids.push(tag.id),
                 None => unknown_tags.push(name.clone()),
             }

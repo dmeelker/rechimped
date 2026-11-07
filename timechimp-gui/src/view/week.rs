@@ -101,7 +101,7 @@ impl TimeChimpApp {
                         .child(div().font_weight(FontWeight::SEMIBOLD).child(day.format("%a %d").to_string()))
                         .when(is_today, |d| d.child(div().text_xs().text_color(theme.accent()).child("today"))),
                 )
-                .child(div().text_lg().text_color(hours_colour(theme, hours, target)).child(format!("{}h", trim_hours(hours))))
+                .child(div().text_lg().text_color(hours_colour(theme, hours, target)).child(format!("{}h", plain_number(hours))))
                 .child(progress(fraction).variant(if hours >= target { ProgressVariant::Success } else { ProgressVariant::Default }))
         }));
 
@@ -111,11 +111,7 @@ impl TimeChimpApp {
             crate::domain::week::week_card(&self.session.entries, self.session.contract_hours());
         let ratio = share.unwrap_or(0.0);
         let goal_met = share.is_some_and(|s| s >= self.session.settings.billable_goal);
-        let ratio_colour = match share {
-            None => theme.fg_muted(),
-            Some(_) if goal_met => theme.success(),
-            Some(_) => theme.warning(),
-        };
+        let ratio_colour = goal_colour(theme, share, self.session.settings.billable_goal);
         let week_card = v_stack()
             .flex_1()
             .gap(px(4.))
@@ -148,8 +144,8 @@ impl TimeChimpApp {
                 h_stack()
                     .gap(px(4.))
                     .items_baseline()
-                    .child(div().text_lg().text_color(hours_colour(theme, total, contract)).child(format!("{}h", trim_hours(total))))
-                    .child(muted(theme, format!("/ {}h", trim_hours(contract)))),
+                    .child(div().text_lg().text_color(hours_colour(theme, total, contract)).child(format!("{}h", plain_number(total))))
+                    .child(muted(theme, format!("/ {}h", plain_number(contract)))),
             )
             .child(
                 progress(ratio.min(1.0) as f32)
@@ -164,8 +160,8 @@ impl TimeChimpApp {
             .gap(px(4.))
             .child(self.session.day().format("%A %-d %B").to_string())
             .child("·")
-            .child(div().text_color(hours_colour(theme, hours, target)).child(trim_hours(hours)))
-            .child(format!("/ {}h", trim_hours(target)));
+            .child(div().text_color(hours_colour(theme, hours, target)).child(plain_number(hours)))
+            .child(format!("/ {}h", plain_number(target)));
         let rows = self.entry_rows_with_gaps(theme, &visible, cx);
         let message =
             if self.session.week_loaded() { "No time registered on this day. Press A to add." } else { NOT_LOADED };

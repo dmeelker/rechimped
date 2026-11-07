@@ -57,7 +57,7 @@ impl TimeChimpApp {
                     .border_b_1()
                     .border_color(theme.border_subtle())
                     .child(div().font_weight(FontWeight::SEMIBOLD).child(day[0].date.format("%A %-d %B").to_string()))
-                    .child(muted(theme, format!("{trips} · {} km", trim_hours(km))))
+                    .child(muted(theme, format!("{trips} · {} km", plain_number(km))))
                     .into_any_element(),
             );
             for (k, m) in day.iter().enumerate() {
@@ -67,7 +67,7 @@ impl TimeChimpApp {
         }
         let empty = self.session.mileage.is_empty() && self.busy().is_none();
         let message = if self.session.week_loaded() { "No mileage this week. Press A to add." } else { NOT_LOADED };
-        panel(theme, format!("Trips · {} km", trim_hours(total)), Some(actions))
+        panel(theme, format!("Trips · {} km", plain_number(total)), Some(actions))
             .child(header_row(
                 theme,
                 [

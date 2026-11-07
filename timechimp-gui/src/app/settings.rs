@@ -3,20 +3,12 @@
 use gpui::{AppContext, Context, ElementId, Focusable, Window};
 use gpuikit::elements::checkbox::checkbox;
 
+use crate::domain::plain_number;
 use crate::forms::{self, SettingsForm};
 use crate::store::config;
 use crate::validate;
 
 use super::TimeChimpApp;
-
-/// The day checkboxes' labels, Monday first (as `config::DAY_KEYS`).
-const DAY_LABELS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-/// A number as typed: `40`, `32.5`.
-fn plain(value: f64) -> String {
-    let s = format!("{value:.2}");
-    s.trim_end_matches('0').trim_end_matches('.').to_owned()
-}
 
 impl TimeChimpApp {
     /// "Settings" in the user menu: opens the dialog with what `config.toml` holds now.
@@ -26,15 +18,15 @@ impl TimeChimpApp {
             return;
         }
         let current = self.session.settings;
-        let work_days = DAY_LABELS
-            .iter()
+        let work_days = (0..7u8)
             .zip(current.work_days)
-            .enumerate()
-            .map(|(i, (label, on))| {
-                cx.new(|_| checkbox(ElementId::NamedInteger("settings-day".into(), i as u64), on).label(*label))
+            .map(|(i, on)| {
+                // "Mon", "Tue", …; Monday is 0, as in `Settings::work_days`.
+                let label = chrono::Weekday::try_from(i).expect("0..7 are weekdays").to_string();
+                cx.new(|_| checkbox(ElementId::NamedInteger("settings-day".into(), u64::from(i)), on).label(label))
             })
             .collect();
-        let billable_goal = forms::text_input(cx, plain(current.billable_goal * 100.0));
+        let billable_goal = forms::text_input(cx, plain_number(current.billable_goal * 100.0));
         let focus = billable_goal.read(cx).focus_handle(cx);
         self.settings = Some(SettingsForm { work_days, billable_goal, error: None });
         window.focus(&focus, cx);
@@ -65,15 +57,5 @@ impl TimeChimpApp {
         self.settings = None;
         window.focus(&self.focus, cx);
         cx.notify();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn plain_numbers() {
-        assert_eq!(super::plain(40.0), "40");
-        assert_eq!(super::plain(32.5), "32.5");
-        assert_eq!(super::plain(0.825 * 100.0), "82.5");
     }
 }

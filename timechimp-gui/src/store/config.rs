@@ -7,12 +7,19 @@ use std::path::{Path, PathBuf};
 
 use timechimp::{MileageType, Project, Tag};
 
+use crate::domain::same_name;
+
 
 /// Share of hours that should be billable, unless `billable_goal` in `config.toml` says otherwise.
 pub const DEFAULT_BILLABLE_GOAL: f64 = 0.8;
 
 /// How the days of the week are written in `work_days`, Monday first.
-pub const DAY_KEYS: [&str; 7] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+pub const DAY_NAMES: [&str; 7] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+
+/// The key `work_days` uses for day `i` (Monday = 0): `mon`, `tue`, …
+fn day_key(i: usize) -> &'static str {
+    &DAY_NAMES[i][..3]
+}
 
 /// What the Settings dialog edits: the top-level keys of `config.toml`.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -95,7 +102,7 @@ impl Preset for TripPreset {
     const COMMENT: &'static str = TRIPS_COMMENT;
     /// Trips are known by name.
     fn is(&self, table: &toml_edit::Table) -> bool {
-        str_field(table, "name").is_some_and(|n| n.eq_ignore_ascii_case(&self.name))
+        str_field(table, "name").is_some_and(|n| same_name(n, &self.name))
     }
 }
 
@@ -177,7 +184,7 @@ fn parse_config(text: &str) -> Result<Config, String> {
             let mut days = [false; 7];
             for name in names {
                 let index = day_index(name).ok_or_else(|| {
-                    format!("work_days: unknown day \"{name}\" (use {})", DAY_KEYS.join(", "))
+                    format!("work_days: unknown day \"{name}\" (use {})", (0..7).map(day_key).collect::<Vec<_>>().join(", "))
                 })?;
                 days[index] = true;
             }
@@ -201,9 +208,8 @@ fn parse_config(text: &str) -> Result<Config, String> {
 
 /// Monday = 0 for `mon`, `Monday`, `TUES`, …: the start (three letters or more) of a day's name.
 fn day_index(name: &str) -> Option<usize> {
-    const NAMES: [&str; 7] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
     let name = name.trim().to_lowercase();
-    (name.len() >= 3).then(|| NAMES.iter().position(|full| full.starts_with(&name))).flatten()
+    (name.len() >= 3).then(|| DAY_NAMES.iter().position(|full| full.starts_with(&name))).flatten()
 }
 
 /// A whole number as an integer (`40`, not `40.0`), as people write it.
@@ -227,7 +233,7 @@ pub fn save_settings(path: &Path, settings: &Settings) -> Result<(), String> {
 fn with_settings(text: &str, settings: &Settings) -> Result<String, String> {
     let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| e.to_string())?;
     let days: toml_edit::Array =
-        DAY_KEYS.iter().zip(settings.work_days).filter(|(_, on)| *on).map(|(key, _)| *key).collect();
+        (0..7).zip(settings.work_days).filter(|(_, on)| *on).map(|(i, _)| day_key(i)).collect();
     // Set in place, so a key keeps its position and the comment above it.
     let mut set = |key: &str, item: toml_edit::Item, comment: &str| match doc.get_mut(key).and_then(|i| i.as_value_mut()) {
         Some(value) => {
@@ -341,13 +347,13 @@ pub fn resolve_project_tags(
     let mut resolved = HashMap::new();
     let mut unknown = Vec::new();
     for (project_name, tag_names) in config {
-        let Some(project) = projects.iter().find(|p| p.name.eq_ignore_ascii_case(project_name)) else {
+        let Some(project) = projects.iter().find(|p| same_name(&p.name, project_name)) else {
             unknown.push(format!("project \"{project_name}\""));
             continue;
         };
         let mut project_tags = Vec::new();
         for name in tag_names {
-            match tags.iter().find(|t| t.name.eq_ignore_ascii_case(name)) {
+            match tags.iter().find(|t| same_name(&t.name, name)) {
                 Some(tag) => project_tags.push(tag.clone()),
                 None => unknown.push(format!("tag \"{name}\"")),
             }
