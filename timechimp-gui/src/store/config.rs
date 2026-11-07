@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 
 use timechimp::{MileageType, Project, Tag};
 
-use crate::domain::MILEAGE_TYPES;
 
 /// Share of hours that should be billable, unless `billable_goal` in `config.toml` says otherwise.
 pub const DEFAULT_BILLABLE_GOAL: f64 = 0.75;
@@ -59,7 +58,7 @@ pub struct TripPreset {
     pub distance: Option<f64>,
     #[serde(default)]
     pub return_trip: bool,
-    /// A name from `MILEAGE_TYPES` ("business", "home-work"); defaults to business.
+    /// A key from `TRIP_TYPE_KEYS` ("business", "home-work"); defaults to business.
     #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
     pub mileage_type: Option<String>,
     #[serde(default)]
@@ -106,20 +105,22 @@ impl Preset for TimePreset {
 }
 
 impl TripPreset {
-    /// The trip type; None when `type` names no known type.
+    /// The trip type; None when `type` names no known type. Matching ignores case and anything
+    /// but letters and digits, so `Home work` and `homework` work too.
     pub fn trip_type(&self) -> Option<MileageType> {
         let Some(name) = &self.mileage_type else { return Some(MileageType::Business) };
         let key = |s: &str| s.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
-        MILEAGE_TYPES.iter().find(|(_, n)| key(n) == key(name)).map(|(t, _)| *t)
+        TRIP_TYPE_KEYS.iter().find(|(_, k)| key(k) == key(name)).map(|(t, _)| *t)
     }
 }
 
-/// How a trip type is written in `config.toml` (`Home – work` → `home-work`).
+/// How each trip type is written in `config.toml`. Part of the file format, so kept apart from the
+/// labels the forms show (`domain::MILEAGE_TYPES`): rewording those mustn't break existing files.
+const TRIP_TYPE_KEYS: [(MileageType, &str); 2] = [(MileageType::Business, "business"), (MileageType::HomeWork, "home-work")];
+
+/// How a trip type is written in `config.toml`.
 pub fn mileage_type_key(mileage_type: MileageType) -> Option<String> {
-    let (_, name) = MILEAGE_TYPES.iter().find(|(t, _)| *t == mileage_type)?;
-    let words: Vec<String> =
-        name.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_lowercase).collect();
-    Some(words.join("-"))
+    TRIP_TYPE_KEYS.iter().find(|(t, _)| *t == mileage_type).map(|(_, key)| (*key).to_owned())
 }
 
 /// A short name for a new preset: its notes, else the start of each address ("A → B").
@@ -149,7 +150,7 @@ fn parse_config(text: &str) -> Result<Config, String> {
     };
     for trip in &file.trips {
         if trip.trip_type().is_none() {
-            let known: Vec<String> = MILEAGE_TYPES.iter().filter_map(|(id, _)| mileage_type_key(*id)).collect();
+            let known: Vec<&str> = TRIP_TYPE_KEYS.iter().map(|(_, key)| *key).collect();
             return Err(format!(
                 "trip \"{}\": unknown type \"{}\" (use {})",
                 trip.name,
@@ -439,6 +440,8 @@ mod tests {
 
         // Round trip through the appended block.
         assert_eq!(mileage_type_key(MileageType::HomeWork).as_deref(), Some("home-work"));
+        // Every type the trip form offers can be saved in a preset.
+        assert!(crate::domain::MILEAGE_TYPES.iter().all(|(t, _)| mileage_type_key(*t).is_some()));
         let block = preset_toml(commute).unwrap();
         let text = format!("billable_goal = 70\n[projects]\nIntern = []\n\n{block}");
         assert_eq!(parse_config(&text).unwrap().trips, vec![TripPreset { name: "Commute".into(), ..commute.clone() }]);
