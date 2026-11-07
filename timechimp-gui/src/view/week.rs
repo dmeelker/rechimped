@@ -68,8 +68,6 @@ impl TimeChimpApp {
     /// The Week tab: a strip with the week's days on top, the selected day's entries below.
     pub(super) fn render_day(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         let per_day = self.session.hours_per_day();
-        let total: f64 = per_day.iter().sum();
-        let contract = self.session.contract_hours();
 
         // Only the work days (Settings), plus today and the selected day when they aren't one.
         let shown = self.session.shown_days(crate::domain::time::today());
@@ -105,8 +103,9 @@ impl TimeChimpApp {
         }));
 
         // Week card: total against the contract, and billable hours against the contract (without
-        // one, against what was logged), coloured by the billable goal.
-        let share = crate::domain::week::billable_share(&self.session.entries, contract);
+        // one, against what was logged), coloured by the billable goal; leave left out of both.
+        let crate::domain::week::WeekCard { hours: total, contract, share } =
+            crate::domain::week::week_card(&self.session.entries, self.session.contract_hours());
         let ratio = share.unwrap_or(0.0);
         let goal_met = share.is_some_and(|s| s >= self.session.settings.billable_goal);
         let ratio_colour = match share {

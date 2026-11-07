@@ -59,12 +59,32 @@ pub fn billable_hours(entries: &[TimeEntry]) -> f64 {
     entries.iter().filter(|e| e.billable).fold(0.0, |total, e| total + e.hours)
 }
 
-/// The week's billable hours as a fraction of the contract hours, or (without a contract) of the
-/// hours logged; None when there is neither.
-pub fn billable_share(entries: &[TimeEntry], contract_hours: f64) -> Option<f64> {
-    let logged: f64 = entries.iter().map(|e| e.hours).sum();
-    let of = if contract_hours > 0.0 { contract_hours } else { logged };
-    (of > 0.0).then(|| billable_hours(entries) / of)
+/// Whether `entry` is leave (project "Intern", task "Verlof"), which the Week card leaves out.
+pub fn is_leave(entry: &TimeEntry) -> bool {
+    entry.project_name.trim().eq_ignore_ascii_case("Intern") && entry.task_name.trim().eq_ignore_ascii_case("Verlof")
+}
+
+/// What the Week card shows, with leave left out: it counts neither as hours worked nor towards
+/// the contract, so a week with a day off isn't short.
+#[derive(Debug, PartialEq)]
+pub struct WeekCard {
+    /// Hours logged, leave excluded.
+    pub hours: f64,
+    /// The contract hours minus the leave taken (never below 0).
+    pub contract: f64,
+    /// The billable hours as a fraction of `contract`, or (without one) of `hours`; None when
+    /// there is neither.
+    pub share: Option<f64>,
+}
+
+pub fn week_card(entries: &[TimeEntry], contract_hours: f64) -> WeekCard {
+    let worked: Vec<TimeEntry> = entries.iter().filter(|e| !is_leave(e)).cloned().collect();
+    // Folds from +0.0: `sum` of nothing is -0.0, which shows as "-0".
+    let hours = worked.iter().fold(0.0, |total, e| total + e.hours);
+    let leave = entries.iter().filter(|e| is_leave(e)).fold(0.0, |total, e| total + e.hours);
+    let contract = (contract_hours - leave).max(0.0);
+    let of = if contract > 0.0 { contract } else { hours };
+    WeekCard { hours, contract, share: (of > 0.0).then(|| billable_hours(&worked) / of) }
 }
 
 /// Whether the Week tab shows `day`: a work day (`work_days`, Monday first), today, or the selected
@@ -163,10 +183,26 @@ mod tests {
         let mut unbilled = entry(2, 3, "10:00-13:00");
         (unbilled.billable, unbilled.hours) = (false, 3.0);
         let entries = [entry(1, 2, "9:00-10:00"), unbilled];
-        assert_eq!(billable_share(&entries, 40.0), Some(1.0 / 40.0));
-        assert_eq!(billable_share(&entries, 0.0), Some(1.0 / 4.0), "of the hours logged");
-        assert_eq!(billable_share(&[], 0.0), None);
-        assert!(billable_share(&[], 40.0).unwrap().is_sign_positive(), "not -0");
+        assert_eq!(week_card(&entries, 40.0).share, Some(1.0 / 40.0));
+        assert_eq!(week_card(&entries, 0.0).share, Some(1.0 / 4.0), "of the hours logged");
+        assert_eq!(week_card(&[], 0.0).share, None);
+        assert!(week_card(&[], 40.0).share.unwrap().is_sign_positive(), "not -0");
+    }
+
+    #[test]
+    fn leave_is_left_out_of_the_week_card() {
+        use crate::test_support::entry;
+        let mut leave = entry(2, 3, "");
+        (leave.project_name, leave.task_name, leave.billable, leave.hours) = ("intern".into(), "Verlof".into(), false, 8.0);
+        let mut meeting = entry(3, 4, "");
+        (meeting.project_name, meeting.task_name, meeting.billable, meeting.hours) = ("Intern".into(), "Meeting".into(), false, 2.0);
+        let entries = [entry(1, 2, "9:00-10:00"), leave.clone(), meeting];
+        assert!(is_leave(&leave));
+        assert_eq!(week_card(&entries, 40.0), WeekCard { hours: 3.0, contract: 32.0, share: Some(1.0 / 32.0) });
+        assert_eq!(week_card(&entries, 0.0).share, Some(1.0 / 3.0), "of the hours logged, leave excluded");
+        let card = week_card(&[leave], 8.0);
+        assert_eq!((card.hours, card.contract, card.share), (0.0, 0.0, None));
+        assert!(card.hours.is_sign_positive(), "not -0");
     }
 
     #[test]
