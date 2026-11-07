@@ -61,7 +61,7 @@ impl Render for TimeChimpApp {
         root.when(self.fx.showcase, |d| {
             d.child(self.fx.hud(theme.fg(), theme.fg_muted(), theme.accent(), theme.surface()))
         })
-        .children(self.confirm.clone())
+        .children(self.confirm.as_ref().map(|(dialog, _)| dialog.clone()))
         .child(cx.toast_manager().clone())
         .child(self.fx.end_frame(started))
     }

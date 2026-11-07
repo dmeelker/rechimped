@@ -124,7 +124,8 @@ pub struct TimeChimpApp {
     /// `[[trips]]` from `config.toml`: buttons on the Mileage tab that open a filled-in trip form.
     pub trip_presets: Vec<logic::TripPreset>,
     pub form: Option<Form>,
-    pub confirm: Option<Entity<DialogState>>,
+    /// The open delete confirmation, with the subscription that clears it when it closes.
+    pub confirm: Option<(Entity<DialogState>, Subscription)>,
     pub show_detail: bool,
     /// The dropdown under the user name in the header is open.
     pub user_menu: bool,
@@ -1345,8 +1346,7 @@ impl TimeChimpApp {
             cx.notify();
         });
         state.update(cx, |d, cx| d.open(window, cx));
-        self._subscriptions.push(sub);
-        self.confirm = Some(state);
+        self.confirm = Some((state, sub));
         cx.notify();
     }
 
