@@ -227,6 +227,8 @@ pub struct SettingsValues {
     pub work_days: [bool; 7],
     /// Percentage; a trailing `%` is allowed.
     pub billable_goal: String,
+    /// Project names.
+    pub hidden_projects: Vec<String>,
 }
 
 pub fn settings(v: &SettingsValues) -> Result<Settings, String> {
@@ -236,7 +238,7 @@ pub fn settings(v: &SettingsValues) -> Result<Settings, String> {
     let billable_goal = parse_decimal(v.billable_goal.trim_end_matches('%'))
         .filter(|p| (0.0..=100.0).contains(p))
         .ok_or("Billable target must be a percentage between 0 and 100")?;
-    Ok(Settings { work_days: v.work_days, billable_goal: billable_goal / 100.0 })
+    Ok(Settings { work_days: v.work_days, billable_goal: billable_goal / 100.0, hidden_projects: v.hidden_projects.clone() })
 }
 
 #[cfg(test)]
@@ -368,9 +370,16 @@ mod tests {
 
     #[test]
     fn settings_values() {
-        let v = |days: [bool; 7], goal: &str| SettingsValues { work_days: days, billable_goal: goal.into() };
+        let v = |days: [bool; 7], goal: &str| SettingsValues {
+            work_days: days,
+            billable_goal: goal.into(),
+            hidden_projects: vec!["Old".into()],
+        };
         let weekdays = [true, true, true, true, true, false, false];
-        assert_eq!(settings(&v(weekdays, "75 %")), Ok(Settings { work_days: weekdays, billable_goal: 0.75 }));
+        assert_eq!(
+            settings(&v(weekdays, "75 %")),
+            Ok(Settings { work_days: weekdays, billable_goal: 0.75, hidden_projects: vec!["Old".into()] })
+        );
         assert_eq!(settings(&v(weekdays, "82,5")).unwrap().billable_goal, 0.825);
         assert!(settings(&v([false; 7], "80")).unwrap_err().contains("work day"));
         assert!(settings(&v(weekdays, "101")).unwrap_err().starts_with("Billable"));

@@ -12,6 +12,7 @@ use gpuikit::elements::switch::{Switch, switch};
 use gpuikit::input::InputState;
 use timechimp::{Mileage, MileageType};
 
+use crate::domain::same_name;
 use crate::session::Session;
 use crate::validate::{MileageValues, SettingsValues, TimeKind, TimeValues};
 
@@ -281,6 +282,7 @@ pub struct SettingsForm {
     pub work_days: Vec<Entity<Checkbox>>,
     /// Percentage.
     pub billable_goal: Entity<InputState>,
+    pub projects: ProjectVisibility,
     pub error: Option<String>,
 }
 
@@ -294,7 +296,58 @@ impl SettingsForm {
         SettingsValues {
             work_days,
             billable_goal: text(&self.billable_goal, cx),
+            hidden_projects: self.projects.hidden_names(),
         }
+    }
+}
+
+/// The Settings dialog's project list: which projects the forms offer. Plain data; the view draws
+/// the checkboxes (checked = shown).
+pub struct ProjectVisibility {
+    /// The active projects, by name: (id, name, customer).
+    pub projects: Vec<(i64, String, String)>,
+    /// Ids of the hidden ones, as edited.
+    pub hidden: BTreeSet<i64>,
+    /// Hidden names that match no active project (gone, or inactive for now): kept as they are.
+    others: Vec<String>,
+}
+
+impl ProjectVisibility {
+    pub fn new(session: &Session) -> Self {
+        let by_name = |a: &String, b: &String| a.to_lowercase().cmp(&b.to_lowercase());
+        let mut projects: Vec<_> = session
+            .projects()
+            .iter()
+            .filter(|p| p.active)
+            .map(|p| (p.id, p.name.clone(), p.customer_name.clone()))
+            .collect();
+        projects.sort_by(|a, b| by_name(&a.1, &b.1).then_with(|| by_name(&a.2, &b.2)));
+        let hidden = projects.iter().filter(|(id, ..)| session.is_hidden(*id)).map(|(id, ..)| *id).collect();
+        let others = session
+            .settings
+            .hidden_projects
+            .iter()
+            .filter(|name| !projects.iter().any(|(_, p, _)| same_name(p, name)))
+            .cloned()
+            .collect();
+        Self { projects, hidden, others }
+    }
+
+    pub fn toggle(&mut self, project_id: i64) {
+        if !self.hidden.remove(&project_id) {
+            self.hidden.insert(project_id);
+        }
+    }
+
+    /// Shows (`true`) or hides every project.
+    pub fn set_all(&mut self, shown: bool) {
+        self.hidden = if shown { BTreeSet::new() } else { self.projects.iter().map(|(id, ..)| *id).collect() };
+    }
+
+    /// What `Settings::hidden_projects` becomes: the hidden projects by name, then the others.
+    pub fn hidden_names(&self) -> Vec<String> {
+        let listed = self.projects.iter().filter(|(id, ..)| self.hidden.contains(id)).map(|(_, name, _)| name.clone());
+        listed.chain(self.others.iter().cloned()).collect()
     }
 }
 
@@ -416,6 +469,27 @@ impl ProjectTagsForm {
 mod tests {
     use super::*;
     use crate::test_support::*;
+
+    #[test]
+    fn project_visibility() {
+        let mut s = Session::new(None, date(4));
+        let mut inactive = project(9, "Inactive");
+        inactive.active = false;
+        s.apply_base(base(vec![project(3, "b"), project(6, "A"), inactive], HashMap::new(), Vec::new()), None, &[]);
+        s.settings.hidden_projects = vec!["B".into(), "Inactive".into(), "Gone".into()];
+
+        let mut form = ProjectVisibility::new(&s);
+        assert_eq!(form.projects.iter().map(|p| p.0).collect::<Vec<_>>(), [6, 3], "active ones, by name");
+        assert_eq!(form.hidden, BTreeSet::from([3]));
+        assert_eq!(form.hidden_names(), ["b", "Inactive", "Gone"], "unlisted names are kept");
+        form.toggle(3);
+        form.toggle(6);
+        assert_eq!(form.hidden_names(), ["A", "Inactive", "Gone"]);
+        form.set_all(false);
+        assert_eq!(form.hidden.len(), 2);
+        form.set_all(true);
+        assert_eq!(form.hidden_names(), ["Inactive", "Gone"]);
+    }
 
     #[test]
     fn project_tags_form() {

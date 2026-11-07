@@ -123,7 +123,8 @@ impl TimeChimpApp {
         if query.is_empty() {
             return Vec::new();
         }
-        self.session.recent.iter().filter(|item| item.matches(&query)).take(RECENT_ROWS).collect()
+        let recent = self.session.recent.iter().filter(|item| !self.session.is_hidden(item.entry.project_id));
+        recent.filter(|item| item.matches(&query)).take(RECENT_ROWS).collect()
     }
 
     /// ↑/↓ in the Recent filter.

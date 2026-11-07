@@ -87,8 +87,11 @@ pub fn tags(session: &Session, project_id: Option<i64>, checked: &[i64]) -> Vec<
 /// The time form for a new entry, for editing `entry`, or (with `copy`) for a copy of it.
 pub fn time_form(session: &Session, entry: Option<&TimeEntry>, copy: bool) -> TimeSeed {
     let projects = session.project_options(entry.map(|e| (e.project_id, &*e.project_name, &*e.customer_name)));
-    // New entries default to the project/task/tag of the most recently modified entry.
-    let template = entry.or_else(|| session.entries().iter().max_by_key(|e| e.modified));
+    // New entries default to the project/task/tag of the most recently modified entry whose
+    // project is offered (not hidden or inactive).
+    let template = entry.or_else(|| {
+        session.entries().iter().filter(|e| projects.iter().any(|(id, _)| *id == e.project_id)).max_by_key(|e| e.modified)
+    });
     let project_id = template.map(|e| e.project_id).or(projects.first().map(|(id, _)| *id));
     let project = ProjectSeed {
         tasks: session.task_options(project_id, entry),

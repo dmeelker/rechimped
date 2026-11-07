@@ -1,11 +1,11 @@
-//! The Settings dialog (work days and the billable target) and the Project tags dialog (the
+//! The Settings dialog (work days, the billable target and the hidden projects) and the Project tags dialog (the
 //! tags per project), both kept in `config.toml`.
 
 use gpui::{AppContext, Context, ElementId, Focusable, Window};
 use gpuikit::elements::checkbox::checkbox;
 
 use crate::domain::plain_number;
-use crate::forms::{self, ProjectTagsForm, SettingsForm};
+use crate::forms::{self, ProjectTagsForm, ProjectVisibility, SettingsForm};
 use crate::store::config;
 use crate::validate;
 
@@ -17,7 +17,7 @@ impl TimeChimpApp {
         if self.overlay_open() {
             return self.close_menu(cx);
         }
-        let current = self.session.settings;
+        let current = &self.session.settings;
         let work_days = (0..7u8)
             .zip(current.work_days)
             .map(|(i, on)| {
@@ -28,8 +28,25 @@ impl TimeChimpApp {
             .collect();
         let billable_goal = forms::text_input(cx, plain_number(current.billable_goal * 100.0));
         let focus = billable_goal.read(cx).focus_handle(cx);
-        self.open_overlay(Overlay::Settings(SettingsForm { work_days, billable_goal, error: None }), cx);
+        let projects = ProjectVisibility::new(&self.session);
+        self.open_overlay(Overlay::Settings(SettingsForm { work_days, billable_goal, projects, error: None }), cx);
         window.focus(&focus, cx);
+    }
+
+    /// A project's checkbox in the dialog: shows or hides it.
+    pub fn toggle_project_hidden(&mut self, project_id: i64, cx: &mut Context<Self>) {
+        if let Some(form) = self.settings_form_mut() {
+            form.projects.toggle(project_id);
+            cx.notify();
+        }
+    }
+
+    /// "Show all" (`true`) / "Hide all" in the dialog.
+    pub fn show_all_projects(&mut self, shown: bool, cx: &mut Context<Self>) {
+        if let Some(form) = self.settings_form_mut() {
+            form.projects.set_all(shown);
+            cx.notify();
+        }
     }
 
     /// Save in the dialog: checks the fields, writes `config.toml` and takes the settings in.

@@ -334,13 +334,19 @@ impl Session {
 
     // ---- Form data ---------------------------------------------------------------------------
 
-    /// The active projects, plus `current` (id, name, customer: the project of the entry or trip
-    /// at hand) when it isn't among them.
+    /// Whether the Settings dialog hid project `project_id` (`Settings::hidden_projects`).
+    pub fn is_hidden(&self, project_id: i64) -> bool {
+        self.project(project_id)
+            .is_some_and(|p| self.settings.hidden_projects.iter().any(|name| same_name(name, &p.name)))
+    }
+
+    /// The active projects not hidden in Settings, plus `current` (id, name, customer: the project
+    /// of the entry or trip at hand) when it isn't among them.
     pub fn project_options(&self, current: Option<(i64, &str, &str)>) -> Vec<(i64, String)> {
         let mut options: Vec<(i64, String)> = self
             .projects()
             .iter()
-            .filter(|p| p.active)
+            .filter(|p| p.active && !self.is_hidden(p.id))
             .map(|p| (p.id, domain::project_label(&p.name, &p.customer_name)))
             .collect();
         if let Some((id, name, customer)) = current
@@ -603,6 +609,17 @@ mod tests {
         s.project_tags = HashMap::from([(1, Vec::new()), (2, vec![tag(30, "b")])]);
         assert_eq!(ids(&s, Some(1)), Vec::<i64>::new(), "once one project has tags, the lists hold");
         assert_eq!(ids(&s, Some(2)), [30]);
+    }
+
+    #[test]
+    fn hidden_projects_are_not_offered() {
+        let mut s = Session::new(None, date(4));
+        s.apply_base(base(vec![project(1, "Keep"), project(2, "Old")], HashMap::new(), Vec::new()), None, &[]);
+        s.settings.hidden_projects = vec!["old".into()];
+        let ids = |options: Vec<(i64, String)>| options.into_iter().map(|(id, _)| id).collect::<Vec<_>>();
+        assert!(s.is_hidden(2) && !s.is_hidden(1));
+        assert_eq!(ids(s.project_options(None)), [1]);
+        assert_eq!(ids(s.project_options(Some((2, "Old", "Us")))), [1, 2], "still offered when editing its entry");
     }
 
     #[test]

@@ -22,12 +22,15 @@ fn day_key(i: usize) -> &'static str {
 }
 
 /// What the Settings dialog edits: the top-level keys of `config.toml`.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     /// The days worked, Monday first.
     pub work_days: [bool; 7],
     /// Fraction, e.g. `0.8`.
     pub billable_goal: f64,
+    /// Names of the projects the forms don't offer (matched case-insensitively); their entries
+    /// still show everywhere, and editing one still offers its project.
+    pub hidden_projects: Vec<String>,
 }
 
 impl Default for Settings {
@@ -35,6 +38,7 @@ impl Default for Settings {
         Self {
             work_days: [true, true, true, true, true, false, false],
             billable_goal: DEFAULT_BILLABLE_GOAL,
+            hidden_projects: Vec::new(),
         }
     }
 }
@@ -50,6 +54,9 @@ struct ConfigFile {
     work_days: Option<Vec<String>>,
     /// Percentage, e.g. `80`.
     billable_goal: Option<f64>,
+    /// Project names.
+    #[serde(default)]
+    hidden_projects: Vec<String>,
     /// Project name → tag names.
     #[serde(default)]
     projects: HashMap<String, Vec<String>>,
@@ -191,7 +198,7 @@ fn parse_config(text: &str) -> Result<Config, String> {
             days
         }
     };
-    let settings = Settings { work_days, billable_goal };
+    let settings = Settings { work_days, billable_goal, hidden_projects: file.hidden_projects };
     for trip in &file.trips {
         if trip.trip_type().is_none() {
             let known: Vec<&str> = TRIP_TYPE_KEYS.iter().map(|(_, key)| *key).collect();
@@ -247,7 +254,7 @@ fn with_settings(text: &str, settings: &Settings) -> Result<String, String> {
     let days: toml_edit::Array =
         (0..7).zip(settings.work_days).filter(|(_, on)| *on).map(|(i, _)| day_key(i)).collect();
     // Set in place, so a key keeps its position and the comment above it.
-    let mut set = |key: &str, item: toml_edit::Item, comment: &str| match doc.get_mut(key).and_then(|i| i.as_value_mut()) {
+    let set = |doc: &mut toml_edit::DocumentMut, key: &str, item: toml_edit::Item, comment: &str| match doc.get_mut(key).and_then(|i| i.as_value_mut()) {
         Some(value) => {
             let decor = value.decor().clone();
             *value = item.into_value().expect("a value");
@@ -260,10 +267,16 @@ fn with_settings(text: &str, settings: &Settings) -> Result<String, String> {
             }
         }
     };
-    set("work_days", toml_edit::value(days), "# The days you work (mon, tue, wed, thu, fri, sat, sun).\n");
+    set(&mut doc, "work_days", toml_edit::value(days), "# The days you work (mon, tue, wed, thu, fri, sat, sun).\n");
     // Rounded, so 0.8 * 100 doesn't come out as 80.00000000000001.
     let pct = (settings.billable_goal * 10000.0).round() / 100.0;
-    set("billable_goal", number(pct), "# Percentage of your hours that should be billable.\n");
+    set(&mut doc, "billable_goal", number(pct), "# Percentage of your hours that should be billable.\n");
+    // Only written once something is hidden, so a new file doesn't start with it.
+    if !settings.hidden_projects.is_empty() || doc.contains_key("hidden_projects") {
+        let hidden: toml_edit::Array = settings.hidden_projects.iter().map(String::as_str).collect();
+        let comment = "# Projects the forms don't offer (Settings, in the menu under your name).\n";
+        set(&mut doc, "hidden_projects", toml_edit::value(hidden), comment);
+    }
     let text = doc.to_string();
     parse_config(&text)?;
     Ok(text)
@@ -428,7 +441,7 @@ fn settings_toml() -> String {
 pub fn write_template(path: &Path, projects: &[Project], tags: &[Tag]) -> std::io::Result<()> {
     let mut text = format!(
         "# Reload the app (R) after editing. In the menu under your name, Settings edits the\n\
-         # first two keys and Project tags the [projects] table.\n\n{}\n\
+         # top-level keys and Project tags the [projects] table.\n\n{}\n\
          # Tags each project may use; the time entry form shows them as checkboxes.\n\
          # While no project has any, every project offers all tags (but the z_ ones).\n\
          # Names are matched case-insensitively.\n#\n# Available tags:\n",
@@ -610,7 +623,11 @@ mod tests {
 
     #[test]
     fn save_settings_keeps_the_rest() {
-        let settings = Settings { work_days: [false, true, true, false, true, true, false], billable_goal: 0.7 };
+        let settings = Settings {
+            work_days: [false, true, true, false, true, true, false],
+            billable_goal: 0.7,
+            hidden_projects: vec!["Old \"one\"".into()],
+        };
         // Missing keys are added at the top, with a comment; existing ones change in place.
         let text = "# top\n# goal\nbillable_goal = 75 # inline\n\n[projects]\n# keep me\nIntern = []\n";
         let saved = with_settings(text, &settings).unwrap();
@@ -619,9 +636,13 @@ mod tests {
         assert!(saved.contains("# keep me\nIntern = []") && saved.contains("# The days you work"), "{saved}");
         assert!(saved.contains("work_days = [\"tue\", \"wed\", \"fri\", \"sat\"]"), "{saved}");
         assert!(saved.find("work_days").unwrap() < saved.find("[projects]").unwrap(), "top-level keys before the tables");
+        assert!(saved.find("hidden_projects").unwrap() < saved.find("[projects]").unwrap(), "{saved}");
+        let none_hidden = Settings { hidden_projects: Vec::new(), ..settings.clone() };
+        assert!(with_settings(&saved, &none_hidden).unwrap().contains("\nhidden_projects = []"), "an existing key stays");
+        assert!(!with_settings("", &none_hidden).unwrap().contains("hidden_projects"), "no key while nothing is hidden");
         // Saving again changes nothing.
         assert_eq!(with_settings(&saved, &settings).unwrap(), saved);
-        let fraction = Settings { billable_goal: 0.825, ..settings };
+        let fraction = Settings { billable_goal: 0.825, ..settings.clone() };
         assert_eq!(parse_config(&with_settings(&saved, &fraction).unwrap()).unwrap().settings, fraction);
         assert!(with_settings("billable_goal = [", &settings).is_err());
 
@@ -629,7 +650,7 @@ mod tests {
         let path = dir.0.join("config.toml");
         save_settings(&path, &settings).unwrap();
         assert_eq!(load(&path).unwrap().unwrap().settings, settings);
-        save_settings(&path, &Settings { billable_goal: 0.5, ..settings }).unwrap();
+        save_settings(&path, &Settings { billable_goal: 0.5, ..settings.clone() }).unwrap();
         assert_eq!(load(&path).unwrap().unwrap().settings.billable_goal, 0.5, "replaces an existing file");
         assert!(!path.with_extension("toml.tmp").exists(), "no temporary file left behind");
     }

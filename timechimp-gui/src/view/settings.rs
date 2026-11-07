@@ -39,6 +39,7 @@ impl TimeChimpApp {
                 "Billable target",
                 number_field(text_field(&form.billable_goal, cx).placeholder("80"), muted(theme, "%")),
             ))
+            .child(row("Projects", self.render_project_visibility(form, theme, cx)).items_start())
             .when_some(form.error.clone(), |d, e| {
                 d.child(div().p(px(8.)).rounded(px(6.)).bg(theme.danger().opacity(0.15)).text_color(theme.danger()).child(e))
             })
@@ -60,6 +61,65 @@ impl TimeChimpApp {
                     )),
             );
         Self::modal(theme, "settings", 660., card, None)
+    }
+
+    /// The Settings dialog's project list: unchecked projects aren't offered in the forms.
+    fn render_project_visibility(&self, form: &SettingsForm, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let p = &form.projects;
+        let rows = p.projects.iter().map(|(id, name, customer)| {
+            let (id, shown) = (*id, !p.hidden.contains(id));
+            h_stack()
+                .id(ElementId::NamedInteger("settings-project".into(), id as u64))
+                .flex_none()
+                .px(px(8.))
+                .py(px(4.))
+                .gap(px(10.))
+                .items_center()
+                .rounded(px(4.))
+                .cursor_pointer()
+                .hover(|s| s.bg(theme.surface_secondary()))
+                .on_click(cx.listener(move |this, _, _, cx| this.toggle_project_hidden(id, cx)))
+                .child(checkbox_box(if shown { CheckState::Checked } else { CheckState::Unchecked }))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .when(!shown, |d| d.text_color(theme.fg_muted()))
+                        .child(name.clone()),
+                )
+                .child(muted(theme, customer.clone()).text_xs().flex_none())
+        });
+        let list = v_stack()
+            .id("settings-projects")
+            .h(px(240.))
+            .p(px(6.))
+            .overflow_y_scroll()
+            .border_1()
+            .border_color(theme.border())
+            .rounded(px(6.))
+            .bg(theme.surface())
+            .when(p.projects.is_empty(), |d| d.child(muted(theme, "No projects.")))
+            .children(rows);
+        let shown = p.projects.len() - p.hidden.len();
+        let set_all = |id: &'static str, label: &'static str, show: bool, disabled: bool| {
+            pop(
+                theme,
+                button(id, label).disabled(disabled).on_click(cx.listener(move |this, _, _, cx| this.show_all_projects(show, cx))),
+            )
+        };
+        v_stack()
+            .gap(px(8.))
+            .child(
+                h_stack()
+                    .gap(px(8.))
+                    .items_center()
+                    .child(muted(theme, format!("{shown} of {} offered in the forms", p.projects.len())).flex_1().min_w_0())
+                    .child(set_all("settings-projects-all", "Show all", true, p.hidden.is_empty()))
+                    .child(set_all("settings-projects-none", "Hide all", false, shown == 0)),
+            )
+            .child(list)
+            .into_any_element()
     }
 }
 
