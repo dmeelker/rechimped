@@ -212,6 +212,18 @@ fn day_index(name: &str) -> Option<usize> {
     (name.len() >= 3).then(|| DAY_NAMES.iter().position(|full| full.starts_with(&name))).flatten()
 }
 
+/// Writes `text` to `path` via a temporary file next to it and a rename, so a crash or full disk
+/// halfway leaves the old file (often edited by hand) intact rather than truncated.
+fn replace_file(path: &Path, text: &str) -> Result<(), String> {
+    let temp = path.with_extension("toml.tmp");
+    std::fs::write(&temp, text)
+        .and_then(|()| std::fs::rename(&temp, path))
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&temp);
+            format!("Could not write {}: {e}", path.display())
+        })
+}
+
 /// A whole number as an integer (`40`, not `40.0`), as people write it.
 fn number(value: f64) -> toml_edit::Item {
     if value.fract() == 0.0 && value.abs() < 1e15 { toml_edit::value(value as i64) } else { toml_edit::value(value) }
@@ -227,7 +239,7 @@ pub fn save_settings(path: &Path, settings: &Settings) -> Result<(), String> {
     };
     let text = with_settings(&text, settings).map_err(|e| format!("Error in {}: {e}", path.display()))?;
     std::fs::create_dir_all(path.parent().expect("has parent")).map_err(|e| e.to_string())?;
-    std::fs::write(path, text).map_err(|e| format!("Could not write {}: {e}", path.display()))
+    replace_file(path, &text)
 }
 
 fn with_settings(text: &str, settings: &Settings) -> Result<String, String> {
@@ -282,14 +294,14 @@ pub fn append_preset<P: Preset>(path: &Path, preset: &P) -> Result<(), String> {
     // Make sure the result still parses before touching the file.
     parse_config(&text).map_err(|e| format!("Error in {}: {e}", path.display()))?;
     std::fs::create_dir_all(path.parent().expect("has parent")).map_err(|e| e.to_string())?;
-    std::fs::write(path, text).map_err(|e| format!("Could not write {}: {e}", path.display()))
+    replace_file(path, &text)
 }
 
 /// Removes `preset` from `config.toml`, leaving the rest of the file (comments included) as it is.
 pub fn remove_preset<P: Preset>(path: &Path, preset: &P) -> Result<(), String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
     let text = without(&text, preset).map_err(|e| format!("{}: {e}", path.display()))?;
-    std::fs::write(path, text).map_err(|e| format!("Could not write {}: {e}", path.display()))
+    replace_file(path, &text)
 }
 
 fn without<P: Preset>(text: &str, preset: &P) -> Result<String, String> {
@@ -550,6 +562,9 @@ mod tests {
         let path = dir.0.join("config.toml");
         save_settings(&path, &settings).unwrap();
         assert_eq!(load(&path).unwrap().unwrap().settings, settings);
+        save_settings(&path, &Settings { billable_goal: 0.5, ..settings }).unwrap();
+        assert_eq!(load(&path).unwrap().unwrap().settings.billable_goal, 0.5, "replaces an existing file");
+        assert!(!path.with_extension("toml.tmp").exists(), "no temporary file left behind");
     }
 
     #[test]
