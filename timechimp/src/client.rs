@@ -319,11 +319,8 @@ impl Client {
         let maps = self.get_maps(&["distance", from_place_id, to_place_id]).await?;
         let element = &maps["rows"][0]["elements"][0];
         if element["status"] != "OK" {
-            return Err(Error::Api {
-                status: StatusCode::OK,
-                url: format!("{API_BASE}googlemaps/distance"),
-                body: maps.to_string(),
-            });
+            let status = element["status"].as_str().unwrap_or("no result");
+            return Err(Error::NotFound(format!("No route found between these addresses ({status})")));
         }
         Ok(RouteDistance {
             origin: maps["origin_addresses"][0].as_str().unwrap_or_default().to_owned(),

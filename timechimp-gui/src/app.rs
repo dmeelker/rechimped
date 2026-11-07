@@ -191,7 +191,7 @@ impl TimeChimpApp {
         match logic::load_token() {
             Some(token) => {
                 app.client = Some(Client::new(Authenticator::from_refresh_token(token)));
-                app.reload(true, window, cx);
+                app.reload(window, cx);
                 window.focus(&app.focus, cx);
             }
             None => app.to_login(None, window, cx),
@@ -243,6 +243,16 @@ impl TimeChimpApp {
         let message = message.into();
         cx.toast(message.clone()).destructive().show(window, cx);
         self.error = Some(message);
+    }
+
+    /// A failed request: back to the login screen when the session is no good, otherwise just
+    /// the message (the network or the server may recover; R retries).
+    fn api_error(&mut self, error: timechimp::Error, window: &mut Window, cx: &mut Context<Self>) {
+        if error.is_auth() {
+            self.to_login(Some(format!("Session expired or invalid, please log in again ({error})")), window, cx);
+        } else {
+            self.set_error(format!("Error: {error}"), window, cx);
+        }
     }
 
     // ---- Session ---------------------------------------------------------------------------
@@ -353,7 +363,7 @@ impl TimeChimpApp {
         self.client = Some(Client::new(auth));
         self.screen = Screen::Main;
         window.focus(&self.focus, cx);
-        self.reload(false, window, cx);
+        self.reload(window, cx);
         if let Some(e) = save_error {
             self.set_error(format!("Could not save session: {e}"), window, cx);
         }
@@ -367,8 +377,8 @@ impl TimeChimpApp {
 
     // ---- Loading ---------------------------------------------------------------------------
 
-    /// Loads everything. With `resuming`, a failure means the stored session is no good.
-    pub fn reload(&mut self, resuming: bool, window: &mut Window, cx: &mut Context<Self>) {
+    /// Loads everything.
+    pub fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(client) = self.client.clone() else { return };
         let (week_start, report_month, want_report) = (self.week_start, self.report_month, self.tab == Tab::Report);
         self.week_generation += 1;
@@ -405,10 +415,7 @@ impl TimeChimpApp {
                     this.apply_week(week, None);
                 }
             }
-            Err(e) if resuming => {
-                this.to_login(Some(format!("Session expired or invalid, please log in again ({e})")), window, cx)
-            }
-            Err(e) => this.set_error(format!("Error: {e}"), window, cx),
+            Err(e) => this.api_error(e, window, cx),
         });
     }
 
@@ -469,7 +476,7 @@ impl TimeChimpApp {
                     this.error = None;
                 }
                 Ok(_) => {}
-                Err(e) => this.set_error(format!("Error: {e}"), window, cx),
+                Err(e) => this.api_error(e, window, cx),
             },
         );
     }
@@ -512,7 +519,7 @@ impl TimeChimpApp {
                     this.error = None;
                 }
                 Ok(_) => {}
-                Err(e) => this.set_error(format!("Error: {e}"), window, cx),
+                Err(e) => this.api_error(e, window, cx),
             },
         );
     }
@@ -652,7 +659,7 @@ impl TimeChimpApp {
             ("q", true) => cx.quit(),
             (_, true) => return,
             ("1" | "2" | "3" | "4", _) => self.switch_tab(key.parse::<usize>().expect("digit") - 1, window, cx),
-            ("r", _) => self.reload(false, window, cx),
+            ("r", _) => self.reload(window, cx),
             ("l", _) if shift => self.logout(window, cx),
             ("left" | "h", _) if self.tab == Tab::Report => self.shift_month(-1, window, cx),
             ("right" | "l", _) if self.tab == Tab::Report => self.shift_month(1, window, cx),
@@ -1378,7 +1385,7 @@ impl TimeChimpApp {
                 this.load_week(None, window, cx);
                 this.set_info("Deleted.", window, cx);
             }
-            Err(e) => this.set_error(format!("Error: {e}"), window, cx),
+            Err(e) => this.api_error(e, window, cx),
         });
     }
 

@@ -223,7 +223,7 @@ async fn cognito(http: &reqwest::Client, target: &str, body: Value) -> Result<Va
         let kind = value["__type"].as_str().unwrap_or("UnknownError");
         let kind = kind.rsplit('#').next().unwrap_or(kind);
         let message = value["message"].as_str().unwrap_or_default();
-        return Err(Error::Auth(format!("{kind}: {message}")));
+        return Err(Error::Rejected { kind: kind.to_owned(), message: message.to_owned() });
     }
     Ok(value)
 }

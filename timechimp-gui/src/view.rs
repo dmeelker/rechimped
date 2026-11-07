@@ -409,10 +409,10 @@ impl TimeChimpApp {
                 .child(pop(theme, nav("next-month", "›", |this, w, cx| this.shift_month(1, w, cx))))
                 .child(div().pl(px(8.)).font_weight(FontWeight::SEMIBOLD).child(self.report_month.format("%B %Y").to_string()))
                 .child(div().flex_1())
-                .child(pop(theme, nav("reload", "Reload", |this, w, cx| this.reload(false, w, cx)))),
+                .child(pop(theme, nav("reload", "Reload", |this, w, cx| this.reload(w, cx)))),
             Tab::Projects => bar
                 .child(div().flex_1())
-                .child(pop(theme, nav("reload", "Reload", |this, w, cx| this.reload(false, w, cx)))),
+                .child(pop(theme, nav("reload", "Reload", |this, w, cx| this.reload(w, cx)))),
         }
         .text_color(theme.fg())
     }
