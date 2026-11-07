@@ -12,6 +12,7 @@ mod forms;
 mod fx;
 mod net;
 mod password;
+mod session;
 mod store;
 mod view;
 

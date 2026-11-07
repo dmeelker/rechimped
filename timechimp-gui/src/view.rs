@@ -241,7 +241,7 @@ fn trim_hours(hours: f64) -> String {
 
 /// "Week 45 · 2–8 Nov 2026", "Week 44 · 26 Oct – 1 Nov 2026", "Week 1 · 29 Dec 2025 – 4 Jan 2026".
 fn week_title(app: &TimeChimpApp) -> String {
-    let (start, end) = (app.week_start, app.week_start + Duration::days(6));
+    let (start, end) = (app.session.week_start, app.session.week_start + Duration::days(6));
     let range = if start.year() != end.year() {
         format!("{} – {}", start.format("%-d %b %Y"), end.format("%-d %b %Y"))
     } else if start.month() != end.month() {
@@ -321,7 +321,7 @@ impl TimeChimpApp {
     // ---- Main ---------------------------------------------------------------------------------
 
     fn render_main(&mut self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let title = match &self.me {
+        let title = match &self.session.me {
             Some(me) => format!("{} @ {}", me.display_name, me.company_name),
             None => String::new(),
         };
@@ -407,7 +407,7 @@ impl TimeChimpApp {
                 .child(pop(theme, nav("prev-month", "‹", |this, w, cx| this.shift_month(-1, w, cx))))
                 .child(pop(theme, nav("this-month", "This month", |this, w, cx| this.go_today(w, cx))))
                 .child(pop(theme, nav("next-month", "›", |this, w, cx| this.shift_month(1, w, cx))))
-                .child(div().pl(px(8.)).font_weight(FontWeight::SEMIBOLD).child(self.report_month.format("%B %Y").to_string()))
+                .child(div().pl(px(8.)).font_weight(FontWeight::SEMIBOLD).child(self.session.report_month.format("%B %Y").to_string()))
                 .child(div().flex_1())
                 .child(pop(theme, nav("reload", "Reload", |this, w, cx| this.reload(w, cx)))),
             Tab::Projects => bar
@@ -482,7 +482,7 @@ impl TimeChimpApp {
             button(id, label).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| f(this, window, cx)))
         };
         let week_tab = self.tab == Tab::Week;
-        let has = if week_tab { self.selected_entry().is_some() } else { self.selected_mileage().is_some() };
+        let has = if week_tab { self.session.selected_entry().is_some() } else { self.session.selected_mileage().is_some() };
         h_stack()
             .gap(px(8.))
             .items_center()
@@ -563,7 +563,7 @@ impl TimeChimpApp {
     }
 
     fn entry_row(&self, theme: &T, index: usize, e: &TimeEntry, cx: &mut Context<Self>) -> impl IntoElement {
-        let selected = self.selected_entry == Some(index);
+        let selected = self.session.selected_entry == Some(index);
         h_stack()
             .id(ElementId::NamedInteger("entry".into(), index as u64))
             .w_full()
@@ -590,25 +590,25 @@ impl TimeChimpApp {
         let mut rows = Vec::new();
         for (n, &i) in indices.iter().enumerate() {
             if let Some(&prev) = n.checked_sub(1).and_then(|p| indices.get(p)) {
-                if let Some(junction) = crate::domain::week::junction(&self.entries[prev], &self.entries[i]) {
+                if let Some(junction) = crate::domain::week::junction(&self.session.entries[prev], &self.session.entries[i]) {
                     rows.push(junction_row(theme, &junction).into_any_element());
                 }
             }
-            rows.push(self.entry_row(theme, i, &self.entries[i], cx).into_any_element());
+            rows.push(self.entry_row(theme, i, &self.session.entries[i], cx).into_any_element());
         }
         rows
     }
 
     /// The Week tab: a strip with the week's days on top, the selected day's entries below.
     fn render_day(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let per_day = self.hours_per_day();
+        let per_day = self.session.hours_per_day();
         let total: f64 = per_day.iter().sum();
-        let contract = self.contract_hours();
+        let contract = self.session.contract_hours();
 
         let strip = h_stack().flex_none().gap(px(8.)).children((0..7).map(|i| {
-            let day = self.week_start + Duration::days(i as i64);
-            let (hours, target) = (per_day[i], self.target_for(i));
-            let selected = day == self.day;
+            let day = self.session.week_start + Duration::days(i as i64);
+            let (hours, target) = (per_day[i], self.session.target_for(i));
+            let selected = day == self.session.day;
             let is_today = day == crate::domain::time::today();
             let fraction = if target > 0.0 { (hours / target).min(1.0) as f32 } else { 0.0 };
             v_stack()
@@ -638,9 +638,9 @@ impl TimeChimpApp {
 
         // Week card: total against the contract, and billable hours against the contract (without
         // one, against what was logged), coloured by the billable goal.
-        let share = crate::domain::week::billable_share(&self.entries, contract);
+        let share = crate::domain::week::billable_share(&self.session.entries, contract);
         let ratio = share.unwrap_or(0.0);
-        let goal_met = share.is_some_and(|s| s >= self.billable_goal);
+        let goal_met = share.is_some_and(|s| s >= self.session.billable_goal);
         let ratio_colour = match share {
             None => theme.fg_muted(),
             Some(_) if goal_met => theme.success(),
@@ -678,12 +678,12 @@ impl TimeChimpApp {
             );
         let strip = strip.child(week_card);
 
-        let index = (self.day - self.week_start).num_days() as usize;
-        let (hours, target) = (self.hours_per_day()[index], self.target_for(index));
-        let visible = self.visible_entries();
+        let index = (self.session.day - self.session.week_start).num_days() as usize;
+        let (hours, target) = (self.session.hours_per_day()[index], self.session.target_for(index));
+        let visible = self.session.visible_entries();
         let title = h_stack()
             .gap(px(4.))
-            .child(self.day.format("%A %-d %B").to_string())
+            .child(self.session.day.format("%A %-d %B").to_string())
             .child("·")
             .child(div().text_color(hours_colour(theme, hours, target)).child(trim_hours(hours)))
             .child(format!("/ {}h", trim_hours(target)));
@@ -708,7 +708,7 @@ impl TimeChimpApp {
     // ---- Mileage tab --------------------------------------------------------------------------
 
     fn trip_row(&self, theme: &T, i: usize, m: &timechimp::Mileage, cx: &mut Context<Self>) -> impl IntoElement {
-        let selected = self.selected_mileage == Some(i);
+        let selected = self.session.selected_mileage == Some(i);
         h_stack()
             .id(ElementId::NamedInteger("trip".into(), i as u64))
             .w_full()
@@ -732,11 +732,11 @@ impl TimeChimpApp {
     /// The Mileage tab: the week's trips grouped per day (they're sorted by day in `apply_week`),
     /// each day under a header with its total.
     fn render_mileage(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let total: f64 = self.mileage.iter().map(|m| m.distance).sum();
+        let total: f64 = self.session.mileage.iter().map(|m| m.distance).sum();
         let actions = self.selection_actions(theme, cx);
         let mut rows: Vec<AnyElement> = Vec::new();
         let mut start = 0;
-        for (n, day) in self.mileage.chunk_by(|a, b| a.date == b.date).enumerate() {
+        for (n, day) in self.session.mileage.chunk_by(|a, b| a.date == b.date).enumerate() {
             let km: f64 = day.iter().map(|m| m.distance).sum();
             let trips = if day.len() == 1 { "1 trip".to_owned() } else { format!("{} trips", day.len()) };
             rows.push(
@@ -759,7 +759,7 @@ impl TimeChimpApp {
             }
             start += day.len();
         }
-        let empty = self.mileage.is_empty() && self.busy().is_none();
+        let empty = self.session.mileage.is_empty() && self.busy().is_none();
         let trips = panel(theme, format!("Trips · {} km", trim_hours(total)), Some(actions))
             .child(header_row(
                 theme,
@@ -782,7 +782,7 @@ impl TimeChimpApp {
     /// a menu with Delete.
     fn render_presets(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.weak_entity();
-        let buttons = self.trip_presets.iter().enumerate().map(|(i, preset)| {
+        let buttons = self.session.trip_presets.iter().enumerate().map(|(i, preset)| {
             let trigger = pop(
                 theme,
                 button(ElementId::NamedInteger("preset".into(), i as u64), preset.name.clone())
@@ -802,7 +802,7 @@ impl TimeChimpApp {
             .items_center()
             .child(muted(theme, "Presets"))
             .children(buttons)
-            .when(self.trip_presets.is_empty(), |d| {
+            .when(self.session.trip_presets.is_empty(), |d| {
                 d.child(muted(theme, "none yet: use \"Save as preset\" in the trip form, or add [[trips]] to config.toml"))
             })
     }
@@ -810,9 +810,9 @@ impl TimeChimpApp {
     // ---- Report tab ---------------------------------------------------------------------------
 
     fn render_report(&self, theme: &T) -> impl IntoElement {
-        let month = self.report_month.format("%B %Y").to_string();
-        let report = &self.report;
-        if report.month != Some(self.report_month) {
+        let month = self.session.report_month.format("%B %Y").to_string();
+        let report = &self.session.report;
+        if report.month != Some(self.session.report_month) {
             return panel(theme, month, None).child(empty_message(theme, "Loading report…")).into_any_element();
         }
 
@@ -857,9 +857,9 @@ impl TimeChimpApp {
                 .child(stat("Total hours", format!("{:.2}", s.total)))
                 .child(stat("Billable", format!("{:.2} ({:.0}%)", s.billable, pct(s.billable))).when_some(
                     s.billable_share(),
-                    |d, share| d.text_color(if share >= self.billable_goal { theme.success() } else { theme.warning() }),
+                    |d, share| d.text_color(if share >= self.session.billable_goal { theme.success() } else { theme.warning() }),
                 ))
-                .child(stat("Billable goal", format!("{:.0}%", self.billable_goal * 100.0)))
+                .child(stat("Billable goal", format!("{:.0}%", self.session.billable_goal * 100.0)))
                 .child(stat("Non-billable", format!("{:.2}", s.total - s.billable)))
                 .child(stat("Days registered", s.days.to_string()))
                 .child(stat("Entries", s.entries.to_string()))
@@ -882,14 +882,14 @@ impl TimeChimpApp {
     // ---- Projects tab -------------------------------------------------------------------------
 
     fn render_projects(&self, theme: &T) -> impl IntoElement {
-        let projects = panel(theme, format!("My projects ({})", self.projects.len()), None)
+        let projects = panel(theme, format!("My projects ({})", self.session.projects.len()), None)
             .flex_1()
             .child(header_row(
                 theme,
                 [cell(None, "Customer"), cell(None, "Project"), right_cell(60., "Tasks"), cell(Some(70.), "Active")],
             ))
-            .child(table_rows("project-rows", self.projects.iter().map(|p| {
-                let tasks = self.project_tasks.get(&p.id).map_or(0, |t| t.len());
+            .child(table_rows("project-rows", self.session.projects.iter().map(|p| {
+                let tasks = self.session.project_tasks.get(&p.id).map_or(0, |t| t.len());
                 h_stack()
                     .w_full()
                     .py(px(6.))
@@ -902,11 +902,11 @@ impl TimeChimpApp {
                     .child(right_cell(60., tasks.to_string()))
                     .child(cell(Some(70.), if p.active { "yes" } else { "no" }))
             })));
-        let tasks = panel(theme, format!("Tasks ({})", self.tasks.len()), None)
+        let tasks = panel(theme, format!("Tasks ({})", self.session.tasks.len()), None)
             .w(px(360.))
             .flex_none()
             .child(header_row(theme, [cell(None, "Task"), cell(Some(80.), "Billable")]))
-            .child(table_rows("task-rows", self.tasks.iter().map(|t| {
+            .child(table_rows("task-rows", self.session.tasks.iter().map(|t| {
                 h_stack()
                     .w_full()
                     .py(px(6.))
@@ -962,7 +962,7 @@ impl TimeChimpApp {
     }
 
     fn render_detail(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let Some(e) = self.selected_entry() else { return div().into_any_element() };
+        let Some(e) = self.session.selected_entry() else { return div().into_any_element() };
         let field = |label: &'static str, value: String| {
             h_stack().py(px(3.)).child(muted(theme, label).w(px(90.)).flex_none()).child(value)
         };

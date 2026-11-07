@@ -1,6 +1,5 @@
 //! Application state, keyboard handling and the (async) actions. Rendering lives in `view.rs`.
 
-use std::collections::HashMap;
 use std::future::Future;
 
 use futures::FutureExt;
@@ -15,14 +14,14 @@ use gpuikit::elements::tabs::{TabChanged, Tabs, tab, tabs};
 use gpuikit::elements::toast::ToastExt;
 use gpuikit::input::{InputState, InputStateEvent};
 use timechimp::{
-    Authenticator, Client, CurrentUser, LoginOutcome, MfaChallenge, Mileage, MileageType, NewMileage, NewTimeEntry, Project,
-    ProjectTask, Tag, Task, TimeEntry,
+    Authenticator, Client, LoginOutcome, MfaChallenge, Mileage, MileageType, NewMileage, NewTimeEntry, TimeEntry,
 };
 
 use crate::forms::{self, Form, FormBody, MileageForm, TimeForm, TimeKind, chosen, text};
 use crate::domain::report::Report;
 use crate::domain::{self, MILEAGE_TYPES};
 use crate::net;
+use crate::session::Session;
 use crate::store::{config, token};
 use crate::password::{PasswordEvent, PasswordField};
 
@@ -100,34 +99,10 @@ pub struct TimeChimpApp {
     /// Focus target of the main (browse) view; its key handler drives the keyboard shortcuts.
     pub focus: FocusHandle,
     pub screen: Screen,
-    pub client: Option<Client>,
-    pub me: Option<CurrentUser>,
+    /// The logged-in user's data; replaced as a whole on logout.
+    pub session: Session,
     pub tab: Tab,
     pub tabs: Entity<Tabs>,
-    /// The selected day.
-    pub day: NaiveDate,
-    /// Always the Monday of `day`'s week.
-    pub week_start: NaiveDate,
-    pub entries: Vec<TimeEntry>,
-    pub selected_entry: Option<usize>,
-    /// Entries of the last few weeks plus every week loaded since, by id; feeds `recent`.
-    history: HashMap<i64, TimeEntry>,
-    /// What the time form's Recent picker offers, most recent first.
-    pub recent: Vec<domain::week::RecentItem>,
-    pub mileage: Vec<Mileage>,
-    pub selected_mileage: Option<usize>,
-    pub report_month: NaiveDate,
-    pub report: Report,
-    pub projects: Vec<Project>,
-    pub tasks: Vec<Task>,
-    pub project_tasks: HashMap<i64, Vec<ProjectTask>>,
-    pub tags: Vec<Tag>,
-    /// Tags each project may use, from `config.toml` (project id → tags).
-    pub project_tags: HashMap<i64, Vec<Tag>>,
-    /// Billable share to aim for, from `config.toml` (fraction).
-    pub billable_goal: f64,
-    /// `[[trips]]` from `config.toml`: buttons on the Mileage tab that open a filled-in trip form.
-    pub trip_presets: Vec<config::TripPreset>,
     pub form: Option<Form>,
     /// The open delete confirmation, with the subscription that clears it when it closes.
     pub confirm: Option<(Entity<DialogState>, Subscription)>,
@@ -135,10 +110,8 @@ pub struct TimeChimpApp {
     /// The dropdown under the user name in the header is open.
     pub user_menu: bool,
     pub error: Option<String>,
-    /// Labels of the tasks `run` has in flight, oldest first.
-    in_flight: Vec<&'static str>,
-    /// Bumped on every week load, so a slow response for a week we already left is dropped.
-    week_generation: u64,
+    /// Labels of the tasks `run` has in flight, oldest first, with the session they belong to.
+    in_flight: Vec<(u64, &'static str)>,
     /// GPU effects state (`fx.rs`).
     pub fx: crate::fx::Fx,
     _subscriptions: Vec<Subscription>,
@@ -146,7 +119,6 @@ pub struct TimeChimpApp {
 
 impl TimeChimpApp {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let today = domain::time::today();
         let tabs = cx.new(|_| {
             Tab::ALL.iter().fold(tabs("main-tabs"), |t, tb| t.tab(tab(tb.id(), tb.label()))).selected(Tab::Week.id())
         });
@@ -158,34 +130,15 @@ impl TimeChimpApp {
         let mut app = Self {
             focus: cx.focus_handle(),
             screen: Screen::Main,
-            client: None,
-            me: None,
+            session: Session::new(None, domain::time::today()),
             tab: Tab::Week,
             tabs,
-            day: today,
-            week_start: domain::time::monday_of(today),
-            entries: Vec::new(),
-            selected_entry: None,
-            history: HashMap::new(),
-            recent: Vec::new(),
-            mileage: Vec::new(),
-            selected_mileage: None,
-            report_month: domain::time::first_of_month(today),
-            report: Report::default(),
-            projects: Vec::new(),
-            tasks: Vec::new(),
-            project_tasks: HashMap::new(),
-            tags: Vec::new(),
-            project_tags: HashMap::new(),
-            billable_goal: config::DEFAULT_BILLABLE_GOAL,
-            trip_presets: Vec::new(),
             form: None,
             confirm: None,
             show_detail: false,
             user_menu: false,
             error: None,
             in_flight: Vec::new(),
-            week_generation: 0,
             fx: crate::fx::Fx::new(),
             _subscriptions: vec![tab_sub],
         };
@@ -193,7 +146,7 @@ impl TimeChimpApp {
         // Continue with a stored refresh token, if any; otherwise show the login screen.
         match token::load_token() {
             Some(token) => {
-                app.client = Some(Client::new(Authenticator::from_refresh_token(token)));
+                app.session.client = Some(Client::new(Authenticator::from_refresh_token(token)));
                 app.reload(window, cx);
                 window.focus(&app.focus, cx);
             }
@@ -204,7 +157,8 @@ impl TimeChimpApp {
 
     // ---- Async plumbing -------------------------------------------------------------------
 
-    /// Runs `future` on the tokio runtime, shows `label` meanwhile, then applies the result.
+    /// Runs `future` on the tokio runtime, shows `label` meanwhile, then applies the result,
+    /// unless the session changed meanwhile (logged out): then the result is dropped.
     fn run<T: Send + 'static>(
         &mut self,
         label: &'static str,
@@ -213,16 +167,18 @@ impl TimeChimpApp {
         cx: &mut Context<Self>,
         done: impl FnOnce(&mut Self, T, &mut Window, &mut Context<Self>) + 'static,
     ) {
-        self.in_flight.push(label);
+        let epoch = self.session.epoch;
+        self.in_flight.push((epoch, label));
         cx.notify();
         let handle = net::runtime().spawn(future);
         cx.spawn_in(window, async move |this, cx| {
             let result = handle.await;
             let _ = this.update_in(cx, |this, window, cx| {
-                if let Some(i) = this.in_flight.iter().rposition(|l| *l == label) {
+                if let Some(i) = this.in_flight.iter().rposition(|t| *t == (epoch, label)) {
                     this.in_flight.remove(i);
                 }
                 match result {
+                    Ok(_) if this.session.epoch != epoch => {}
                     Ok(value) => done(this, value, window, cx),
                     Err(e) => this.set_error(format!("Background task failed: {e}"), window, cx),
                 }
@@ -232,9 +188,9 @@ impl TimeChimpApp {
         .detach();
     }
 
-    /// What is being waited for (the most recent task still running), if anything.
+    /// What is being waited for (the most recent task of this session still running), if anything.
     pub fn busy(&self) -> Option<&'static str> {
-        self.in_flight.last().copied()
+        self.in_flight.iter().rev().find(|(epoch, _)| *epoch == self.session.epoch).map(|(_, label)| *label)
     }
 
     fn set_info(&mut self, message: impl Into<SharedString>, window: &mut Window, cx: &mut Context<Self>) {
@@ -262,6 +218,7 @@ impl TimeChimpApp {
 
     fn to_login(&mut self, error: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         let email = self
+            .session
             .me
             .as_ref()
             .map(|m| m.user_name.clone())
@@ -278,18 +235,11 @@ impl TimeChimpApp {
         };
         window.focus(&focus, cx);
 
-        self.client = None;
-        self.me = None;
-        self.entries.clear();
-        self.history.clear();
-        self.recent.clear();
-        self.mileage.clear();
-        self.projects.clear();
-        self.tasks.clear();
-        self.report = Report::default();
+        self.session = Session::new(None, domain::time::today());
         self.form = None;
         self.confirm = None;
         self.show_detail = false;
+        self.user_menu = false;
         self.error = None;
         self.screen = Screen::Login(Login {
             email: email_input,
@@ -363,7 +313,7 @@ impl TimeChimpApp {
 
     fn logged_in(&mut self, auth: Authenticator, window: &mut Window, cx: &mut Context<Self>) {
         let save_error = token::save_token(auth.refresh_token()).err();
-        self.client = Some(Client::new(auth));
+        self.session.client = Some(Client::new(auth));
         self.screen = Screen::Main;
         window.focus(&self.focus, cx);
         self.reload(window, cx);
@@ -382,10 +332,10 @@ impl TimeChimpApp {
 
     /// Loads everything.
     pub fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(client) = self.client.clone() else { return };
-        let (week_start, report_month, want_report) = (self.week_start, self.report_month, self.tab == Tab::Report);
-        self.week_generation += 1;
-        let generation = self.week_generation;
+        let Some(client) = self.session.client.clone() else { return };
+        let (week_start, report_month, want_report) = (self.session.week_start, self.session.report_month, self.tab == Tab::Report);
+        self.session.week_generation += 1;
+        let generation = self.session.week_generation;
         let today = domain::time::today();
         let future = async move {
             let base = net::load_base(&client).await?;
@@ -398,23 +348,13 @@ impl TimeChimpApp {
         };
         self.run("Loading…", future, window, cx, move |this, result, window, cx| match result {
             Ok((base, week, report, history)) => {
-                this.project_tasks = base.project_tasks;
-                this.me = Some(base.me);
-                this.projects = base.projects;
-                this.tasks = base.tasks;
-                this.tags = base.tags;
-                // Clear the old error first: `load_config` may report a warning.
+                // Clear the old error first: loading the config or the history may report one.
                 this.error = None;
+                let history = history.map_err(|e| this.set_error(format!("Could not load recent entries: {e}"), window, cx));
+                this.session.apply_base(base, history.ok());
                 this.load_config(window, cx);
-                this.report = report.unwrap_or_default();
-                match history {
-                    Ok(history) => {
-                        this.history = history.into_iter().map(|e| (e.id, e)).collect();
-                        this.recent = domain::week::recent_items(this.history.values());
-                    }
-                    Err(e) => this.set_error(format!("Could not load recent entries: {e}"), window, cx),
-                }
-                if generation == this.week_generation {
+                this.session.report = report.unwrap_or_default();
+                if generation == this.session.week_generation {
                     this.apply_week(week, None);
                 }
             }
@@ -426,37 +366,19 @@ impl TimeChimpApp {
     fn load_config(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match config::path().and_then(|path| Ok((config::load(&path)?, path))) {
             Ok((Some(config), _)) => {
-                self.billable_goal = config.billable_goal;
-                let (resolved, warning) = config::resolve_project_tags(&config.projects, &self.projects, &self.tags);
-                self.project_tags = resolved;
-                let unknown: Vec<String> = config
-                    .trips
-                    .iter()
-                    .filter(|t| self.preset_project(t).is_none())
-                    .map(|t| format!("project \"{}\" (trip \"{}\")", t.project, t.name))
-                    .collect();
-                self.trip_presets = config.trips;
-                let warning = match (warning, unknown.is_empty()) {
-                    (w, true) => w,
-                    (None, false) => Some(format!("config.toml: unknown {}", unknown.join(", "))),
-                    (Some(w), false) => Some(format!("{w}, {}", unknown.join(", "))),
-                };
-                if let Some(warning) = warning {
+                if let Some(warning) = self.session.apply_config(Some(config)) {
                     self.set_error(warning, window, cx);
                 }
             }
             Ok((None, path)) => {
-                self.project_tags.clear();
-                self.trip_presets.clear();
-                self.billable_goal = config::DEFAULT_BILLABLE_GOAL;
-                match config::write_template(&path, &self.projects, &self.tags) {
+                self.session.apply_config(None);
+                match config::write_template(&path, &self.session.projects, &self.session.tags) {
                     Ok(()) => self.set_info(format!("Created {}; add the tags per project there", path.display()), window, cx),
                     Err(e) => self.set_error(format!("Could not create config.toml: {e}"), window, cx),
                 }
             }
             Err(e) => {
-                self.project_tags.clear();
-                self.trip_presets.clear();
+                self.session.apply_config(None);
                 self.set_error(e, window, cx);
             }
         }
@@ -464,17 +386,17 @@ impl TimeChimpApp {
 
     /// Loads the current week; afterwards selects the item with `select_id`, if given.
     fn load_week(&mut self, select_id: Option<i64>, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(client), Some(me)) = (self.client.clone(), self.me.as_ref()) else { return };
-        let (user_id, week_start) = (me.id, self.week_start);
-        self.week_generation += 1;
-        let generation = self.week_generation;
+        let (Some(client), Some(me)) = (self.session.client.clone(), self.session.me.as_ref()) else { return };
+        let (user_id, week_start) = (me.id, self.session.week_start);
+        self.session.week_generation += 1;
+        let generation = self.session.week_generation;
         self.run(
             "Loading…",
             async move { net::load_week(&client, user_id, week_start).await },
             window,
             cx,
             move |this, result, window, cx| match result {
-                Ok(week) if generation == this.week_generation => {
+                Ok(week) if generation == this.session.week_generation => {
                     this.apply_week(week, select_id);
                     this.error = None;
                 }
@@ -486,30 +408,12 @@ impl TimeChimpApp {
 
     fn apply_week(&mut self, week: net::Week, select_id: Option<i64>) {
         self.fx.sweep += 1;
-        // The week replaces what the history had for it, so saves and deletes show up in Recent.
-        let week_end = self.week_start + Duration::days(7);
-        self.history.retain(|_, e| !(self.week_start..week_end).contains(&e.date));
-        self.history.extend(week.entries.iter().map(|e| (e.id, e.clone())));
-        self.recent = domain::week::recent_items(self.history.values());
-
-        self.selected_entry = keep_selection(self.selected_entry, week.entries.len());
-        self.selected_mileage = keep_selection(self.selected_mileage, week.mileage.len());
-        self.entries = week.entries;
-        self.mileage = week.mileage;
-        if let Some(id) = select_id {
-            if let Some(i) = self.entries.iter().position(|e| e.id == id) {
-                self.selected_entry = Some(i);
-            }
-            if let Some(i) = self.mileage.iter().position(|m| m.id == id) {
-                self.selected_mileage = Some(i);
-            }
-        }
-        self.fix_selection();
+        self.session.apply_week(week, select_id);
     }
 
     fn load_report(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(client), Some(me)) = (self.client.clone(), self.me.as_ref()) else { return };
-        let (user_id, month) = (me.id, self.report_month);
+        let (Some(client), Some(me)) = (self.session.client.clone(), self.session.me.as_ref()) else { return };
+        let (user_id, month) = (me.id, self.session.report_month);
         self.run(
             "Loading…",
             async move { net::load_report(&client, user_id, month).await },
@@ -517,8 +421,8 @@ impl TimeChimpApp {
             cx,
             |this, result, window, cx| match result {
                 // Only keep it if the user didn't move on to another month meanwhile.
-                Ok(report) if report.month == Some(this.report_month) => {
-                    this.report = report;
+                Ok(report) if report.month == Some(this.session.report_month) => {
+                    this.session.report = report;
                     this.error = None;
                 }
                 Ok(_) => {}
@@ -537,7 +441,7 @@ impl TimeChimpApp {
         self.tab = tab;
         self.fx.sweep += 1;
         self.tabs.update(cx, |t, cx| t.set_selected(tab.id().into(), cx));
-        if tab == Tab::Report && self.report.month != Some(self.report_month) {
+        if tab == Tab::Report && self.session.report.month != Some(self.session.report_month) {
             self.load_report(window, cx);
         }
         window.focus(&self.focus, cx);
@@ -546,7 +450,7 @@ impl TimeChimpApp {
 
     /// Moves the selected day; loads data only when the week changes.
     pub fn shift_day(&mut self, days: i64, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_day(self.day + Duration::days(days), window, cx);
+        self.select_day(self.session.day + Duration::days(days), window, cx);
     }
 
     /// The ‹/› buttons: a day on the Week tab, a week on the Mileage tab.
@@ -556,19 +460,15 @@ impl TimeChimpApp {
     }
 
     pub fn select_day(&mut self, day: NaiveDate, window: &mut Window, cx: &mut Context<Self>) {
-        self.day = day;
-        let week_start = domain::time::monday_of(day);
-        if week_start != self.week_start {
-            self.week_start = week_start;
+        if self.session.select_day(day) {
             self.load_week(None, window, cx);
         }
-        self.fix_selection();
         cx.notify();
     }
 
     pub fn go_today(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.tab == Tab::Report {
-            self.report_month = domain::time::first_of_month(domain::time::today());
+            self.session.report_month = domain::time::first_of_month(domain::time::today());
             self.load_report(window, cx);
         } else {
             self.select_day(domain::time::today(), window, cx);
@@ -577,53 +477,25 @@ impl TimeChimpApp {
 
     pub fn shift_month(&mut self, months: i32, window: &mut Window, cx: &mut Context<Self>) {
         let delta = Months::new(months.unsigned_abs());
-        self.report_month = if months < 0 { self.report_month - delta } else { self.report_month + delta };
+        self.session.report_month = if months < 0 { self.session.report_month - delta } else { self.session.report_month + delta };
         self.load_report(window, cx);
         cx.notify();
-    }
-
-    /// Indices into `entries` of the rows currently shown on the Week tab.
-    pub fn visible_entries(&self) -> Vec<usize> {
-        (0..self.entries.len()).filter(|&i| self.entries[i].date == self.day).collect()
     }
 
     /// Moves the selection by `delta` rows within what's visible on the current tab.
     fn move_selection(&mut self, delta: isize) {
         if self.tab == Tab::Mileage {
-            let len = self.mileage.len();
-            if len > 0 {
-                self.selected_mileage = Some(self.selected_mileage.map_or(0, |i| i.saturating_add_signed(delta).min(len - 1)));
-            }
-            return;
+            self.session.move_mileage_selection(delta);
+        } else {
+            self.session.move_entry_selection(delta);
         }
-        let visible = self.visible_entries();
-        let Some(last) = visible.len().checked_sub(1) else { return };
-        let pos = self.selected_entry.and_then(|s| visible.iter().position(|&i| i == s));
-        let pos = pos.map_or(0, |p| p.saturating_add_signed(delta).min(last));
-        self.selected_entry = Some(visible[pos]);
-    }
-
-    /// Keeps the selection on a visible entry (the first one of the day if it isn't).
-    fn fix_selection(&mut self) {
-        let visible = self.visible_entries();
-        if !self.selected_entry.is_some_and(|s| visible.contains(&s)) {
-            self.selected_entry = visible.first().copied();
-        }
-    }
-
-    pub fn selected_entry(&self) -> Option<&TimeEntry> {
-        self.entries.get(self.selected_entry?)
-    }
-
-    pub fn selected_mileage(&self) -> Option<&Mileage> {
-        self.mileage.get(self.selected_mileage?)
     }
 
     /// Clicking a row: select it; a double click opens it for editing.
     pub fn click_entry(&mut self, index: usize, clicks: usize, window: &mut Window, cx: &mut Context<Self>) {
-        self.selected_entry = Some(index);
-        if let Some(day) = self.entries.get(index).map(|e| e.date) {
-            self.day = day;
+        self.session.selected_entry = Some(index);
+        if let Some(day) = self.session.entries.get(index).map(|e| e.date) {
+            self.session.day = day;
         }
         window.focus(&self.focus, cx);
         if clicks >= 2 {
@@ -633,7 +505,7 @@ impl TimeChimpApp {
     }
 
     pub fn click_mileage(&mut self, index: usize, clicks: usize, window: &mut Window, cx: &mut Context<Self>) {
-        self.selected_mileage = Some(index);
+        self.session.selected_mileage = Some(index);
         window.focus(&self.focus, cx);
         if clicks >= 2 {
             self.edit_selected(window, cx);
@@ -675,7 +547,7 @@ impl TimeChimpApp {
             ("right" | "l" | "]", _) => self.shift_day(7, window, cx),
             ("down" | "j", _) => self.move_selection(1),
             ("up" | "k", _) => self.move_selection(-1),
-            ("enter", _) if week_tab && self.selected_entry().is_some() => self.show_detail = true,
+            ("enter", _) if week_tab && self.session.selected_entry().is_some() => self.show_detail = true,
             ("a" | "n", _) => self.add(window, cx),
             ("e", _) => self.edit_selected(window, cx),
             ("enter", _) if self.tab == Tab::Mileage => self.edit_selected(window, cx),
@@ -690,7 +562,7 @@ impl TimeChimpApp {
     // ---- Forms -----------------------------------------------------------------------------
 
     pub fn add(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.me.is_none() {
+        if self.session.me.is_none() {
             return;
         }
         if self.tab == Tab::Mileage {
@@ -702,75 +574,45 @@ impl TimeChimpApp {
 
     pub fn edit_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.tab == Tab::Mileage {
-            if let Some(trip) = self.selected_mileage().cloned() {
+            if let Some(trip) = self.session.selected_mileage().cloned() {
                 self.open_mileage_form(Some(Box::new(trip)), None, window, cx);
             }
-        } else if let Some(entry) = self.selected_entry().cloned() {
+        } else if let Some(entry) = self.session.selected_entry().cloned() {
             self.open_time_form(Some(&entry), false, window, cx);
         }
     }
 
     /// Copies the selected entry as a new one on the selected day.
     pub fn copy_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(entry) = self.selected_entry().cloned() {
+        if let Some(entry) = self.session.selected_entry().cloned() {
             self.open_time_form(Some(&entry), true, window, cx);
         }
     }
 
-    /// The active projects, plus `current` (id, name, customer: the project of the entry or trip
-    /// at hand) when it isn't among them.
-    fn project_options(&self, current: Option<(i64, &str, &str)>) -> Vec<(i64, String)> {
-        let mut options: Vec<(i64, String)> = self
-            .projects
-            .iter()
-            .filter(|p| p.active)
-            .map(|p| (p.id, domain::project_label(&p.name, &p.customer_name)))
-            .collect();
-        if let Some((id, name, customer)) = current
-            && !options.iter().any(|(o, _)| *o == id)
-        {
-            options.push((id, domain::project_label(name, customer)));
-        }
-        options
-    }
-
-    fn task_options(&self, project_id: Option<i64>, entry: Option<&TimeEntry>) -> Vec<(i64, String)> {
-        let mut tasks: Vec<(i64, String)> = project_id
-            .and_then(|id| self.project_tasks.get(&id))
-            .map(|ts| ts.iter().filter(|t| t.active).map(|t| (t.id, t.name.clone())).collect())
-            .unwrap_or_default();
-        if let Some(e) = entry.filter(|e| Some(e.project_id) == project_id) {
-            if !tasks.iter().any(|(id, _)| *id == e.project_task_id) {
-                tasks.push((e.project_task_id, e.task_name.clone()));
-            }
-        }
-        tasks
-    }
-
     /// Form for a new time entry, for editing `entry`, or (with `copy`) for a copy of it.
     fn open_time_form(&mut self, entry: Option<&TimeEntry>, copy: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let projects = self.project_options(entry.map(|e| (e.project_id, &*e.project_name, &*e.customer_name)));
+        let projects = self.session.project_options(entry.map(|e| (e.project_id, &*e.project_name, &*e.customer_name)));
         // New entries default to the project/task/tag of the most recently modified entry.
-        let template = entry.or_else(|| self.entries.iter().max_by_key(|e| e.modified));
+        let template = entry.or_else(|| self.session.entries.iter().max_by_key(|e| e.modified));
         let project_id = template.map(|e| e.project_id).or(projects.first().map(|(id, _)| *id));
-        let tasks = self.task_options(project_id, entry);
+        let tasks = self.session.task_options(project_id, entry);
 
         let tags = self.tag_checkboxes(project_id, template, cx);
-        let kept_tag_ids = entry.map(|e| self.unconfigured_tags(&e.tag_ids)).unwrap_or_default();
+        let kept_tag_ids = entry.map(|e| self.session.unconfigured_tags(&e.tag_ids)).unwrap_or_default();
 
         let editing = entry.filter(|_| !copy);
-        let date = editing.map(|e| e.date).unwrap_or(self.day);
+        let date = editing.map(|e| e.date).unwrap_or(self.session.day);
         let (start, end) = editing
             .and_then(|e| e.start_end.as_deref())
             .and_then(|s| s.split_once('-'))
             .map(|(s, e)| (s.to_owned(), e.to_owned()))
-            .unwrap_or_else(|| (self.next_start_time(date).unwrap_or_default(), String::new()));
+            .unwrap_or_else(|| (self.session.next_start_time(date).unwrap_or_default(), String::new()));
         let hours = editing.map(|e| format!("{}", e.hours)).unwrap_or_default();
         let notes = entry.and_then(|e| e.notes.clone()).unwrap_or_default();
 
         let project = forms::choice(cx, "form-project", "Project", projects, project_id);
         let project_sub = self.subscribe_project(&project, window, cx);
-        let recent = (entry.is_none() && !self.recent.is_empty())
+        let recent = (entry.is_none() && !self.session.recent.is_empty())
             .then(|| forms::RecentPicker { filter: forms::text_input(cx, ""), selected: 0 });
         let form = TimeForm {
             kind: match editing {
@@ -854,7 +696,7 @@ impl TimeChimpApp {
         if query.is_empty() {
             return Vec::new();
         }
-        self.recent.iter().filter(|item| item.matches(&query)).take(RECENT_ROWS).collect()
+        self.session.recent.iter().filter(|item| item.matches(&query)).take(RECENT_ROWS).collect()
     }
 
     /// ↑/↓ in the Recent filter.
@@ -881,12 +723,12 @@ impl TimeChimpApp {
     /// Fills the open time form with the project, task, notes and tags of `entry` (a recent item);
     /// date and times stay. Focus moves on to the times.
     pub fn pick_recent(&mut self, entry: TimeEntry, window: &mut Window, cx: &mut Context<Self>) {
-        let projects = self.project_options(Some((entry.project_id, &entry.project_name, &entry.customer_name)));
+        let projects = self.session.project_options(Some((entry.project_id, &entry.project_name, &entry.customer_name)));
         let project = forms::choice(cx, "form-project", "Project", projects, Some(entry.project_id));
-        let tasks = self.task_options(Some(entry.project_id), Some(&entry));
+        let tasks = self.session.task_options(Some(entry.project_id), Some(&entry));
         let task = forms::choice(cx, "form-task", "Task", tasks, Some(entry.project_task_id));
         let tags = self.tag_checkboxes(Some(entry.project_id), Some(&entry), cx);
-        let kept_tag_ids = self.unconfigured_tags(&entry.tag_ids);
+        let kept_tag_ids = self.session.unconfigured_tags(&entry.tag_ids);
         let project_sub = self.subscribe_project(&project, window, cx);
         let Some(Form { body: FormBody::Time(form), error, .. }) = &mut self.form else { return };
         forms::set_text(&form.notes, entry.notes.clone().unwrap_or_default(), cx);
@@ -905,10 +747,10 @@ impl TimeChimpApp {
     fn on_project_changed(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(Form { body: FormBody::Time(form), .. }) = &self.form else { return };
         let project_id = chosen(&form.project, cx);
-        let options = self.task_options(project_id, None);
+        let options = self.session.task_options(project_id, None);
         let task = forms::choice(cx, "form-task", "Task", options, None);
         // Pre-check the tags the project's most recently modified entry had.
-        let last = self.entries.iter().filter(|e| Some(e.project_id) == project_id).max_by_key(|e| e.modified).cloned();
+        let last = self.session.entries.iter().filter(|e| Some(e.project_id) == project_id).max_by_key(|e| e.modified).cloned();
         let tags = self.tag_checkboxes(project_id, last.as_ref(), cx);
         if let Some(Form { body: FormBody::Time(form), .. }) = &mut self.form {
             form.task = task;
@@ -924,7 +766,7 @@ impl TimeChimpApp {
         from: Option<&TimeEntry>,
         cx: &mut Context<Self>,
     ) -> Vec<forms::TagCheckbox> {
-        let tags = project_id.and_then(|id| self.project_tags.get(&id)).cloned().unwrap_or_default();
+        let tags = project_id.and_then(|id| self.session.project_tags.get(&id)).cloned().unwrap_or_default();
         tags.into_iter()
             .map(|t| {
                 let checked = from.is_some_and(|e| e.tag_ids.contains(&t.id));
@@ -933,22 +775,12 @@ impl TimeChimpApp {
             .collect()
     }
 
-    /// The tags in `tag_ids` that no project configures; the form can't show them, so they're kept.
-    fn unconfigured_tags(&self, tag_ids: &[i64]) -> Vec<i64> {
-        tag_ids.iter().copied().filter(|id| !self.project_tags.values().flatten().any(|t| t.id == *id)).collect()
-    }
-
-    /// The project a preset names (case-insensitive), among the user's projects.
-    fn preset_project(&self, preset: &config::TripPreset) -> Option<&Project> {
-        self.projects.iter().find(|p| p.name.eq_ignore_ascii_case(preset.project.trim()))
-    }
-
     /// A preset button: the trip form for the selected day, filled in from preset `index`.
     pub fn open_preset(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if self.me.is_none() || self.form.is_some() {
+        if self.session.me.is_none() || self.form.is_some() {
             return;
         }
-        if let Some(preset) = self.trip_presets.get(index).cloned() {
+        if let Some(preset) = self.session.trip_presets.get(index).cloned() {
             self.open_mileage_form(None, Some(&preset), window, cx);
         }
     }
@@ -960,7 +792,7 @@ impl TimeChimpApp {
         if from.is_empty() || to.is_empty() {
             return self.form_error("Fill in both addresses first", cx);
         }
-        let Some(project) = chosen(&f.project, cx).and_then(|id| self.projects.iter().find(|p| p.id == id)) else {
+        let Some(project) = chosen(&f.project, cx).and_then(|id| self.session.projects.iter().find(|p| p.id == id)) else {
             return self.form_error("Pick a project first", cx);
         };
         let distance = text(&f.distance, cx);
@@ -970,7 +802,7 @@ impl TimeChimpApp {
             None => return self.form_error("Distance must be a number (or empty)", cx),
         };
         let name = config::preset_name(&from, &to, &notes);
-        if self.trip_presets.iter().any(|p| p.name.eq_ignore_ascii_case(&name)) {
+        if self.session.trip_presets.iter().any(|p| p.name.eq_ignore_ascii_case(&name)) {
             return self.form_error(format!("There already is a preset \"{name}\" in config.toml"), cx);
         }
         let preset = config::TripPreset {
@@ -1005,11 +837,11 @@ impl TimeChimpApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let template = editing.as_deref().or(self.mileage.last());
-        let saved = self.saved_addresses();
+        let template = editing.as_deref().or(self.session.mileage.last());
+        let saved = self.session.saved_addresses();
         let types = MILEAGE_TYPES.iter().map(|(id, name)| (*id, name.to_string())).collect();
         let projects =
-            self.project_options(editing.as_deref().map(|m| (m.project_id, &*m.project_name, &*m.customer_name)));
+            self.session.project_options(editing.as_deref().map(|m| (m.project_id, &*m.project_name, &*m.customer_name)));
         let (mut project, mut mileage_type, mut billable, mut return_trip) = (
             template.map(|m| m.project_id),
             template.map(|m| m.mileage_type),
@@ -1017,14 +849,14 @@ impl TimeChimpApp {
             false,
         );
         if let Some(p) = preset {
-            project = self.preset_project(p).map(|p| p.id).or(project);
+            project = self.session.preset_project(p).map(|p| p.id).or(project);
             mileage_type = p.trip_type();
             billable = p.billable;
             return_trip = p.return_trip;
         }
         let (date, from, to, distance, notes) = match (&editing, preset) {
             (None, Some(p)) => (
-                self.day,
+                self.session.day,
                 p.from.clone(),
                 p.to.clone(),
                 p.distance.map(|d| format!("{d}")).unwrap_or_default(),
@@ -1038,7 +870,7 @@ impl TimeChimpApp {
                 m.notes.clone().unwrap_or_default(),
             ),
             (None, None) => (
-                self.day,
+                self.session.day,
                 saved.first().cloned().unwrap_or_default(),
                 saved.get(1).cloned().unwrap_or_default(),
                 String::new(),
@@ -1077,7 +909,7 @@ impl TimeChimpApp {
 
     /// F2 in an address field cycles through the user's saved addresses.
     pub fn cycle_address(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let saved = self.saved_addresses();
+        let saved = self.session.saved_addresses();
         let Some(Form { body: FormBody::Mileage(form), .. }) = &self.form else { return };
         let field = [&form.from, &form.to].into_iter().find(|f| f.read(cx).focus_handle(cx).is_focused(window));
         if let (Some(field), false) = (field, saved.is_empty()) {
@@ -1088,7 +920,7 @@ impl TimeChimpApp {
     }
 
     pub fn calculate_distance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(Form { body: FormBody::Mileage(form), .. }), Some(client)) = (&self.form, self.client.clone()) else {
+        let (Some(Form { body: FormBody::Mileage(form), .. }), Some(client)) = (&self.form, self.session.client.clone()) else {
             return;
         };
         let (from, to) = (text(&form.from, cx), text(&form.to, cx));
@@ -1137,7 +969,7 @@ impl TimeChimpApp {
         if self.busy().is_some() {
             return;
         }
-        let Some(client) = self.client.clone() else { return };
+        let Some(client) = self.session.client.clone() else { return };
         let (date, request) = match self.build_save(cx) {
             Ok(r) => r,
             Err(message) => return self.form_error(message, cx),
@@ -1170,9 +1002,9 @@ impl TimeChimpApp {
                 Ok((id, message)) => {
                     this.close_form(window, cx);
                     // Jump to the day of the saved item and select it.
-                    this.day = date;
-                    this.week_start = domain::time::monday_of(date);
-                    this.report = Report::default();
+                    this.session.day = date;
+                    this.session.week_start = domain::time::monday_of(date);
+                    this.session.report = Report::default();
                     this.load_week(Some(id), window, cx);
                     this.set_info(message, window, cx);
                 }
@@ -1183,19 +1015,19 @@ impl TimeChimpApp {
 
     /// Validates the open form and turns it into an API request.
     fn build_save(&self, cx: &Context<Self>) -> Result<(NaiveDate, SaveRequest), String> {
-        let (Some(form), Some(me)) = (&self.form, &self.me) else { return Err("Not logged in".into()) };
+        let (Some(form), Some(me)) = (&self.form, &self.session.me) else { return Err("Not logged in".into()) };
         let (date_input, project) = match &form.body {
             FormBody::Time(f) => (&f.date, &f.project),
             FormBody::Mileage(f) => (&f.date, &f.project),
         };
         let date = NaiveDate::parse_from_str(&text(date_input, cx), "%Y-%m-%d").map_err(|_| "Date must be YYYY-MM-DD")?;
         let project_id = chosen(project, cx).ok_or("Pick a project")?;
-        let customer_id = self
+        let customer_id = self.session
             .projects
             .iter()
             .find(|p| p.id == project_id)
             .map(|p| p.customer_id)
-            .or(self.entries.iter().find(|e| e.project_id == project_id).map(|e| e.customer_id))
+            .or(self.session.entries.iter().find(|e| e.project_id == project_id).map(|e| e.customer_id))
             .ok_or("Unknown project")?;
 
         let request = match &form.body {
@@ -1227,7 +1059,7 @@ impl TimeChimpApp {
             }
             FormBody::Time(f) => {
                 let project_task_id = chosen(&f.task, cx).ok_or("Pick a task")?;
-                let task_id = self
+                let task_id = self.session
                     .project_tasks
                     .get(&project_id)
                     .and_then(|ts| ts.iter().find(|t| t.id == project_task_id))
@@ -1266,7 +1098,7 @@ impl TimeChimpApp {
                     }
                     TimeKind::New => None,
                 };
-                let tz = self.timezone(own_timezone);
+                let tz = self.session.timezone(own_timezone);
                 entry.timezone = Some(tz.name().to_owned());
 
                 let start = domain::time::parse_time(&text(&f.start, cx))?;
@@ -1302,7 +1134,7 @@ impl TimeChimpApp {
 
     pub fn ask_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let target = if self.tab == Tab::Week {
-            self.selected_entry().map(|e| {
+            self.session.selected_entry().map(|e| {
                 (
                     DeleteTarget::Time(e.id),
                     "Delete time entry?",
@@ -1317,7 +1149,7 @@ impl TimeChimpApp {
                 )
             })
         } else {
-            self.selected_mileage().map(|m| {
+            self.session.selected_mileage().map(|m| {
                 (
                     DeleteTarget::Mileage(m.id),
                     "Delete mileage?",
@@ -1338,7 +1170,7 @@ impl TimeChimpApp {
     /// The preset buttons' right-click Delete: removes preset `index` from `config.toml`, after
     /// confirmation.
     pub fn ask_delete_preset(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(preset) = self.trip_presets.get(index) else { return };
+        let Some(preset) = self.session.trip_presets.get(index) else { return };
         let label = format!("\"{}\": {} → {}", preset.name, preset.from, preset.to);
         let target = DeleteTarget::Preset(preset.name.clone());
         self.confirm_delete(target, "Delete preset?", label, window, cx);
@@ -1372,7 +1204,7 @@ impl TimeChimpApp {
     }
 
     fn delete(&mut self, target: DeleteTarget, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(client) = self.client.clone() else { return };
+        let Some(client) = self.session.client.clone() else { return };
         let future = match target {
             DeleteTarget::Time(id) => async move { client.delete_time_entry(id).await }.boxed(),
             DeleteTarget::Mileage(id) => async move { client.delete_mileage(id).await }.boxed(),
@@ -1390,7 +1222,7 @@ impl TimeChimpApp {
         };
         self.run("Deleting…", future, window, cx, |this, result, window, cx| match result {
             Ok(()) => {
-                this.report = Report::default();
+                this.session.report = Report::default();
                 this.load_week(None, window, cx);
                 this.set_info("Deleted.", window, cx);
             }
@@ -1400,53 +1232,6 @@ impl TimeChimpApp {
 
     // ---- Helpers ---------------------------------------------------------------------------
 
-    /// End time of the last entry on `date`, so a new entry continues where the day left off.
-    fn next_start_time(&self, date: NaiveDate) -> Option<String> {
-        self.entries
-            .iter()
-            .filter(|e| e.date == date)
-            .filter_map(|e| e.start_end.as_deref()?.split_once('-').map(|(_, end)| end.to_owned()))
-            .max()
-    }
-
-    /// The timezone for an entry's start/end: `own` (an edited entry's), else the account's, else
-    /// what this week's entries were registered in.
-    fn timezone(&self, own: Option<&str>) -> chrono_tz::Tz {
-        let account = self.me.as_ref().and_then(|m| m.timezone.as_deref());
-        let entries = self.entries.iter().map(|e| e.timezone.as_deref());
-        domain::time::timezone([own, account].into_iter().chain(entries))
-    }
-
-    fn saved_addresses(&self) -> Vec<String> {
-        let mut addresses: Vec<String> = self
-            .me
-            .as_ref()
-            .and_then(|m| m.extra.get("mileageAddresses"))
-            .and_then(domain::json_strings)
-            .unwrap_or_default();
-        for m in &self.mileage {
-            for a in [&m.from_address, &m.to_address].into_iter().flatten() {
-                if !addresses.contains(a) {
-                    addresses.push(a.clone());
-                }
-            }
-        }
-        addresses
-    }
-
-    /// Hours registered per day of the current week, Monday first.
-    pub fn hours_per_day(&self) -> [f64; 7] {
-        domain::week::hours_per_day(&self.entries, self.week_start)
-    }
-
-    /// Contracted hours for a day of the week (0 = Monday).
-    pub fn target_for(&self, day: usize) -> f64 {
-        self.me.as_ref().and_then(|m| m.user_availability.as_ref()).and_then(|a| a.for_day(day)).unwrap_or(0.0)
-    }
-
-    pub fn contract_hours(&self) -> f64 {
-        self.me.as_ref().and_then(|m| m.contract_hours).unwrap_or(0.0)
-    }
 }
 
 #[derive(Clone)]
@@ -1466,10 +1251,3 @@ enum SaveRequest {
 /// Rows the Recent picker shows at most.
 const RECENT_ROWS: usize = 6;
 
-fn keep_selection(selected: Option<usize>, len: usize) -> Option<usize> {
-    match (len, selected) {
-        (0, _) => None,
-        (n, Some(i)) => Some(i.min(n - 1)),
-        (_, None) => Some(0),
-    }
-}
