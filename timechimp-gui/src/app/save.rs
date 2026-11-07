@@ -1,0 +1,120 @@
+//! What both forms share: saving (to the API or as a preset), errors, closing.
+
+use chrono::NaiveDate;
+use gpui::{Context, Window};
+use timechimp::NewMileage;
+
+use crate::forms::{Form, FormBody};
+use crate::validate::{self, SaveRequest};
+use crate::domain::report::Report;
+use crate::domain;
+use crate::session;
+use crate::store::config;
+
+use super::TimeChimpApp;
+
+impl TimeChimpApp {
+    /// "Save as preset" in the time or trip form: appends it to `config.toml`.
+    pub fn save_as_preset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let saved = match &self.form {
+            Some(Form { body: FormBody::Mileage(f), .. }) => validate::preset(&f.values(cx), &self.session)
+                .and_then(|p| config::path().and_then(|path| config::append_preset(&path, &p)).map(|_| p.name)),
+            Some(Form { body: FormBody::Time(f), .. }) => validate::time_preset(&f.values(cx), &self.session).and_then(|p| {
+                let label = session::time_preset_label(&p).to_owned();
+                config::path().and_then(|path| config::append_preset(&path, &p)).map(|_| label)
+            }),
+            None => return,
+        };
+        match saved {
+            Ok(name) => {
+                if let Some(form) = &mut self.form {
+                    form.error = None;
+                }
+                self.load_config(window, cx);
+                self.set_info(format!("Preset \"{name}\" added to config.toml"), window, cx);
+            }
+            Err(e) => self.form_error(e, cx),
+        }
+    }
+
+    pub fn close_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.form = None;
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+
+    pub(super) fn form_error(&mut self, message: impl Into<String>, cx: &mut Context<Self>) {
+        if let Some(form) = &mut self.form {
+            form.error = Some(message.into());
+        }
+        cx.notify();
+    }
+
+    pub fn submit_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.busy().is_some() {
+            return;
+        }
+        let Some(client) = self.session.client.clone() else { return };
+        let (date, request) = match self.build_save(cx) {
+            Ok(r) => r,
+            Err(message) => return self.form_error(message, cx),
+        };
+        let future = async move {
+            match request {
+                SaveRequest::Time { id: Some(id), entry } => {
+                    Ok(Saved::Done(client.update_time_entry(id, &entry).await?.id, "Time entry updated."))
+                }
+                SaveRequest::Time { id: None, entry } => {
+                    Ok(Saved::Done(client.create_time_entry(&entry).await?.id, "Time entry saved."))
+                }
+                SaveRequest::Mileage { trip, editing: Some(original), .. } => {
+                    Ok(Saved::Done(client.update_mileage(&original, &trip).await?.id, "Trip updated."))
+                }
+                SaveRequest::Mileage { trip, return_trip, editing: None } => {
+                    let id = client.create_mileage(&trip).await?.id;
+                    if !return_trip {
+                        return Ok(Saved::Done(id, "Mileage saved."));
+                    }
+                    let back = NewMileage { from_address: trip.to_address.clone(), to_address: trip.from_address.clone(), ..trip };
+                    match client.create_mileage(&back).await {
+                        Ok(_) => Ok(Saved::Done(id, "Mileage saved (return trip included).")),
+                        // The outbound trip is in: closing the form keeps Save from adding it twice.
+                        Err(error) => Ok(Saved::Partial(id, error)),
+                    }
+                }
+            }
+        };
+        self.run("Saving…", future, window, cx, move |this, result: timechimp::Result<Saved>, window, cx| {
+            let (id, outcome) = match result {
+                Ok(Saved::Done(id, message)) => (id, Ok(message)),
+                Ok(Saved::Partial(id, e)) => (id, Err(e)),
+                Err(e) => return this.form_api_error(e, window, cx),
+            };
+            this.close_form(window, cx);
+            // Jump to the day of the saved item and select it.
+            this.session.day = date;
+            this.session.week_start = domain::time::monday_of(date);
+            this.session.report = Report::default();
+            this.load_week(Some(id), window, cx);
+            match outcome {
+                Ok(message) => this.set_info(message, window, cx),
+                Err(e) if e.is_auth() => this.api_error(e, window, cx),
+                Err(e) => this.set_error(format!("Outbound trip saved, but the return trip failed: {e}"), window, cx),
+            }
+        });
+    }
+
+    /// Validates the open form and turns it into an API request.
+    fn build_save(&self, cx: &Context<Self>) -> Result<(NaiveDate, SaveRequest), String> {
+        match &self.form.as_ref().ok_or("No form open")?.body {
+            FormBody::Time(f) => validate::time_entry(&f.values(cx), &self.session),
+            FormBody::Mileage(f) => validate::trip(&f.values(cx), &self.session),
+        }
+    }
+}
+
+/// What a save did: everything, with a message, or (a trip with its return) only the outbound trip.
+enum Saved {
+    Done(i64, &'static str),
+    Partial(i64, timechimp::Error),
+}

@@ -198,6 +198,34 @@ impl Form {
         }
     }
 
+    pub fn time(&self) -> Option<&TimeForm> {
+        match &self.body {
+            FormBody::Time(f) => Some(f),
+            FormBody::Mileage(_) => None,
+        }
+    }
+
+    pub fn time_mut(&mut self) -> Option<&mut TimeForm> {
+        match &mut self.body {
+            FormBody::Time(f) => Some(f),
+            FormBody::Mileage(_) => None,
+        }
+    }
+
+    pub fn trip(&self) -> Option<&MileageForm> {
+        match &self.body {
+            FormBody::Mileage(f) => Some(f),
+            FormBody::Time(_) => None,
+        }
+    }
+
+    pub fn trip_mut(&mut self) -> Option<&mut MileageForm> {
+        match &mut self.body {
+            FormBody::Mileage(f) => Some(f),
+            FormBody::Time(_) => None,
+        }
+    }
+
     pub fn title(&self) -> &'static str {
         match &self.body {
             FormBody::Time(TimeForm { kind: TimeKind::New, .. }) => "New time entry",
