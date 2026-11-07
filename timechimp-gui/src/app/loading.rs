@@ -21,10 +21,16 @@ impl TimeChimpApp {
         let future = async move {
             let base = net::load_base(&client).await?;
             let user_id = base.me.id;
-            // The history only feeds the Recent picker; failing to load it doesn't fail the reload.
-            let (week, history) =
-                tokio::join!(net::load_week(&client, user_id, week_start), net::load_history(&client, user_id, today, week_start));
-            let report = if want_report { Some(net::load_report(&client, user_id, report_month).await?) } else { None };
+            // Only the week is needed: a failed history (the Recent picker) or report (its tab
+            // then says "Not loaded") is reported but doesn't fail the reload.
+            let report = async {
+                if want_report { Some(net::load_report(&client, user_id, report_month).await) } else { None }
+            };
+            let (week, history, report) = tokio::join!(
+                net::load_week(&client, user_id, week_start),
+                net::load_history(&client, user_id, today, week_start),
+                report
+            );
             timechimp::Result::Ok((base, week?, report, history))
         };
         self.run("Loading…", future, window, cx, move |this, result, window, cx| match result {
@@ -34,11 +40,13 @@ impl TimeChimpApp {
                 let history = history.map_err(|e| this.set_error(format!("Could not load recent entries: {e}"), window, cx));
                 this.session.apply_base(base, history.ok(), &week.entries);
                 this.load_config(window, cx);
-                // Unless a report loaded meanwhile (tab switch, other month), which is newer.
-                if let Some(report) = report
-                    && this.session.report().is_none()
-                {
-                    this.session.apply_report(report);
+                match report {
+                    // Unless a report loaded meanwhile (tab switch, other month), which is newer.
+                    Some(Ok(report)) if this.session.report().is_none() => {
+                        this.session.apply_report(report);
+                    }
+                    Some(Err(e)) => this.set_error(format!("Could not load the report: {e}"), window, cx),
+                    _ => {}
                 }
                 if this.session.is_latest_week_load(generation) {
                     this.on_week_loaded(week, None);
