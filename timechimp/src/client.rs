@@ -19,17 +19,21 @@ pub struct Client {
     auth: Arc<Authenticator>,
     /// `API_BASE`, or a test server.
     base: String,
+    /// `AI_API_BASE`, or the same test server.
+    ai_base: String,
 }
 
 impl Client {
     pub fn new(auth: Authenticator) -> Self {
-        Self::with_base_url(auth, API_BASE)
+        Self { http: auth.http.clone(), auth: Arc::new(auth), base: API_BASE.into(), ai_base: AI_API_BASE.into() }
     }
 
-    /// A client for another server than TimeChimp's (with a trailing `/`), for tests.
+    /// A client for another server than TimeChimp's (with a trailing `/`; it also stands in for
+    /// the AI API), for tests.
     #[doc(hidden)]
     pub fn with_base_url(auth: Authenticator, base: impl Into<String>) -> Self {
-        Self { http: reqwest::Client::new(), auth: Arc::new(auth), base: base.into() }
+        let base = base.into();
+        Self { http: auth.http.clone(), auth: Arc::new(auth), ai_base: base.clone(), base }
     }
 
     fn url(&self, path: &str) -> String {
@@ -177,7 +181,7 @@ impl Client {
 
     /// AI time-entry suggestions for a day (served by ai.timechimp.com).
     pub async fn suggestions(&self, date: NaiveDate) -> Result<Vec<Value>> {
-        let url = format!("{AI_API_BASE}suggestions");
+        let url = format!("{}suggestions", self.ai_base);
         let body = json!({ "date": date.to_string() });
         let response = self.send(|| self.http.post(&url).json(&body)).await?;
         let value: Value = decode(&url, response).await?;
@@ -380,9 +384,9 @@ impl Client {
     /// Sends with a bearer token; on 401 refreshes the token and retries once.
     async fn send(&self, build: impl Fn() -> RequestBuilder) -> Result<Response> {
         let token = self.auth.access_token().await?;
-        let mut response = build().bearer_auth(token).header("Accept", "application/json").send().await?;
+        let mut response = build().bearer_auth(&token).header("Accept", "application/json").send().await?;
         if response.status() == StatusCode::UNAUTHORIZED {
-            let token = self.auth.force_refresh().await?;
+            let token = self.auth.refresh_after_rejection(&token).await?;
             response = build().bearer_auth(token).header("Accept", "application/json").send().await?;
         }
         if !response.status().is_success() {
