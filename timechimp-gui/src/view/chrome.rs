@@ -9,7 +9,7 @@ use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::Themeable;
 
 use crate::app::{Menu, Tab, TimeChimpApp};
-use crate::session;
+use crate::{domain, session};
 
 use super::widgets::*;
 
@@ -80,21 +80,40 @@ impl TimeChimpApp {
         let nav = |id: &'static str, label: &'static str, f: fn(&mut Self, &mut Window, &mut Context<Self>)| {
             button(id, label).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| f(this, window, cx)))
         };
+        let on = |f: fn(&mut Self, &mut Window, &mut Context<Self>)| -> ClickHandler {
+            Box::new(cx.listener(move |this, _: &ClickEvent, window, cx| f(this, window, cx)))
+        };
+        let today = domain::time::today();
         let bar = h_stack().w_full().px(px(16.)).py(px(12.)).gap(px(8.)).items_center();
         match self.tab {
             Tab::Week | Tab::Mileage => {
-                bar.child(pop(theme, nav("prev", "‹", |this, w, cx| this.step(-1, w, cx))))
-                    .child(pop(theme, nav("today", "Today", |this, w, cx| this.go_today(w, cx))))
-                    .child(pop(theme, nav("next", "›", |this, w, cx| this.step(1, w, cx))))
-                    .child(div().pl(px(8.)).font_weight(FontWeight::SEMIBOLD).child(week_title(self)))
-                    .child(div().flex_1())
-                    .child(self.render_add(theme, cx))
+                let (unit, at_today) = if self.tab == Tab::Week {
+                    ("day", self.session.day == today)
+                } else {
+                    let start = self.session.week_start;
+                    ("week", start <= today && today < start + chrono::Duration::days(7))
+                };
+                let (range, week) = week_title(self);
+                bar.child(period_nav(
+                    theme,
+                    ("prev", if unit == "day" { "Previous day (←)" } else { "Previous week (←)" }, on(|this, w, cx| this.step(-1, w, cx))),
+                    ("today", "Today", on(|this, w, cx| this.go_today(w, cx))),
+                    ("next", if unit == "day" { "Next day (→)" } else { "Next week (→)" }, on(|this, w, cx| this.step(1, w, cx))),
+                    at_today,
+                ))
+                .child(period_title(theme, range, Some(week)))
+                .child(div().flex_1())
+                .child(self.render_add(theme, cx))
             }
             Tab::Report => bar
-                .child(pop(theme, nav("prev-month", "‹", |this, w, cx| this.shift_month(-1, w, cx))))
-                .child(pop(theme, nav("this-month", "This month", |this, w, cx| this.go_today(w, cx))))
-                .child(pop(theme, nav("next-month", "›", |this, w, cx| this.shift_month(1, w, cx))))
-                .child(div().pl(px(8.)).font_weight(FontWeight::SEMIBOLD).child(self.session.report_month.format("%B %Y").to_string()))
+                .child(period_nav(
+                    theme,
+                    ("prev-month", "Previous month (←)", on(|this, w, cx| this.shift_month(-1, w, cx))),
+                    ("this-month", "This month", on(|this, w, cx| this.go_today(w, cx))),
+                    ("next-month", "Next month (→)", on(|this, w, cx| this.shift_month(1, w, cx))),
+                    self.session.report_month == domain::time::first_of_month(today),
+                ))
+                .child(period_title(theme, self.session.report_month.format("%B %Y").to_string(), None))
                 .child(div().flex_1())
                 .child(pop(theme, nav("reload", "Reload", |this, w, cx| this.reload(w, cx)))),
             Tab::Projects => bar
