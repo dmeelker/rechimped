@@ -240,9 +240,11 @@ impl Session {
         tasks
     }
 
-    /// The tags in `tag_ids` that no project configures; the form can't show them, so they're kept.
-    pub fn unconfigured_tags(&self, tag_ids: &[i64]) -> Vec<i64> {
-        tag_ids.iter().copied().filter(|id| !self.project_tags.values().flatten().any(|t| t.id == *id)).collect()
+    /// The tags in `tag_ids` that aren't configured for `project_id`: the time form has no checkbox
+    /// for them, so it keeps them as they are.
+    pub fn kept_tags(&self, project_id: Option<i64>, tag_ids: &[i64]) -> Vec<i64> {
+        let configured = project_id.and_then(|id| self.project_tags.get(&id)).map(Vec::as_slice).unwrap_or_default();
+        tag_ids.iter().copied().filter(|id| !configured.iter().any(|t| t.id == *id)).collect()
     }
 
     /// The project a preset names (case-insensitive), among the user's projects.
@@ -402,6 +404,20 @@ mod tests {
         assert_eq!(s.selected_entry, None);
         assert!(s.select_day(date(9)));
         assert_eq!(s.week_start, date(9));
+    }
+
+    #[test]
+    fn kept_tags() {
+        let tag = |id: i64| -> Tag {
+            serde_json::from_value(serde_json::json!({ "id": id, "companyId": 1, "name": format!("t{id}"), "active": true, "type": 1 }))
+                .unwrap()
+        };
+        let mut s = Session::new(None, date(4));
+        s.project_tags = HashMap::from([(1, vec![tag(10)]), (2, vec![tag(20)])]);
+        // A tag only another project configures has no checkbox here either, so it is kept.
+        assert_eq!(s.kept_tags(Some(2), &[10, 20, 30]), [10, 30]);
+        assert_eq!(s.kept_tags(Some(1), &[10, 20, 30]), [20, 30]);
+        assert_eq!(s.kept_tags(None, &[10, 20]), [10, 20]);
     }
 
     #[test]

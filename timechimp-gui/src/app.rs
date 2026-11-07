@@ -637,7 +637,7 @@ impl TimeChimpApp {
         let tasks = self.session.task_options(project_id, entry);
 
         let tags = self.tag_checkboxes(project_id, template.map_or(&[], |e| &e.tag_ids), cx);
-        let kept_tag_ids = entry.map(|e| self.session.unconfigured_tags(&e.tag_ids)).unwrap_or_default();
+        let kept_tag_ids = entry.map(|e| self.session.kept_tags(project_id, &e.tag_ids)).unwrap_or_default();
 
         let editing = entry.filter(|_| !copy);
         let date = editing.map(|e| e.date).unwrap_or(self.session.day);
@@ -780,9 +780,7 @@ impl TimeChimpApp {
         let tasks = self.session.task_options(Some(fill.project_id), entry);
         let task = forms::choice(cx, "form-task", "Task", tasks, fill.project_task_id);
         let tags = self.tag_checkboxes(Some(fill.project_id), &fill.tag_ids, cx);
-        let configured: Vec<i64> = tags.iter().map(|t| t.tag_id).collect();
-        // Tags the form can't show as checkboxes (not configured for this project) are kept.
-        let kept_tag_ids = fill.tag_ids.iter().copied().filter(|id| !configured.contains(id)).collect();
+        let kept_tag_ids = self.session.kept_tags(Some(fill.project_id), &fill.tag_ids);
         let project_sub = self.subscribe_project(&project, window, cx);
         let Some(Form { body: FormBody::Time(form), error, .. }) = &mut self.form else { return };
         forms::set_text(&form.notes, fill.notes, cx);
@@ -803,12 +801,17 @@ impl TimeChimpApp {
         let project_id = chosen(&form.project, cx);
         let options = self.session.task_options(project_id, None);
         let task = forms::choice(cx, "form-task", "Task", options, None);
-        // Pre-check the tags the project's most recently modified entry had.
-        let last = self.session.entries.iter().filter(|e| Some(e.project_id) == project_id).max_by_key(|e| e.modified).cloned();
-        let tags = self.tag_checkboxes(project_id, last.as_ref().map_or(&[], |e| &e.tag_ids), cx);
+        // Pre-check the tags the project's most recently modified entry had, and the kept tags
+        // this project has a checkbox for; the rest stays kept.
+        let last = self.session.entries.iter().filter(|e| Some(e.project_id) == project_id).max_by_key(|e| e.modified);
+        let mut checked: Vec<i64> = last.map_or(&[][..], |e| &e.tag_ids).to_vec();
+        checked.extend(&form.kept_tag_ids);
+        let kept_tag_ids = self.session.kept_tags(project_id, &form.kept_tag_ids);
+        let tags = self.tag_checkboxes(project_id, &checked, cx);
         if let Some(Form { body: FormBody::Time(form), .. }) = &mut self.form {
             form.task = task;
             form.tags = tags;
+            form.kept_tag_ids = kept_tag_ids;
         }
         cx.notify();
     }

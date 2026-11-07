@@ -23,7 +23,8 @@ pub struct TimeForm {
     pub notes: Entity<InputState>,
     /// One checkbox per tag configured for the selected project (`config.toml`).
     pub tags: Vec<TagCheckbox>,
-    /// Tags on the entry that no project configures (e.g. old `z_wbso_*` ones); kept on save.
+    /// Tags on the entry that the selected project has no checkbox for (e.g. old `z_wbso_*` ones);
+    /// kept on save (`Session::kept_tags`).
     pub kept_tag_ids: Vec<i64>,
     /// Picker over recent work, on a new (not copied) entry only.
     pub recent: Option<RecentPicker>,
