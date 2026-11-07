@@ -178,6 +178,9 @@ pub enum FormBody {
 }
 
 pub struct Form {
+    /// Unique per opened form (`TimeChimpApp::new_form_id`), so a request's result can tell
+    /// whether the form it came from is still the one open.
+    pub id: u64,
     pub body: FormBody,
     pub error: Option<String>,
     pub _subscriptions: Vec<Subscription>,

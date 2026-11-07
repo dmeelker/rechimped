@@ -220,7 +220,7 @@ impl TimeChimpApp {
                         theme,
                         "form-save",
                         "Save",
-                        self.busy().is_some(),
+                        self.saving(),
                         cx.listener(|this, _, w, cx| this.submit_form(w, cx)),
                     )),
             );

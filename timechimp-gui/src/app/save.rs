@@ -9,7 +9,7 @@ use crate::validate::{self, SaveRequest};
 use crate::session;
 use crate::store::config;
 
-use super::TimeChimpApp;
+use super::{SAVING, TimeChimpApp};
 
 impl TimeChimpApp {
     /// "Save as preset" in the time or trip form: appends it to `config.toml`.
@@ -43,9 +43,11 @@ impl TimeChimpApp {
     }
 
     pub fn submit_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy().is_some() {
+        // Only another save blocks this one; a load running meanwhile doesn't.
+        if self.saving() {
             return;
         }
+        let form_id = self.form().map(|f| f.id);
         let Some(client) = self.session.client.clone() else { return };
         let (date, request) = match self.build_save(cx) {
             Ok(r) => r,
@@ -76,13 +78,16 @@ impl TimeChimpApp {
                 }
             }
         };
-        self.run("Saving…", future, window, cx, move |this, result: timechimp::Result<Saved>, window, cx| {
+        self.run(SAVING, future, window, cx, move |this, result: timechimp::Result<Saved>, window, cx| {
             let (id, outcome) = match result {
                 Ok(Saved::Done(id, message)) => (id, Ok(message)),
                 Ok(Saved::Partial(id, e)) => (id, Err(e)),
-                Err(e) => return this.form_api_error(e, window, cx),
+                Err(e) => return this.form_api_error(form_id, e, window, cx),
             };
-            this.close_overlay(window, cx);
+            // Unless it was cancelled and another form opened meanwhile: that one stays.
+            if this.form().map(|f| f.id) == form_id {
+                this.close_overlay(window, cx);
+            }
             // Jump to the day of the saved item and select it.
             this.session.select_day(date);
             this.session.invalidate_report();

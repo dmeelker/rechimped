@@ -63,7 +63,9 @@ impl TimeChimpApp {
             subscriptions.push(cx.on_focus_out(&handle, window, move |this, _, _, cx| this.close_addresses(field, cx)));
         }
         window.focus(&form.from.read(cx).focus_handle(cx), cx);
-        self.overlay = Overlay::Form(Box::new(Form { body: FormBody::Mileage(form), error: None, _subscriptions: subscriptions }));
+        let id = self.new_form_id();
+        self.overlay =
+            Overlay::Form(Box::new(Form { id, body: FormBody::Mileage(form), error: None, _subscriptions: subscriptions }));
         cx.notify();
     }
 
@@ -155,7 +157,7 @@ impl TimeChimpApp {
 
     pub fn calculate_distance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (Some(form), Some(client)) = (self.mileage_form(), self.session.client.clone()) else { return };
-        let (from, to) = (text(&form.from, cx), text(&form.to, cx));
+        let (form_id, from, to) = (self.form().map(|f| f.id), text(&form.from, cx), text(&form.to, cx));
         if from.is_empty() || to.is_empty() {
             return self.form_error("Fill in both addresses first", cx);
         }
@@ -172,9 +174,10 @@ impl TimeChimpApp {
             timechimp::Result::Ok((from_place.description, to_place.description, route))
         };
         // An unknown address or no route is an Error::NotFound, shown in the form.
-        self.run("Calculating distance…", future, window, cx, |this, result, window, cx| match result {
+        self.run("Calculating distance…", future, window, cx, move |this, result, window, cx| match result {
             Ok((from, to, route)) => {
-                if let Some(form) = this.form_mut() {
+                // Only into the form it was asked for: it may have been closed or replaced meanwhile.
+                if let Some(form) = this.form_mut().filter(|f| Some(f.id) == form_id) {
                     form.error = None;
                     if let Some(f) = form.trip() {
                         forms::set_text(&f.from, from, cx);
@@ -188,7 +191,7 @@ impl TimeChimpApp {
                     cx,
                 );
             }
-            Err(e) => this.form_api_error(e, window, cx),
+            Err(e) => this.form_api_error(form_id, e, window, cx),
         });
     }
 }

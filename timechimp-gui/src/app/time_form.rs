@@ -97,7 +97,8 @@ impl TimeChimpApp {
                 }
             }));
         }
-        self.overlay = Overlay::Form(Box::new(Form { body: FormBody::Time(form), error: None, _subscriptions: subscriptions }));
+        let id = self.new_form_id();
+        self.overlay = Overlay::Form(Box::new(Form { id, body: FormBody::Time(form), error: None, _subscriptions: subscriptions }));
         cx.notify();
     }
 

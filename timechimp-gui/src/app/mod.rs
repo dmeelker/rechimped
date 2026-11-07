@@ -34,6 +34,9 @@ use crate::session::Session;
 use crate::store::token;
 use crate::password::PasswordField;
 
+/// The `run` label of a save; `saving()` looks for it.
+const SAVING: &str = "Saving…";
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Week,
@@ -127,6 +130,8 @@ pub struct TimeChimpApp {
     pub error: Option<String>,
     /// Labels of the tasks `run` has in flight, oldest first, with the session they belong to.
     in_flight: Vec<(u64, &'static str)>,
+    /// How many forms were opened, for `Form::id`.
+    forms_opened: u64,
     /// GPU effects state (`fx.rs`).
     pub fx: crate::fx::Fx,
     _subscriptions: Vec<Subscription>,
@@ -154,6 +159,7 @@ impl TimeChimpApp {
             menu: None,
             error: None,
             in_flight: Vec::new(),
+            forms_opened: 0,
             fx: crate::fx::Fx::new(),
             _subscriptions: vec![tab_sub],
         };
@@ -287,6 +293,16 @@ impl TimeChimpApp {
         self.form_mut()?.trip_mut()
     }
 
+    /// Whether a save (`submit_form`) is under way in this session.
+    pub fn saving(&self) -> bool {
+        self.in_flight.contains(&(self.session.epoch, SAVING))
+    }
+
+    fn new_form_id(&mut self) -> u64 {
+        self.forms_opened += 1;
+        self.forms_opened
+    }
+
     /// What is being waited for (the most recent task of this session still running), if anything.
     pub fn busy(&self) -> Option<&'static str> {
         self.in_flight.iter().rev().find(|(epoch, _)| *epoch == self.session.epoch).map(|(_, label)| *label)
@@ -315,12 +331,15 @@ impl TimeChimpApp {
         }
     }
 
-    /// A failed request of the open form: the message in the form, unless the session is no good.
-    fn form_api_error(&mut self, error: timechimp::Error, window: &mut Window, cx: &mut Context<Self>) {
+    /// A failed request of form `form_id`: the message in that form if it is still open, else as
+    /// a toast; back to the login screen when the session is no good.
+    fn form_api_error(&mut self, form_id: Option<u64>, error: timechimp::Error, window: &mut Window, cx: &mut Context<Self>) {
         if error.is_auth() {
             self.api_error(error, window, cx);
-        } else {
+        } else if form_id.is_some() && self.form().map(|f| f.id) == form_id {
             self.form_error(error.to_string(), cx);
+        } else {
+            self.set_error(format!("Error: {error}"), window, cx);
         }
     }
 }
