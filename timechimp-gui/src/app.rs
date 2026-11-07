@@ -130,7 +130,8 @@ pub struct TimeChimpApp {
     /// The dropdown under the user name in the header is open.
     pub user_menu: bool,
     pub error: Option<String>,
-    pub busy: Option<&'static str>,
+    /// Labels of the tasks `run` has in flight, oldest first.
+    in_flight: Vec<&'static str>,
     /// Bumped on every week load, so a slow response for a week we already left is dropped.
     week_generation: u64,
     /// GPU effects state (`fx.rs`).
@@ -178,7 +179,7 @@ impl TimeChimpApp {
             show_detail: false,
             user_menu: false,
             error: None,
-            busy: None,
+            in_flight: Vec::new(),
             week_generation: 0,
             fx: crate::fx::Fx::new(),
             _subscriptions: vec![tab_sub],
@@ -207,13 +208,15 @@ impl TimeChimpApp {
         cx: &mut Context<Self>,
         done: impl FnOnce(&mut Self, T, &mut Window, &mut Context<Self>) + 'static,
     ) {
-        self.busy = Some(label);
+        self.in_flight.push(label);
         cx.notify();
         let handle = logic::runtime().spawn(future);
         cx.spawn_in(window, async move |this, cx| {
             let result = handle.await;
             let _ = this.update_in(cx, |this, window, cx| {
-                this.busy = None;
+                if let Some(i) = this.in_flight.iter().rposition(|l| *l == label) {
+                    this.in_flight.remove(i);
+                }
                 match result {
                     Ok(value) => done(this, value, window, cx),
                     Err(e) => this.set_error(format!("Background task failed: {e}"), window, cx),
@@ -222,6 +225,11 @@ impl TimeChimpApp {
             });
         })
         .detach();
+    }
+
+    /// What is being waited for (the most recent task still running), if anything.
+    pub fn busy(&self) -> Option<&'static str> {
+        self.in_flight.last().copied()
     }
 
     fn set_info(&mut self, message: impl Into<SharedString>, window: &mut Window, cx: &mut Context<Self>) {
@@ -294,7 +302,7 @@ impl TimeChimpApp {
 
     pub fn login(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Screen::Login(login) = &self.screen else { return };
-        if self.busy.is_some() || login.mfa.is_some() {
+        if self.busy().is_some() || login.mfa.is_some() {
             return;
         }
         let email = text(&login.email, cx);
@@ -1117,7 +1125,7 @@ impl TimeChimpApp {
     }
 
     pub fn submit_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy.is_some() {
+        if self.busy().is_some() {
             return;
         }
         let Some(client) = self.client.clone() else { return };

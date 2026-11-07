@@ -35,7 +35,7 @@ impl Render for TimeChimpApp {
         let theme = cx.theme().clone();
         let login = matches!(self.screen, Screen::Login(_));
         // The aurora animates on the login screen and in showcase mode; the busy bar while loading.
-        let started = self.fx.begin_frame(login || self.fx.showcase || self.busy.is_some(), window, cx);
+        let started = self.fx.begin_frame(login || self.fx.showcase || self.busy().is_some(), window, cx);
         let t = self.fx.time(cx);
         let root = div()
             .id("root")
@@ -262,7 +262,7 @@ impl TimeChimpApp {
         let Screen::Login(login) = &self.screen else { unreachable!() };
         let accent = theme.accent();
         let label = |text: &'static str| div().text_xs().text_color(theme.fg_muted()).child(text);
-        let message = match (self.busy, &login.error) {
+        let message = match (self.busy(), &login.error) {
             (Some(busy), _) => div().text_color(accent).child(busy),
             (None, Some(error)) => div().text_color(theme.danger()).child(error.clone()),
             (None, None) => muted(theme, "Tab: switch field · Enter: log in"),
@@ -300,7 +300,7 @@ impl TimeChimpApp {
                         theme,
                         "login-button",
                         if login.mfa.is_some() { "Verify" } else { "Log in" },
-                        self.busy.is_some(),
+                        self.busy().is_some(),
                         cx.listener(|this, _, window, cx| this.login_confirm_click(window, cx)),
                     )),
                 );
@@ -363,7 +363,7 @@ impl TimeChimpApp {
             .flex_1()
             .min_h_0()
             .child(header)
-            .child(crate::fx::sweep_bar(self.fx.sweep, self.busy.is_some(), theme.accent()))
+            .child(crate::fx::sweep_bar(self.fx.sweep, self.busy().is_some(), theme.accent()))
             .child(self.render_toolbar(theme, cx))
             // The body fills the rest of the window; tables scroll inside their panels (`table_rows`).
             .child(div().id("body").flex_1().min_h_0().flex().flex_col().px(px(16.)).pb(px(12.)).child(body))
@@ -508,7 +508,7 @@ impl TimeChimpApp {
     }
 
     fn render_footer(&self, theme: &T) -> impl IntoElement {
-        let left: AnyElement = match (self.busy, &self.error) {
+        let left: AnyElement = match (self.busy(), &self.error) {
             (Some(busy), _) => div().text_color(theme.accent()).child(busy).into_any_element(),
             (None, Some(error)) => div().text_color(theme.danger()).child(error.clone()).into_any_element(),
             (None, None) => {
@@ -703,7 +703,7 @@ impl TimeChimpApp {
                     .child(Self::entry_header(theme))
                     .child(table_rows("entry-rows", rows))
                     .when(
-                    visible.is_empty() && self.busy.is_none(),
+                    visible.is_empty() && self.busy().is_none(),
                     |d| d.child(empty_message(theme, "No time registered on this day. Press A to add.")),
                 ),
             )
@@ -763,7 +763,7 @@ impl TimeChimpApp {
             }
             start += day.len();
         }
-        let empty = self.mileage.is_empty() && self.busy.is_none();
+        let empty = self.mileage.is_empty() && self.busy().is_none();
         let trips = panel(theme, format!("Trips · {} km", trim_hours(total)), Some(actions))
             .child(header_row(
                 theme,
@@ -1136,7 +1136,7 @@ impl TimeChimpApp {
                         ))
                     })
                     .child(div().flex_1())
-                    .when_some(self.busy, |d, b| d.child(div().text_color(theme.accent()).child(b)))
+                    .when_some(self.busy(), |d, b| d.child(div().text_color(theme.accent()).child(b)))
                     .child(pop(
                         theme,
                         button("form-cancel", "Cancel").on_click(cx.listener(|this, _, w, cx| this.close_form(w, cx))),
@@ -1145,7 +1145,7 @@ impl TimeChimpApp {
                         theme,
                         "form-save",
                         "Save",
-                        self.busy.is_some(),
+                        self.busy().is_some(),
                         cx.listener(|this, _, w, cx| this.submit_form(w, cx)),
                     )),
             );
