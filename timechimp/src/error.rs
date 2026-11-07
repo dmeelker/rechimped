@@ -17,6 +17,11 @@ pub enum Error {
     #[error("authentication failed: {kind}: {message}")]
     Rejected { kind: String, message: String },
 
+    /// Any other Cognito error, e.g. `TooManyRequestsException` or `InternalErrorException`:
+    /// trouble on the way, not a verdict on the credentials.
+    #[error("login service error: {kind}: {message}")]
+    Cognito { kind: String, message: String },
+
     /// The login flow went somewhere this client doesn't handle (an unexpected challenge, a
     /// response without tokens).
     #[error("authentication failed: {0}")]
@@ -53,5 +58,6 @@ mod tests {
         assert!(api(StatusCode::UNAUTHORIZED).is_auth());
         assert!(!api(StatusCode::INTERNAL_SERVER_ERROR).is_auth());
         assert!(!Error::NotFound("no route".into()).is_auth());
+        assert!(!Error::Cognito { kind: "TooManyRequestsException".into(), message: String::new() }.is_auth());
     }
 }

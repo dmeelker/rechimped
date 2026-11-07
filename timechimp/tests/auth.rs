@@ -90,6 +90,15 @@ async fn a_rejected_refresh_token_means_logging_in_again() {
 }
 
 #[tokio::test]
+async fn a_throttled_refresh_keeps_the_session() {
+    let body = r#"{"__type": "TooManyRequestsException", "message": "Rate exceeded"}"#;
+    let (base, _) = serve(vec![("400 Bad Request", body.into())]).await;
+    let client = Client::with_base_url(Authenticator::from_refresh_token_at(&base, "r1"), base);
+    let error = client.current_user().await.unwrap_err();
+    assert!(!error.is_auth(), "{error}");
+}
+
+#[tokio::test]
 async fn logs_in_with_srp_and_an_sms_code() {
     let verifier = r#"{"ChallengeName": "PASSWORD_VERIFIER", "ChallengeParameters": {
         "SALT": "abcd", "SRP_B": "02", "SECRET_BLOCK": "c2VjcmV0", "USER_ID_FOR_SRP": "uid", "USERNAME": "uid"}}"#;

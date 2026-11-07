@@ -13,6 +13,16 @@ pub const CLIENT_ID: &str = "7nq87ee95nibpha7loi8pb7lnp";
 
 const COGNITO_URL: &str = "https://cognito-idp.eu-central-1.amazonaws.com/";
 const REFRESH_MARGIN: Duration = Duration::from_secs(5 * 60);
+/// Cognito errors that turn the credentials down, so logging in again is the fix. Anything else
+/// (`TooManyRequestsException`, `InternalErrorException`, ...) may pass and keeps the session.
+const REJECTIONS: &[&str] = &[
+    "NotAuthorizedException",
+    "UserNotFoundException",
+    "UserNotConfirmedException",
+    "PasswordResetRequiredException",
+    "CodeMismatchException",
+    "ExpiredCodeException",
+];
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Per request, including reading the body; generous because report pages can be slow.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
@@ -283,8 +293,12 @@ async fn cognito(http: &reqwest::Client, url: &str, target: &str, body: Value) -
     if !status.is_success() {
         let kind = value["__type"].as_str().unwrap_or("UnknownError");
         let kind = kind.rsplit('#').next().unwrap_or(kind);
-        let message = value["message"].as_str().unwrap_or_default();
-        return Err(Error::Rejected { kind: kind.to_owned(), message: message.to_owned() });
+        let (kind, message) = (kind.to_owned(), value["message"].as_str().unwrap_or_default().to_owned());
+        return Err(if REJECTIONS.contains(&kind.as_str()) {
+            Error::Rejected { kind, message }
+        } else {
+            Error::Cognito { kind, message }
+        });
     }
     Ok(value)
 }
