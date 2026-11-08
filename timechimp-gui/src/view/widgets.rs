@@ -6,7 +6,6 @@ use gpui::{
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
 };
 use gpuikit::elements::icon_button::{IconButton, icon_button};
-use gpuikit::elements::kbd::kbd;
 use gpuikit::elements::tooltip::tooltip;
 use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::{ControlSize, Theme, Themeable};
@@ -164,8 +163,11 @@ pub(super) fn period_title(theme: &T, main: String, suffix: Option<String>) -> g
         .children(suffix.map(|s| muted(theme, s)))
 }
 
-pub(super) fn hint(key: &'static str, label: &'static str) -> gpui::Div {
-    h_stack().gap(px(4.)).items_center().child(kbd(key).small()).child(label)
+pub(super) fn hint(theme: &T, key: &'static str, label: &'static str) -> gpui::Div {
+    h_stack()
+        .gap(px(4.))
+        .child(div().font_weight(FontWeight::SEMIBOLD).text_color(theme.fg()).child(key))
+        .child(label)
 }
 
 pub(super) fn junction_row(theme: &T, junction: &crate::domain::week::Junction) -> impl IntoElement {

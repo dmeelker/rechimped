@@ -324,29 +324,29 @@ impl TimeChimpApp {
             (None, None) => {
                 let hints: Vec<gpui::Div> = match self.tab {
                     Tab::Week => vec![
-                        hint("←/→", "day"),
-                        hint("[ ]", "week"),
-                        hint("T", "today"),
-                        hint("A", "add"),
-                        hint("E", "edit"),
-                        hint("C", "copy"),
-                        hint("D", "delete"),
-                        hint("Enter", "details"),
+                        hint(theme, "←/→", "day"),
+                        hint(theme, "[ ]", "week"),
+                        hint(theme, "T", "today"),
+                        hint(theme, "A", "add"),
+                        hint(theme, "E", "edit"),
+                        hint(theme, "C", "copy"),
+                        hint(theme, "D", "delete"),
+                        hint(theme, "Enter", "details"),
                     ],
                     Tab::Travel => vec![
-                        hint("←/→", "week"),
-                        hint("T", "today"),
-                        hint("A", "add"),
-                        hint("E", "edit"),
-                        hint("D", "delete"),
+                        hint(theme, "←/→", "week"),
+                        hint(theme, "T", "today"),
+                        hint(theme, "A", "add"),
+                        hint(theme, "E", "edit"),
+                        hint(theme, "D", "delete"),
                     ],
-                    Tab::Report => vec![hint("←/→", "month"), hint("T", "this month")],
+                    Tab::Report => vec![hint(theme, "←/→", "month"), hint(theme, "T", "this month")],
                 };
                 h_stack()
-                    .gap(px(12.))
+                    .gap(px(16.))
                     .children(hints)
-                    .child(hint("1–3", "tabs"))
-                    .child(hint("R", "reload"))
+                    .child(hint(theme, "1–3", "tabs"))
+                    .child(hint(theme, "R", "reload"))
                     .into_any_element()
             }
         };
