@@ -87,6 +87,7 @@ pub enum Overlay {
     #[default]
     None,
     Detail,
+    About,
     Chart(BillabilityChart),
     Form(Box<Form>),
     Settings(SettingsForm),

@@ -236,3 +236,27 @@ impl TimeChimpApp {
         Self::modal(theme, "project-tags", 720., card, None)
     }
 }
+
+impl TimeChimpApp {
+    /// Like the chart: no fields, so any key, the backdrop or Close shuts it.
+    pub(super) fn render_about(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
+        let card = v_stack()
+            .id("about-card")
+            .p(px(24.))
+            .gap(px(6.))
+            .child(div().text_lg().font_weight(FontWeight::BOLD).text_color(theme.accent()).child("Rechimped"))
+            .child(format!("Version {}", env!("CARGO_PKG_VERSION")))
+            .child(muted(theme, env!("CARGO_PKG_DESCRIPTION")))
+            .child(
+                h_stack().mt(px(16.)).justify_end().child(primary_button(
+                    theme,
+                    "about-close",
+                    "Close",
+                    false,
+                    cx.listener(|this, _, w, cx| this.close_overlay(w, cx)),
+                )),
+            );
+        let close = cx.listener(|this, _: &gpui::MouseDownEvent, w, cx| this.close_overlay(w, cx));
+        Self::modal(theme, "about", 400., card, Some(Box::new(close)))
+    }
+}

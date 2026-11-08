@@ -84,6 +84,7 @@ impl TimeChimpApp {
             .child(browse)
             .when(self.menu.is_some(), |d| d.child(self.render_menu_backdrop(cx)))
             .when(matches!(self.overlay, Overlay::Detail), |d| d.child(self.render_detail(theme, cx)))
+            .when(matches!(self.overlay, Overlay::About), |d| d.child(self.render_about(theme, cx)))
             .when_some(self.chart(), |d, chart| d.child(self.render_chart(chart, theme, cx)))
             .when_some(self.form(), |d, form| d.child(self.render_form(form, theme, cx)))
             .when_some(self.settings_form(), |d, form| d.child(self.render_settings(form, theme, cx)))
@@ -304,6 +305,10 @@ impl TimeChimpApp {
             .child(
                 menu_item(theme, "user-menu-project-tags", "Project tags…")
                     .on_click(cx.listener(|this, _, w, cx| this.open_project_tags(w, cx))),
+            )
+            .child(
+                menu_item(theme, "user-menu-about", "About Rechimped")
+                    .on_click(cx.listener(|this, _, w, cx| this.open_about(w, cx))),
             )
             .child(menu_item(theme, "user-menu-logout", "Log out").on_click(cx.listener(|this, _, w, cx| this.logout(w, cx))));
         deferred(div().absolute().top_full().right_0().mt(px(4.)).child(menu)).with_priority(2)

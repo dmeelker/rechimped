@@ -63,6 +63,13 @@ impl TimeChimpApp {
 }
 
 impl TimeChimpApp {
+    pub fn open_about(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.overlay_open() {
+            return self.close_menu(cx);
+        }
+        self.open_overlay(Overlay::About, cx);
+    }
+
     pub fn open_project_tags(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         if self.overlay_open() {
             return self.close_menu(cx);

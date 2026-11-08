@@ -98,7 +98,7 @@ impl TimeChimpApp {
         }
         match self.overlay {
             Overlay::None if self.menu.is_none() => {}
-            Overlay::None | Overlay::Detail | Overlay::Chart(_) => {
+            Overlay::None | Overlay::Detail | Overlay::About | Overlay::Chart(_) => {
                 self.menu = None;
                 self.overlay = Overlay::None;
                 cx.stop_propagation();
