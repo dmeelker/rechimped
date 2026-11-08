@@ -14,16 +14,18 @@ impl TimeChimpApp {
     pub fn ask_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let target = if self.tab == Tab::Week {
             self.session.selected_entry().map(|e| {
+                let notes = e.notes.as_deref().map(str::trim).filter(|n| !n.is_empty());
                 (
                     DeleteTarget::Time(e.id),
                     "Delete time entry?",
                     format!(
-                        "{} {} {:.2}h {} / {}",
+                        "{} {} {:.2}h {} / {}{}",
                         e.date.format("%a %d %b"),
                         e.start_end.as_deref().unwrap_or(""),
                         e.hours,
                         e.project_name,
-                        e.task_name
+                        e.task_name,
+                        notes.map(|n| format!("\n\"{n}\"")).unwrap_or_default()
                     ),
                 )
             })
