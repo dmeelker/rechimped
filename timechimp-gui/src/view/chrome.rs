@@ -9,7 +9,7 @@ use gpuikit::elements::icon_button::icon_button;
 use gpuikit::elements::tooltip::tooltip;
 use gpuikit::icons::Icons;
 use gpuikit::layout::{h_stack, v_stack};
-use gpuikit::theme::Themeable;
+use gpuikit::theme::{ControlSize, Themeable};
 
 use crate::app::{Menu, Overlay, Tab, TimeChimpApp};
 use crate::{domain, session};
@@ -30,8 +30,8 @@ impl TimeChimpApp {
             .items_end()
             .border_b_1()
             .border_color(theme.border())
-            // Pulled 1px down so the tab strip's rule lies on the header's border and reads as one line.
-            .child(div().mb(px(-1.)).font_weight(FontWeight::MEDIUM).child(self.tabs.clone()))
+            // Pulled 1px down so the selected tab's underline covers the header's border.
+            .child(div().mb(px(-1.)).font_weight(FontWeight::MEDIUM).child(self.render_tabs(theme, cx)))
             .child(div().flex_1())
             .child(div().relative().mb(px(6.)).child(self.render_user_button(theme, title, cx)).when(
                 self.menu == Some(Menu::User),
@@ -91,6 +91,28 @@ impl TimeChimpApp {
             .when_some(self.form(), |d, form| d.child(self.render_form(form, theme, cx)))
             .when_some(self.settings_form(), |d, form| d.child(self.render_settings(form, theme, cx)))
             .when_some(self.project_tags_form(), |d, form| d.child(self.render_project_tags(form, theme, cx)))
+    }
+
+    fn render_tabs(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
+        let m = theme.control(ControlSize::Large);
+        let fg = theme.fg();
+        h_stack().gap(m.gap).children(Tab::ALL.iter().map(|&tab| {
+            let selected = tab == self.tab;
+            div()
+                .id(ElementId::NamedInteger("tab".into(), tab.index() as u64))
+                .flex()
+                .items_center()
+                .h(m.height)
+                .px(m.padding_x)
+                .text_size(m.text_size)
+                .line_height(m.line_height)
+                .border_b_2()
+                .border_color(if selected { theme.accent() } else { gpui::Hsla::transparent_black() })
+                .text_color(if selected { theme.accent() } else { theme.fg_muted() })
+                .when(!selected, |d| d.cursor_pointer().hover(move |s| s.text_color(fg)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.switch_tab(tab.index(), window, cx)))
+                .child(tab.label())
+        }))
     }
 
     pub(super) fn render_toolbar(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {

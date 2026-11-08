@@ -13,7 +13,6 @@ impl TimeChimpApp {
         }
         self.tab = tab;
         self.fx.sweep += 1;
-        self.tabs.update(cx, |t, cx| t.set_selected(tab.id().into(), cx));
         if tab == Tab::Report && self.session.report().is_none() {
             self.load_report(window, cx);
         }

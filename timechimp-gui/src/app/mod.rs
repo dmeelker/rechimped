@@ -15,12 +15,9 @@ pub use chart::BillabilityChart;
 
 use std::future::Future;
 
-use gpui::{AppContext, Context, Entity, FocusHandle, SharedString, Subscription, Window};
+use gpui::{Context, Entity, FocusHandle, SharedString, Subscription, Window};
 use gpuikit::elements::dialog::DialogState;
-use gpuikit::elements::tabs::{TabChanged, Tabs, tab, tabs};
 use gpuikit::elements::toast::ToastExt;
-use gpuikit::theme::ControlSize;
-use gpuikit::traits::control_sized::ControlSized;
 use gpuikit::input::InputState;
 use timechimp::{Authenticator, Client, MfaChallenge};
 
@@ -51,15 +48,7 @@ pub enum Tab {
 impl Tab {
     pub const ALL: [Tab; 3] = [Tab::Week, Tab::Travel, Tab::Report];
 
-    pub fn id(self) -> &'static str {
-        match self {
-            Tab::Week => "week",
-            Tab::Travel => "travel",
-            Tab::Report => "report",
-        }
-    }
-
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Tab::Week => "Time",
             Tab::Travel => "Travel",
@@ -110,7 +99,6 @@ pub struct TimeChimpApp {
     pub screen: Screen,
     pub session: Session,
     pub tab: Tab,
-    pub tabs: Entity<Tabs>,
     pub overlay: Overlay,
     pub menu: Option<Menu>,
     pub error: Option<String>,
@@ -118,27 +106,15 @@ pub struct TimeChimpApp {
     tasks_started: u64,
     forms_opened: u64,
     pub fx: crate::fx::Fx,
-    _subscriptions: Vec<Subscription>,
 }
 
 impl TimeChimpApp {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let tabs = cx.new(|_| {
-            Tab::ALL.iter().fold(tabs("main-tabs"), |t, tb| t.tab(tab(tb.id(), tb.label())))
-                .selected(Tab::Week.id())
-                .control_size(ControlSize::Large)
-        });
-        let tab_sub = cx.subscribe_in(&tabs, window, |this, _, event: &TabChanged, window, cx| {
-            if let Some(t) = Tab::ALL.iter().find(|t| t.id() == event.tab_id.as_ref()) {
-                this.switch_tab(t.index(), window, cx);
-            }
-        });
         let mut app = Self {
             focus: cx.focus_handle(),
             screen: Screen::Main,
             session: Session::new(None, domain::time::today()),
             tab: Tab::Week,
-            tabs,
             overlay: Overlay::None,
             menu: None,
             error: None,
@@ -146,7 +122,6 @@ impl TimeChimpApp {
             tasks_started: 0,
             forms_opened: 0,
             fx: crate::fx::Fx::new(),
-            _subscriptions: vec![tab_sub],
         };
 
         match token::load_token() {
