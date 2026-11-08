@@ -4,7 +4,8 @@ use gpui::{
     AnyElement, ClickEvent, Context, ElementId, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, Window, deferred, div, prelude::FluentBuilder, px,
 };
-use gpuikit::elements::button::{ButtonVariant, button};
+use gpuikit::elements::button::button;
+use gpuikit::elements::icon_button::icon_button;
 use gpuikit::elements::tooltip::tooltip;
 use gpuikit::icons::Icons;
 use gpuikit::layout::{h_stack, v_stack};
@@ -103,7 +104,13 @@ impl TimeChimpApp {
                 } else {
                     (start <= today && today < start + chrono::Duration::days(7), "Previous week (←)", "Next week (→)")
                 };
-                ("Today", at_today, prev_tip, next_tip, range, Some(week))
+                let suffix = if self.tab == Tab::Travel && self.session.week_loaded() {
+                    let km: f64 = self.session.travel().iter().map(|m| m.distance).sum();
+                    format!("{week} · {} km", plain_number(km))
+                } else {
+                    week
+                };
+                ("Today", at_today, prev_tip, next_tip, range, Some(suffix))
             }
             Tab::Report => (
                 "This month",
@@ -284,29 +291,30 @@ impl TimeChimpApp {
         deferred(div().absolute().top_full().right_0().mt(px(4.)).child(menu)).with_priority(2)
     }
 
-    pub(super) fn selection_actions(&self, theme: &T, cx: &mut Context<Self>) -> AnyElement {
-        let nav = |id: &'static str, label: &'static str, f: fn(&mut Self, &mut Window, &mut Context<Self>)| {
-            button(id, label).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| f(this, window, cx)))
+    /// The actions work on the selection, so only the selected row shows them.
+    pub(super) fn row_actions(&self, selected: bool, cx: &mut Context<Self>) -> gpui::Div {
+        let action = |id: &'static str, icon: gpui::Svg, tip: &'static str, f: fn(&mut Self, &mut Window, &mut Context<Self>)| {
+            icon_button(id, icon)
+                .box_size(gpui::rems(1.5))
+                .icon_size(gpui::rems(0.875))
+                .tooltip(tooltip(tip))
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| f(this, window, cx)))
         };
-        let week_tab = self.tab == Tab::Week;
-        let has = if week_tab { self.session.selected_entry().is_some() } else { self.session.selected_travel().is_some() };
         h_stack()
-            .gap(px(8.))
+            .w(px(ROW_ACTIONS_WIDTH))
+            .flex_none()
+            .h(px(20.))
+            .gap(px(2.))
+            .pr(px(4.))
             .items_center()
-            .font_weight(FontWeight::NORMAL)
-            .child(pop(theme, nav("edit", "Edit", |this, w, cx| this.edit_selected(w, cx)).disabled(!has)))
-            .when(week_tab, |d| {
-                d.child(pop(theme, nav("copy", "Copy", |this, w, cx| this.copy_selected(w, cx)).disabled(!has)))
+            .justify_end()
+            .when(selected, |d| {
+                d.child(action("row-edit", Icons::pencil_1(), "Edit (E)", |this, w, cx| this.edit_selected(w, cx)))
+                    .when(self.tab == Tab::Week, |d| {
+                        d.child(action("row-copy", Icons::copy(), "Copy (C)", |this, w, cx| this.copy_selected(w, cx)))
+                    })
+                    .child(action("row-delete", Icons::trash(), "Delete (D)", |this, w, cx| this.ask_delete(w, cx)))
             })
-            .child(pop(
-                theme,
-                // Red only while it can act: gpuikit greys a disabled button's text but keeps the
-                // red fill, which leaves the label unreadable.
-                nav("delete", "Delete", |this, w, cx| this.ask_delete(w, cx))
-                    .variant(if has { ButtonVariant::Destructive } else { ButtonVariant::Filled })
-                    .disabled(!has),
-            ))
-            .into_any_element()
     }
 
     pub(super) fn render_footer(&self, theme: &T) -> impl IntoElement {

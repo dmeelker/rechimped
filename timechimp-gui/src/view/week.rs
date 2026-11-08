@@ -26,6 +26,7 @@ impl TimeChimpApp {
                 cell(None, "Project / Task"),
                 cell(None, "Notes"),
                 cell(Some(140.), "Tags"),
+                cell(Some(ROW_ACTIONS_WIDTH), ""),
             ],
         )
     }
@@ -50,6 +51,7 @@ impl TimeChimpApp {
             .child(cell(None, format!("{} / {}", e.project_name, e.task_name)))
             .child(cell(None, e.notes.clone().unwrap_or_default()))
             .child(cell(Some(140.), e.tag_names.join(", ")).text_color(theme.fg_muted()))
+            .child(self.row_actions(selected, cx))
     }
 
     pub(super) fn entry_rows_with_gaps(&self, theme: &T, indices: &[usize], cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -144,15 +146,7 @@ impl TimeChimpApp {
             );
         let strip = strip.child(week_card);
 
-        let index = (self.session.day() - self.session.week_start()).num_days() as usize;
-        let (hours, target) = (self.session.hours_per_day()[index], self.session.target_for(index));
         let visible = self.session.visible_entries();
-        let title = h_stack()
-            .gap(px(4.))
-            .child(self.session.day().format("%A %-d %B").to_string())
-            .child("·")
-            .child(div().text_color(hours_colour(theme, hours, target)).child(plain_number(hours)))
-            .child(format!("/ {}h", plain_number(target)));
         let rows = self.entry_rows_with_gaps(theme, &visible, cx);
         let message =
             if self.session.week_loaded() { "No time registered on this day. Press A to add." } else { NOT_LOADED };
@@ -163,8 +157,8 @@ impl TimeChimpApp {
             .gap(px(12.))
             .child(strip)
             .child(
-                panel(theme, title, Some(self.selection_actions(theme, cx)))
-                    .child(Self::entry_header(theme))
+                table_card(theme)
+                    .child(Self::entry_header(theme).rounded_t(px(5.)))
                     .child(table_rows("entry-rows", rows))
                     .when(
                     visible.is_empty() && self.busy().is_none(),

@@ -12,7 +12,7 @@ impl TimeChimpApp {
         let month = self.session.report_month().format("%B %Y").to_string();
         let Some(report) = self.session.report() else {
             let message = if self.busy().is_some() { "Loading report…" } else { NOT_LOADED };
-            return panel(theme, month, None).child(empty_message(theme, message)).into_any_element();
+            return panel(theme, month).child(empty_message(theme, message)).into_any_element();
         };
 
         let summary = report.summary();
@@ -33,7 +33,7 @@ impl TimeChimpApp {
                 .child(right_cell(50., format!("{:.0}%", pct(g.hours))))
                 .child(div().w(px(100.)).flex_none().px(px(6.)).child(progress(summary.share(g.hours) as f32)))
         });
-        let table = panel(theme, format!("{month} · hours per project / task"), None)
+        let table = panel(theme, format!("{month} · hours per project / task"))
             .flex_1()
             .child(header_row(
                 theme,
@@ -50,7 +50,7 @@ impl TimeChimpApp {
                 .child(div().font_weight(FontWeight::SEMIBOLD).child(value))
         };
         let s = &summary;
-        let totals = panel(theme, "Summary", None).w(px(300.)).flex_none().child(
+        let totals = panel(theme, "Summary").w(px(300.)).flex_none().child(
             v_stack()
                 .p(px(12.))
                 .child(stat("Total hours", format!("{:.2}", s.total)))

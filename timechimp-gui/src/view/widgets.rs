@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use chrono::{Datelike, Duration};
 use gpui::{
-    AnyElement, BoxShadow, point, ClickEvent, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton,
+    BoxShadow, point, ClickEvent, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
 };
 use gpuikit::elements::icon_button::{IconButton, icon_button};
@@ -54,26 +54,23 @@ pub(super) fn header_row(theme: &T, cells: impl IntoIterator<Item = gpui::Div>) 
 }
 
 /// Shrinks below its content (`min_h_0`), so rows must go in `table_rows` to scroll.
-pub(super) fn panel(theme: &T, title: impl IntoElement, right: Option<AnyElement>) -> gpui::Div {
-    v_stack()
-        .min_h_0()
-        .border_1()
-        .border_color(theme.border())
-        .rounded(px(6.))
-        .overflow_hidden()
-        .bg(theme.bg())
-        .child(
-            h_stack()
-                .justify_between()
-                .items_center()
-                .px(px(10.))
-                .py(px(8.))
-                .border_b_1()
-                .border_color(theme.border())
-                .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
-                .children(right),
-        )
+pub(super) fn table_card(theme: &T) -> gpui::Div {
+    v_stack().min_h_0().border_1().border_color(theme.border()).rounded(px(6.)).overflow_hidden().bg(theme.bg())
 }
+
+pub(super) fn panel(theme: &T, title: impl IntoElement) -> gpui::Div {
+    table_card(theme).child(
+        h_stack()
+            .items_center()
+            .px(px(10.))
+            .py(px(8.))
+            .border_b_1()
+            .border_color(theme.border())
+            .child(div().font_weight(FontWeight::SEMIBOLD).child(title)),
+    )
+}
+
+pub(super) const ROW_ACTIONS_WIDTH: f32 = 84.;
 
 pub(super) fn table_rows(id: &'static str, rows: impl IntoIterator<Item = impl IntoElement>) -> gpui::Stateful<gpui::Div> {
     div().id(id).flex().flex_col().min_h_0().overflow_y_scroll().children(rows)

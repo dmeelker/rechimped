@@ -31,11 +31,10 @@ impl TimeChimpApp {
             .child(cell(Some(150.), m.project_name.clone()))
             .child(cell(Some(110.), travel_type_name(m.mileage_type)))
             .child(cell(Some(160.), m.notes.clone().unwrap_or_default()))
+            .child(self.row_actions(selected, cx))
     }
 
     pub(super) fn render_travel(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let total: f64 = self.session.travel().iter().map(|m| m.distance).sum();
-        let actions = self.selection_actions(theme, cx);
         let mut rows: Vec<AnyElement> = Vec::new();
         let mut start = 0;
         for (n, day) in self.session.travel().chunk_by(|a, b| a.date == b.date).enumerate() {
@@ -63,18 +62,22 @@ impl TimeChimpApp {
         }
         let empty = self.session.travel().is_empty() && self.busy().is_none();
         let message = if self.session.week_loaded() { "No travel this week. Press A to add." } else { NOT_LOADED };
-        panel(theme, format!("Trips · {} km", plain_number(total)), Some(actions))
-            .child(header_row(
-                theme,
-                [
-                    right_cell(60., "km"),
-                    cell(None, "From"),
-                    cell(None, "To"),
-                    cell(Some(150.), "Project"),
-                    cell(Some(110.), "Type"),
-                    cell(Some(160.), "Notes"),
-                ],
-            ))
+        table_card(theme)
+            .child(
+                header_row(
+                    theme,
+                    [
+                        right_cell(60., "km"),
+                        cell(None, "From"),
+                        cell(None, "To"),
+                        cell(Some(150.), "Project"),
+                        cell(Some(110.), "Type"),
+                        cell(Some(160.), "Notes"),
+                        cell(Some(ROW_ACTIONS_WIDTH), ""),
+                    ],
+                )
+                .rounded_t(px(5.)),
+            )
             .child(table_rows("trip-rows", rows))
             .when(empty, |d| d.child(empty_message(theme, message)))
     }
