@@ -7,7 +7,7 @@ use timechimp::{MileageReportRow, TimeReportRow};
 pub struct Report {
     pub month: Option<NaiveDate>,
     pub time: Vec<TimeReportRow>,
-    pub mileage: Vec<MileageReportRow>,
+    pub travel: Vec<MileageReportRow>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -52,9 +52,9 @@ impl Report {
             billable: self.time.iter().filter(|r| r.billable).map(|r| r.time).sum(),
             entries: self.time.len(),
             days: self.time.iter().map(|r| r.date).collect::<BTreeSet<_>>().len(),
-            trips: self.mileage.len(),
-            km: self.mileage.iter().map(|r| r.distance).sum(),
-            reimbursement: self.mileage.iter().filter_map(|r| r.amount).sum(),
+            trips: self.travel.len(),
+            km: self.travel.iter().map(|r| r.distance).sum(),
+            reimbursement: self.travel.iter().filter_map(|r| r.amount).sum(),
         }
     }
 }
@@ -83,7 +83,7 @@ mod tests {
                 row("B", "Meeting", 2, 1.0, false),
                 row("A", "Dev", 3, 4.0, true),
             ],
-            mileage: Vec::new(),
+            travel: Vec::new(),
         };
         let s = report.summary();
         assert_eq!(

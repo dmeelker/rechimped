@@ -5,18 +5,18 @@ pub mod week;
 use timechimp::MileageType;
 
 /// Names are a best guess from what the API returns.
-pub const MILEAGE_TYPES: [(MileageType, &str); 2] =
+pub const TRAVEL_TYPES: [(MileageType, &str); 2] =
     [(MileageType::Business, "Business"), (MileageType::HomeWork, "Home – work")];
 
 pub fn project_label(project: &str, customer: &str) -> String {
     format!("{project} — {customer}")
 }
 
-pub fn mileage_type_name(mileage_type: MileageType) -> String {
-    MILEAGE_TYPES
+pub fn travel_type_name(travel_type: MileageType) -> String {
+    TRAVEL_TYPES
         .iter()
-        .find(|(t, _)| *t == mileage_type)
-        .map_or_else(|| format!("type {}", i32::from(mileage_type)), |(_, n)| n.to_string())
+        .find(|(t, _)| *t == travel_type)
+        .map_or_else(|| format!("type {}", i32::from(travel_type)), |(_, n)| n.to_string())
 }
 
 pub fn same_name(a: &str, b: &str) -> bool {

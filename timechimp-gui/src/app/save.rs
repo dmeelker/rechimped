@@ -12,7 +12,7 @@ use super::{SAVING, TimeChimpApp};
 impl TimeChimpApp {
     pub fn save_as_preset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let saved = match self.form() {
-            Some(Form { body: FormBody::Mileage(f), .. }) => validate::preset(&f.values(cx), &self.session)
+            Some(Form { body: FormBody::Travel(f), .. }) => validate::preset(&f.values(cx), &self.session)
                 .and_then(|p| config::path().and_then(|path| config::append_preset(&path, &p)).map(|_| p.name)),
             Some(Form { body: FormBody::Time(f), .. }) => validate::time_preset(&f.values(cx), &self.session).and_then(|p| {
                 let label = session::time_preset_label(&p).to_owned();
@@ -58,17 +58,17 @@ impl TimeChimpApp {
                 SaveRequest::Time { id: None, entry } => {
                     Ok(Saved::Done(client.create_time_entry(&entry).await?.id, "Time entry saved."))
                 }
-                SaveRequest::Mileage { trip, editing: Some(original), .. } => {
+                SaveRequest::Travel { trip, editing: Some(original), .. } => {
                     Ok(Saved::Done(client.update_mileage(&original, &trip).await?.id, "Trip updated."))
                 }
-                SaveRequest::Mileage { trip, return_trip, editing: None } => {
+                SaveRequest::Travel { trip, return_trip, editing: None } => {
                     let id = client.create_mileage(&trip).await?.id;
                     if !return_trip {
-                        return Ok(Saved::Done(id, "Mileage saved."));
+                        return Ok(Saved::Done(id, "Trip saved."));
                     }
                     let back = NewMileage { from_address: trip.to_address.clone(), to_address: trip.from_address.clone(), ..trip };
                     match client.create_mileage(&back).await {
-                        Ok(_) => Ok(Saved::Done(id, "Mileage saved (return trip included).")),
+                        Ok(_) => Ok(Saved::Done(id, "Trip saved (return trip included).")),
                         // The outbound trip is in: closing the form keeps Save from adding it twice.
                         Err(error) => Ok(Saved::Partial(id, error)),
                     }
@@ -99,7 +99,7 @@ impl TimeChimpApp {
     fn build_save(&self, cx: &Context<Self>) -> Result<(NaiveDate, SaveRequest), String> {
         match &self.form().ok_or("No form open")?.body {
             FormBody::Time(f) => validate::time_entry(&f.values(cx), &self.session),
-            FormBody::Mileage(f) => validate::trip(&f.values(cx), &self.session),
+            FormBody::Travel(f) => validate::trip(&f.values(cx), &self.session),
         }
     }
 }

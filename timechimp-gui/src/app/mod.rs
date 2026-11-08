@@ -24,7 +24,7 @@ use gpuikit::traits::control_sized::ControlSized;
 use gpuikit::input::InputState;
 use timechimp::{Authenticator, Client, MfaChallenge};
 
-use crate::forms::{Form, MileageForm, ProjectTagsForm, SettingsForm, TimeForm};
+use crate::forms::{Form, TravelForm, ProjectTagsForm, SettingsForm, TimeForm};
 use crate::domain;
 use crate::net;
 use crate::session::Session;
@@ -44,17 +44,17 @@ struct Task {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Week,
-    Mileage,
+    Travel,
     Report,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 3] = [Tab::Week, Tab::Mileage, Tab::Report];
+    pub const ALL: [Tab; 3] = [Tab::Week, Tab::Travel, Tab::Report];
 
     pub fn id(self) -> &'static str {
         match self {
             Tab::Week => "week",
-            Tab::Mileage => "mileage",
+            Tab::Travel => "travel",
             Tab::Report => "report",
         }
     }
@@ -62,7 +62,7 @@ impl Tab {
     fn label(self) -> &'static str {
         match self {
             Tab::Week => "Time",
-            Tab::Mileage => "Mileage",
+            Tab::Travel => "Travel",
             Tab::Report => "Report",
         }
     }
@@ -284,11 +284,11 @@ impl TimeChimpApp {
         self.form_mut()?.time_mut()
     }
 
-    fn mileage_form(&self) -> Option<&MileageForm> {
+    fn travel_form(&self) -> Option<&TravelForm> {
         self.form()?.trip()
     }
 
-    fn mileage_form_mut(&mut self) -> Option<&mut MileageForm> {
+    fn travel_form_mut(&mut self) -> Option<&mut TravelForm> {
         self.form_mut()?.trip_mut()
     }
 

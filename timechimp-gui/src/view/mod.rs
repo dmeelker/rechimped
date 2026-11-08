@@ -1,7 +1,7 @@
 mod chart;
 mod chrome;
 mod login;
-mod mileage;
+mod travel;
 mod popups;
 mod report;
 mod settings;

@@ -39,13 +39,13 @@ pub async fn load_base(client: &Client) -> timechimp::Result<Base> {
 }
 
 pub async fn load_week(client: &Client, user_id: i64, week_start: NaiveDate) -> timechimp::Result<Week> {
-    let (mut entries, mut mileage) =
+    let (mut entries, mut travel) =
         tokio::try_join!(client.time_entries_for_week(user_id, week_start), client.mileage_for_week(user_id, week_start))?;
     entries.sort_by_key(|e| (e.date, e.start));
-    // Per day in the order they were registered (outbound before return), so the Mileage tab can
+    // Per day in the order they were registered (outbound before return), so the Travel tab can
     // group consecutive rows by day and ↑/↓ follow what's on screen.
-    mileage.sort_by_key(|m| (m.date, m.id));
-    Ok(Week { start: week_start, entries, mileage })
+    travel.sort_by_key(|m| (m.date, m.id));
+    Ok(Week { start: week_start, entries, travel })
 }
 
 const HISTORY_WEEKS: i64 = 5;
@@ -90,14 +90,14 @@ const PAGE: u32 = 500;
 
 pub async fn load_report(client: &Client, user_id: i64, month: NaiveDate) -> timechimp::Result<Report> {
     let to = last_of_month(month);
-    let (mut time, mut mileage) = tokio::try_join!(
+    let (mut time, mut travel) = tokio::try_join!(
         page_all(|rows| client.query_time(month, to, rows)),
         page_all(|rows| client.query_mileage(month, to, rows)),
     )?;
     // Reports include everyone the caller can see.
     time.retain(|r: &TimeReportRow| r.user_id == user_id);
-    mileage.retain(|r: &MileageReportRow| r.user_id == user_id);
-    Ok(Report { month: Some(month), time, mileage })
+    travel.retain(|r: &MileageReportRow| r.user_id == user_id);
+    Ok(Report { month: Some(month), time, travel })
 }
 
 #[cfg(test)]

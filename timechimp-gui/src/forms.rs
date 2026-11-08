@@ -12,7 +12,7 @@ use timechimp::{Mileage, MileageType};
 
 use crate::domain::same_name;
 use crate::session::Session;
-use crate::validate::{MileageValues, SettingsValues, TimeKind, TimeValues};
+use crate::validate::{TravelValues, SettingsValues, TimeKind, TimeValues};
 
 pub struct TimeForm {
     pub kind: TimeKind,
@@ -62,7 +62,7 @@ pub struct TagCheckbox {
     pub checkbox: Entity<Checkbox>,
 }
 
-pub struct MileageForm {
+pub struct TravelForm {
     pub editing: Option<Box<Mileage>>,
     pub date: DateField,
     pub project: Entity<SelectState<i64>>,
@@ -70,7 +70,7 @@ pub struct MileageForm {
     pub to: Entity<InputState>,
     pub distance: Entity<InputState>,
     pub return_trip: Entity<Switch>,
-    pub mileage_type: Entity<SelectState<MileageType>>,
+    pub travel_type: Entity<SelectState<MileageType>>,
     pub billable: Entity<Switch>,
     pub notes: Entity<InputState>,
     pub addresses: Vec<String>,
@@ -90,7 +90,7 @@ pub struct AddressMenu {
     pub highlighted: Option<usize>,
 }
 
-impl MileageForm {
+impl TravelForm {
     pub fn address_input(&self, field: AddressField) -> &Entity<InputState> {
         match field {
             AddressField::From => &self.from,
@@ -109,8 +109,8 @@ impl MileageForm {
         let query = if menu.filtered { text(self.address_input(menu.field), cx) } else { String::new() };
         crate::domain::matching_addresses(&self.addresses, &query)
     }
-    pub fn values(&self, cx: &App) -> MileageValues {
-        MileageValues {
+    pub fn values(&self, cx: &App) -> TravelValues {
+        TravelValues {
             editing: self.editing.clone(),
             date: text(&self.date.input, cx),
             project_id: chosen(&self.project, cx),
@@ -118,7 +118,7 @@ impl MileageForm {
             to: text(&self.to, cx),
             distance: text(&self.distance, cx),
             return_trip: self.return_trip.read(cx).is_on(),
-            mileage_type: chosen(&self.mileage_type, cx),
+            travel_type: chosen(&self.travel_type, cx),
             billable: self.billable.read(cx).is_on(),
             notes: text(&self.notes, cx),
         }
@@ -155,7 +155,7 @@ pub fn from_calendar_date(date: Date) -> Option<NaiveDate> {
 
 pub enum FormBody {
     Time(TimeForm),
-    Mileage(MileageForm),
+    Travel(TravelForm),
 }
 
 pub struct Form {
@@ -170,41 +170,41 @@ impl Form {
     pub fn date(&self) -> &DateField {
         match &self.body {
             FormBody::Time(f) => &f.date,
-            FormBody::Mileage(f) => &f.date,
+            FormBody::Travel(f) => &f.date,
         }
     }
 
     pub fn date_mut(&mut self) -> &mut DateField {
         match &mut self.body {
             FormBody::Time(f) => &mut f.date,
-            FormBody::Mileage(f) => &mut f.date,
+            FormBody::Travel(f) => &mut f.date,
         }
     }
 
     pub fn time(&self) -> Option<&TimeForm> {
         match &self.body {
             FormBody::Time(f) => Some(f),
-            FormBody::Mileage(_) => None,
+            FormBody::Travel(_) => None,
         }
     }
 
     pub fn time_mut(&mut self) -> Option<&mut TimeForm> {
         match &mut self.body {
             FormBody::Time(f) => Some(f),
-            FormBody::Mileage(_) => None,
+            FormBody::Travel(_) => None,
         }
     }
 
-    pub fn trip(&self) -> Option<&MileageForm> {
+    pub fn trip(&self) -> Option<&TravelForm> {
         match &self.body {
-            FormBody::Mileage(f) => Some(f),
+            FormBody::Travel(f) => Some(f),
             FormBody::Time(_) => None,
         }
     }
 
-    pub fn trip_mut(&mut self) -> Option<&mut MileageForm> {
+    pub fn trip_mut(&mut self) -> Option<&mut TravelForm> {
         match &mut self.body {
-            FormBody::Mileage(f) => Some(f),
+            FormBody::Travel(f) => Some(f),
             FormBody::Time(_) => None,
         }
     }
@@ -213,8 +213,8 @@ impl Form {
         match &self.body {
             FormBody::Time(TimeForm { kind: TimeKind::New, .. }) => "New time entry",
             FormBody::Time(TimeForm { kind: TimeKind::Edit { .. }, .. }) => "Edit time entry",
-            FormBody::Mileage(MileageForm { editing: None, .. }) => "New trip",
-            FormBody::Mileage(MileageForm { editing: Some(_), .. }) => "Edit trip",
+            FormBody::Travel(TravelForm { editing: None, .. }) => "New trip",
+            FormBody::Travel(TravelForm { editing: Some(_), .. }) => "Edit trip",
         }
     }
 }

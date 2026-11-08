@@ -62,7 +62,7 @@ pub struct TripSeed {
     pub distance: String,
     pub notes: String,
     pub return_trip: bool,
-    pub mileage_type: Option<MileageType>,
+    pub travel_type: Option<MileageType>,
     pub billable: bool,
     pub addresses: Vec<String>,
 }
@@ -144,10 +144,10 @@ pub fn project_changed(session: &Session, project_id: Option<i64>, kept_tag_ids:
 }
 
 pub fn trip_form(session: &Session, editing: Option<&Mileage>, preset: Option<&TripPreset>) -> TripSeed {
-    let template = editing.or(session.mileage().last());
+    let template = editing.or(session.travel().last());
     let addresses = session.saved_addresses();
     let projects = session.project_options(editing.map(|m| (m.project_id, &*m.project_name, &*m.customer_name)));
-    let (mut project_id, mut mileage_type, mut billable, mut return_trip) = (
+    let (mut project_id, mut travel_type, mut billable, mut return_trip) = (
         template.map(|m| m.project_id),
         template.map(|m| m.mileage_type),
         template.is_some_and(|m| m.billable),
@@ -155,7 +155,7 @@ pub fn trip_form(session: &Session, editing: Option<&Mileage>, preset: Option<&T
     );
     if let Some(p) = preset {
         project_id = session.project_named(&p.project).map(|p| p.id).or(project_id);
-        mileage_type = p.trip_type();
+        travel_type = p.trip_type();
         billable = p.billable;
         return_trip = p.return_trip;
     }
@@ -182,7 +182,7 @@ pub fn trip_form(session: &Session, editing: Option<&Mileage>, preset: Option<&T
             String::new(),
         ),
     };
-    TripSeed { date, projects, project_id, from, to, distance, notes, return_trip, mileage_type, billable, addresses }
+    TripSeed { date, projects, project_id, from, to, distance, notes, return_trip, travel_type, billable, addresses }
 }
 
 #[cfg(test)]
@@ -206,7 +206,7 @@ mod tests {
         first.modified = date(3).and_hms_opt(12, 0, 0).unwrap();
         let mut second = entry(2, 4, "10:00-11:30");
         (second.project_id, second.project_task_id, second.tag_ids) = (6, 7, vec![20]);
-        s.apply_week(crate::session::Week { start: date(2), entries: vec![first, second], mileage: vec![trip(5, 3)] }, None);
+        s.apply_week(crate::session::Week { start: date(2), entries: vec![first, second], travel: vec![trip(5, 3)] }, None);
         s
     }
 
@@ -269,7 +269,7 @@ mod tests {
         let s = session();
         let new = trip_form(&s, None, None);
         assert_eq!((new.from.as_str(), new.to.as_str()), ("Home", "Office"), "the first saved addresses");
-        assert_eq!((new.date, new.project_id, new.mileage_type, new.billable), (date(4), Some(3), Some(MileageType::Business), true));
+        assert_eq!((new.date, new.project_id, new.travel_type, new.billable), (date(4), Some(3), Some(MileageType::Business), true));
         assert_eq!(new.addresses, ["Home", "Office", "A", "B"]);
 
         let preset = TripPreset {
@@ -279,18 +279,18 @@ mod tests {
             to: "Y".into(),
             distance: Some(23.5),
             return_trip: true,
-            mileage_type: Some("home-work".into()),
+            travel_type: Some("home-work".into()),
             billable: false,
             notes: None,
         };
         let from_preset = trip_form(&s, None, Some(&preset));
         assert_eq!((from_preset.from.as_str(), from_preset.to.as_str(), from_preset.distance.as_str()), ("X", "Y", "23.5"));
         assert_eq!(
-            (from_preset.project_id, from_preset.mileage_type, from_preset.billable, from_preset.return_trip),
+            (from_preset.project_id, from_preset.travel_type, from_preset.billable, from_preset.return_trip),
             (Some(6), Some(MileageType::HomeWork), false, true)
         );
 
-        let edited = trip_form(&s, Some(&s.mileage()[0]), None);
+        let edited = trip_form(&s, Some(&s.travel()[0]), None);
         assert_eq!((edited.date, edited.from.as_str(), edited.distance.as_str()), (date(3), "A", "10"));
     }
 }

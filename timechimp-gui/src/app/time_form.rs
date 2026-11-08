@@ -16,17 +16,17 @@ impl TimeChimpApp {
         if self.session.me().is_none() {
             return;
         }
-        if self.tab == Tab::Mileage {
-            self.open_mileage_form(None, None, window, cx);
+        if self.tab == Tab::Travel {
+            self.open_travel_form(None, None, window, cx);
         } else {
             self.open_time_form(None, false, window, cx);
         }
     }
 
     pub fn edit_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.tab == Tab::Mileage {
-            if let Some(trip) = self.session.selected_mileage().cloned() {
-                self.open_mileage_form(Some(Box::new(trip)), None, window, cx);
+        if self.tab == Tab::Travel {
+            if let Some(trip) = self.session.selected_travel().cloned() {
+                self.open_travel_form(Some(Box::new(trip)), None, window, cx);
             }
         } else if let Some(entry) = self.session.selected_entry().cloned() {
             self.open_time_form(Some(&entry), false, window, cx);

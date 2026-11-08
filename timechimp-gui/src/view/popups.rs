@@ -13,7 +13,7 @@ use crate::app::{
     AddressDown, AddressUp, CalculateDistance, Cancel, CloseAddresses, CloseCalendar, Confirm, NextDay, NextMonth,
     NextWeek, PickAddress, PickRecent, PreviousDay, PreviousMonth, PreviousWeek, RecentDown, RecentUp, TimeChimpApp,
 };
-use crate::forms::{AddressField, DateField, Form, FormBody, MileageForm, RecentPicker};
+use crate::forms::{AddressField, DateField, Form, FormBody, TravelForm, RecentPicker};
 use crate::domain::week::RecentItem;
 
 use super::widgets::*;
@@ -139,7 +139,7 @@ impl TimeChimpApp {
             .into_iter()
             .map(IntoElement::into_any_element)
             .collect(),
-            FormBody::Mileage(f) => vec![
+            FormBody::Travel(f) => vec![
                 row("Date", self.render_date(&f.date, theme, cx)),
                 row("Project", f.project.clone().into_any_element()),
                 row("From", self.render_address(f, AddressField::From, theme, cx)),
@@ -158,7 +158,7 @@ impl TimeChimpApp {
                 ),
                 // Editing changes one trip; the return switch only applies to new ones.
                 row("", f.return_trip.clone().into_any_element()).when(f.editing.is_some(), |d| d.hidden()),
-                row("Type", f.mileage_type.clone().into_any_element()),
+                row("Type", f.travel_type.clone().into_any_element()),
                 row("", f.billable.clone().into_any_element()),
                 row("Notes", field(&f.notes, "", cx)),
             ]
@@ -273,7 +273,7 @@ impl TimeChimpApp {
         div().relative().key_context("DateField").child(input).children(popup).into_any_element()
     }
 
-    fn render_address(&self, form: &MileageForm, field: AddressField, theme: &T, cx: &mut Context<Self>) -> AnyElement {
+    fn render_address(&self, form: &TravelForm, field: AddressField, theme: &T, cx: &mut Context<Self>) -> AnyElement {
         let (chevron_id, menu_id) = match field {
             AddressField::From => ("from-addresses-toggle", "from-addresses"),
             AddressField::To => ("to-addresses-toggle", "to-addresses"),

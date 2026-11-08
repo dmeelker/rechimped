@@ -1,12 +1,12 @@
 # Rechimped
 
-A small desktop app for viewing and editing your own TimeChimp time entries and mileage, without
+A small desktop app for viewing and editing your own TimeChimp time entries and travel, without
 going through the web app.
 
 - **Time**: your week day by day, with add, edit, copy and delete, a "Recent" picker, preset
   entries, and gaps and overlaps between entries marked. It also shows a weekly billable
   percentage, with a chart of the last five weeks.
-- **Mileage**: your trips per week, with add, edit and delete, preset trips and address suggestions.
+- **Travel**: your trips per week, with add, edit and delete, preset trips and address suggestions.
 - **Report**: a monthly overview of your hours.
 - Keyboard shortcuts throughout; the footer lists them.
 

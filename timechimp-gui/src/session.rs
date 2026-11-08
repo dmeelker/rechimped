@@ -25,14 +25,14 @@ pub struct Session {
     day: NaiveDate,
     /// Always the Monday of `day`'s week.
     week_start: NaiveDate,
-    /// Moving to another week empties `entries`/`mileage` right away, so nothing of the week left
+    /// Moving to another week empties `entries`/`travel` right away, so nothing of the week left
     /// shows under the new one's title.
     loaded_week: Option<NaiveDate>,
     entries: Vec<TimeEntry>,
     /// Always one of the selected day's entries, if it has any.
     selected_entry: Option<i64>,
-    mileage: Vec<Mileage>,
-    selected_mileage: Option<i64>,
+    travel: Vec<Mileage>,
+    selected_travel: Option<i64>,
     /// Bumped on every week load, so a slow response for a week we already left is dropped.
     week_generation: u64,
     history: HashMap<i64, TimeEntry>,
@@ -54,7 +54,7 @@ pub struct Base {
 pub struct Week {
     pub start: NaiveDate,
     pub entries: Vec<TimeEntry>,
-    pub mileage: Vec<Mileage>,
+    pub travel: Vec<Mileage>,
 }
 
 impl Session {
@@ -73,8 +73,8 @@ impl Session {
             loaded_week: None,
             entries: Vec::new(),
             selected_entry: None,
-            mileage: Vec::new(),
-            selected_mileage: None,
+            travel: Vec::new(),
+            selected_travel: None,
             week_generation: 0,
             history: HashMap::new(),
             recent: Vec::new(),
@@ -107,8 +107,8 @@ impl Session {
         &self.entries
     }
 
-    pub fn mileage(&self) -> &[Mileage] {
-        &self.mileage
+    pub fn travel(&self) -> &[Mileage] {
+        &self.travel
     }
 
     /// `history` leaves out the loaded week, so its `entries` are added here.
@@ -179,9 +179,9 @@ impl Session {
         let entry_ids = |entries: &[TimeEntry]| entries.iter().map(|e| e.id).collect::<Vec<_>>();
         let trip_ids = |trips: &[Mileage]| trips.iter().map(|m| m.id).collect::<Vec<_>>();
         self.selected_entry = reselect(self.selected_entry, select_id, &entry_ids(&self.entries), &entry_ids(&week.entries));
-        self.selected_mileage = reselect(self.selected_mileage, select_id, &trip_ids(&self.mileage), &trip_ids(&week.mileage));
+        self.selected_travel = reselect(self.selected_travel, select_id, &trip_ids(&self.travel), &trip_ids(&week.travel));
         self.entries = week.entries;
-        self.mileage = week.mileage;
+        self.travel = week.travel;
         self.fix_selection();
     }
 
@@ -193,8 +193,8 @@ impl Session {
             self.week_start = week_start;
             self.loaded_week = None;
             self.entries.clear();
-            self.mileage.clear();
-            self.selected_mileage = None;
+            self.travel.clear();
+            self.selected_travel = None;
         }
         self.fix_selection();
         moved
@@ -251,10 +251,10 @@ impl Session {
         self.selected_entry = Some(self.entries[visible[pos]].id);
     }
 
-    pub fn move_mileage_selection(&mut self, delta: isize) {
-        let Some(last) = self.mileage.len().checked_sub(1) else { return };
-        let pos = self.mileage.iter().position(|m| Some(m.id) == self.selected_mileage);
-        self.selected_mileage = Some(self.mileage[pos.map_or(0, |p| p.saturating_add_signed(delta).min(last))].id);
+    pub fn move_travel_selection(&mut self, delta: isize) {
+        let Some(last) = self.travel.len().checked_sub(1) else { return };
+        let pos = self.travel.iter().position(|m| Some(m.id) == self.selected_travel);
+        self.selected_travel = Some(self.travel[pos.map_or(0, |p| p.saturating_add_signed(delta).min(last))].id);
     }
 
     pub fn select_entry(&mut self, id: i64) {
@@ -264,9 +264,9 @@ impl Session {
         }
     }
 
-    pub fn select_mileage(&mut self, id: i64) {
-        if self.mileage.iter().any(|m| m.id == id) {
-            self.selected_mileage = Some(id);
+    pub fn select_travel(&mut self, id: i64) {
+        if self.travel.iter().any(|m| m.id == id) {
+            self.selected_travel = Some(id);
         }
     }
 
@@ -274,16 +274,16 @@ impl Session {
         self.selected_entry
     }
 
-    pub fn selected_mileage_id(&self) -> Option<i64> {
-        self.selected_mileage
+    pub fn selected_travel_id(&self) -> Option<i64> {
+        self.selected_travel
     }
 
     pub fn selected_entry(&self) -> Option<&TimeEntry> {
         self.entries.iter().find(|e| Some(e.id) == self.selected_entry)
     }
 
-    pub fn selected_mileage(&self) -> Option<&Mileage> {
-        self.mileage.iter().find(|m| Some(m.id) == self.selected_mileage)
+    pub fn selected_travel(&self) -> Option<&Mileage> {
+        self.travel.iter().find(|m| Some(m.id) == self.selected_travel)
     }
 
     pub fn is_hidden(&self, project_id: i64) -> bool {
@@ -386,7 +386,7 @@ impl Session {
 
     pub fn saved_addresses(&self) -> Vec<String> {
         let mut addresses: Vec<String> = self.me().map(|m| m.mileage_addresses.clone()).unwrap_or_default();
-        for m in &self.mileage {
+        for m in &self.travel {
             for a in [&m.from_address, &m.to_address].into_iter().flatten() {
                 if !addresses.contains(a) {
                     addresses.push(a.clone());
@@ -455,7 +455,7 @@ mod tests {
     fn week_and_selection() {
         let mut s = Session::new(None, date(4));
         assert_eq!(s.week_start, date(2));
-        let week = |entries| Week { start: date(2), entries, mileage: Vec::new() };
+        let week = |entries| Week { start: date(2), entries, travel: Vec::new() };
         s.apply_week(week(vec![entry(1, 3, "09:00-10:00"), entry(2, 4, "09:00-10:00"), entry(3, 4, "10:00-11:30")]), None);
         assert_eq!(s.visible_entries(), [1, 2]);
         assert_eq!(s.selected_entry().map(|e| e.id), Some(2), "the first entry of the selected day");
@@ -561,7 +561,7 @@ mod tests {
                 to: "B".into(),
                 distance: None,
                 return_trip: false,
-                mileage_type: None,
+                travel_type: None,
                 billable: false,
                 notes: None,
             }],

@@ -28,10 +28,10 @@ impl TimeChimpApp {
                 )
             })
         } else {
-            self.session.selected_mileage().map(|m| {
+            self.session.selected_travel().map(|m| {
                 (
-                    DeleteTarget::Mileage(m.id),
-                    "Delete mileage?",
+                    DeleteTarget::Travel(m.id),
+                    "Delete trip?",
                     format!(
                         "{} {} km {} → {}",
                         m.date.format("%a %d %b"),
@@ -93,7 +93,7 @@ impl TimeChimpApp {
             DeleteTarget::Time(id) => {
                 self.delete_remote(window, cx, move |client| async move { client.delete_time_entry(id).await }.boxed())
             }
-            DeleteTarget::Mileage(id) => {
+            DeleteTarget::Travel(id) => {
                 self.delete_remote(window, cx, move |client| async move { client.delete_mileage(id).await }.boxed())
             }
             DeleteTarget::TripPreset(p) => self.delete_preset(&p, window, cx),
@@ -132,7 +132,7 @@ impl TimeChimpApp {
 #[derive(Clone)]
 enum DeleteTarget {
     Time(i64),
-    Mileage(i64),
+    Travel(i64),
     TripPreset(config::TripPreset),
     TimePreset(config::TimePreset),
 }

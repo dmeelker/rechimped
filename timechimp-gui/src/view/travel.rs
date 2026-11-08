@@ -6,13 +6,13 @@ use gpuikit::layout::h_stack;
 use gpuikit::theme::Themeable;
 
 use crate::app::TimeChimpApp;
-use crate::domain::mileage_type_name;
+use crate::domain::travel_type_name;
 
 use super::widgets::*;
 
 impl TimeChimpApp {
     pub(super) fn trip_row(&self, theme: &T, i: usize, m: &timechimp::Mileage, cx: &mut Context<Self>) -> impl IntoElement {
-        let (id, selected) = (m.id, self.session.selected_mileage_id() == Some(m.id));
+        let (id, selected) = (m.id, self.session.selected_travel_id() == Some(m.id));
         h_stack()
             .id(ElementId::NamedInteger("trip".into(), i as u64))
             .w_full()
@@ -24,21 +24,21 @@ impl TimeChimpApp {
             .when(!m.billable, |d| d.text_color(theme.fg_muted()))
             .when(selected, |d| d.bg(theme.accent_bg()))
             .when(!selected, |d| d.hover(|s| s.bg(theme.surface())))
-            .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| this.click_mileage(id, ev.click_count(), window, cx)))
+            .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| this.click_travel(id, ev.click_count(), window, cx)))
             .child(right_cell(60., format!("{}", m.distance)))
             .child(cell(None, m.from_address.clone().unwrap_or_default()))
             .child(cell(None, m.to_address.clone().unwrap_or_default()))
             .child(cell(Some(150.), m.project_name.clone()))
-            .child(cell(Some(110.), mileage_type_name(m.mileage_type)))
+            .child(cell(Some(110.), travel_type_name(m.mileage_type)))
             .child(cell(Some(160.), m.notes.clone().unwrap_or_default()))
     }
 
-    pub(super) fn render_mileage(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let total: f64 = self.session.mileage().iter().map(|m| m.distance).sum();
+    pub(super) fn render_travel(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
+        let total: f64 = self.session.travel().iter().map(|m| m.distance).sum();
         let actions = self.selection_actions(theme, cx);
         let mut rows: Vec<AnyElement> = Vec::new();
         let mut start = 0;
-        for (n, day) in self.session.mileage().chunk_by(|a, b| a.date == b.date).enumerate() {
+        for (n, day) in self.session.travel().chunk_by(|a, b| a.date == b.date).enumerate() {
             let km: f64 = day.iter().map(|m| m.distance).sum();
             let trips = if day.len() == 1 { "1 trip".to_owned() } else { format!("{} trips", day.len()) };
             rows.push(
@@ -61,8 +61,8 @@ impl TimeChimpApp {
             }
             start += day.len();
         }
-        let empty = self.session.mileage().is_empty() && self.busy().is_none();
-        let message = if self.session.week_loaded() { "No mileage this week. Press A to add." } else { NOT_LOADED };
+        let empty = self.session.travel().is_empty() && self.busy().is_none();
+        let message = if self.session.week_loaded() { "No travel this week. Press A to add." } else { NOT_LOADED };
         panel(theme, format!("Trips · {} km", plain_number(total)), Some(actions))
             .child(header_row(
                 theme,

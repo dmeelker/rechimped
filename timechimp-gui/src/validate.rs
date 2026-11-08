@@ -30,7 +30,7 @@ pub struct TimeValues {
 }
 
 #[derive(Clone, Debug)]
-pub struct MileageValues {
+pub struct TravelValues {
     pub editing: Option<Box<Mileage>>,
     pub date: String,
     pub project_id: Option<i64>,
@@ -38,14 +38,14 @@ pub struct MileageValues {
     pub to: String,
     pub distance: String,
     pub return_trip: bool,
-    pub mileage_type: Option<MileageType>,
+    pub travel_type: Option<MileageType>,
     pub billable: bool,
     pub notes: String,
 }
 
 pub enum SaveRequest {
     Time { id: Option<i64>, entry: NewTimeEntry },
-    Mileage { trip: NewMileage, return_trip: bool, editing: Option<Box<Mileage>> },
+    Travel { trip: NewMileage, return_trip: bool, editing: Option<Box<Mileage>> },
 }
 
 fn date_and_customer(date: &str, project_id: Option<i64>, session: &Session) -> Result<(NaiveDate, i64, i64), String> {
@@ -130,7 +130,7 @@ pub fn time_entry(v: &TimeValues, session: &Session) -> Result<(NaiveDate, SaveR
     Ok((date, SaveRequest::Time { id, entry }))
 }
 
-pub fn trip(v: &MileageValues, session: &Session) -> Result<(NaiveDate, SaveRequest), String> {
+pub fn trip(v: &TravelValues, session: &Session) -> Result<(NaiveDate, SaveRequest), String> {
     let user_id = user_id(session)?;
     let (date, project_id, customer_id) = date_and_customer(&v.date, v.project_id, session)?;
     let distance = parse_decimal(&v.distance).ok_or("Distance must be a number (Ctrl+D calculates it)")?;
@@ -147,15 +147,15 @@ pub fn trip(v: &MileageValues, session: &Session) -> Result<(NaiveDate, SaveRequ
         to_address: v.to.clone(),
         notes: optional(&v.notes),
         billable: v.billable,
-        mileage_type: v.mileage_type.unwrap_or(MileageType::Business),
+        mileage_type: v.travel_type.unwrap_or(MileageType::Business),
         mileage_vehicle_id: v.editing.as_ref().and_then(|m| m.mileage_vehicle_id),
     };
     // Editing changes one trip; the return switch only applies to new ones.
     let return_trip = v.editing.is_none() && v.return_trip;
-    Ok((date, SaveRequest::Mileage { trip, return_trip, editing: v.editing.clone() }))
+    Ok((date, SaveRequest::Travel { trip, return_trip, editing: v.editing.clone() }))
 }
 
-pub fn preset(v: &MileageValues, session: &Session) -> Result<TripPreset, String> {
+pub fn preset(v: &TravelValues, session: &Session) -> Result<TripPreset, String> {
     if v.from.is_empty() || v.to.is_empty() {
         return Err("Fill in both addresses first".into());
     }
@@ -176,7 +176,7 @@ pub fn preset(v: &MileageValues, session: &Session) -> Result<TripPreset, String
         to: v.to.clone(),
         distance,
         return_trip: v.editing.is_none() && v.return_trip,
-        mileage_type: v.mileage_type.and_then(config::mileage_type_key),
+        travel_type: v.travel_type.and_then(config::travel_type_key),
         billable: v.billable,
         notes: optional(&v.notes),
     })
@@ -287,8 +287,8 @@ mod tests {
         assert_eq!(entry.start.unwrap().to_rfc3339(), "2026-11-04T09:00:00+00:00", "on the entry's own clock");
     }
 
-    fn trip_values() -> MileageValues {
-        MileageValues {
+    fn trip_values() -> TravelValues {
+        TravelValues {
             editing: None,
             date: "2026-11-04".into(),
             project_id: Some(3),
@@ -296,7 +296,7 @@ mod tests {
             to: "Office 2, City".into(),
             distance: "23,5".into(),
             return_trip: true,
-            mileage_type: Some(MileageType::HomeWork),
+            travel_type: Some(MileageType::HomeWork),
             billable: false,
             notes: String::new(),
         }
@@ -304,7 +304,7 @@ mod tests {
 
     #[test]
     fn trips() {
-        let (date, SaveRequest::Mileage { trip: t, return_trip, editing }) = trip(&trip_values(), &session()).unwrap()
+        let (date, SaveRequest::Travel { trip: t, return_trip, editing }) = trip(&trip_values(), &session()).unwrap()
         else {
             unreachable!()
         };
@@ -312,25 +312,25 @@ mod tests {
         assert_eq!((t.distance, t.customer_id, t.mileage_type), (23.5, 2, MileageType::HomeWork));
         assert!(return_trip && editing.is_none());
 
-        let no_distance = MileageValues { distance: String::new(), ..trip_values() };
+        let no_distance = TravelValues { distance: String::new(), ..trip_values() };
         assert_eq!(trip(&no_distance, &session()).err().unwrap(), "Distance must be a number (Ctrl+D calculates it)");
-        let no_address = MileageValues { to: String::new(), ..trip_values() };
+        let no_address = TravelValues { to: String::new(), ..trip_values() };
         assert_eq!(trip(&no_address, &session()).err().unwrap(), "Fill in both addresses");
     }
 
     #[test]
     fn presets() {
         let mut s = session();
-        let p = preset(&MileageValues { distance: String::new(), ..trip_values() }, &s).unwrap();
+        let p = preset(&TravelValues { distance: String::new(), ..trip_values() }, &s).unwrap();
         assert_eq!(p.name, "Home 1 → Office 2");
         assert_eq!((p.project.as_str(), p.distance, p.return_trip), ("Intern", None, true));
-        assert_eq!(p.mileage_type.as_deref(), Some("home-work"));
+        assert_eq!(p.travel_type.as_deref(), Some("home-work"));
 
         s.trip_presets.push(p);
         assert!(preset(&trip_values(), &s).unwrap_err().starts_with("There already is a preset"));
-        let bad = MileageValues { distance: "far".into(), notes: "Other".into(), ..trip_values() };
+        let bad = TravelValues { distance: "far".into(), notes: "Other".into(), ..trip_values() };
         assert_eq!(preset(&bad, &s).unwrap_err(), "Distance must be a number (or empty)");
-        let no_project = MileageValues { project_id: None, notes: "Other".into(), ..trip_values() };
+        let no_project = TravelValues { project_id: None, notes: "Other".into(), ..trip_values() };
         assert_eq!(preset(&no_project, &s).unwrap_err(), "Pick a project first");
     }
 

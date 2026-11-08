@@ -2,8 +2,8 @@ use gpui::{Context, Focusable, Window};
 use gpuikit::input::InputStateEvent;
 use timechimp::Mileage;
 
-use crate::forms::{self, AddressField, AddressMenu, Form, FormBody, MileageForm, text};
-use crate::domain::MILEAGE_TYPES;
+use crate::forms::{self, AddressField, AddressMenu, Form, FormBody, TravelForm, text};
+use crate::domain::TRAVEL_TYPES;
 use crate::seed;
 use crate::store::config;
 
@@ -15,10 +15,10 @@ impl TimeChimpApp {
         if self.session.me().is_none() || self.overlay_open() {
             return;
         }
-        self.open_mileage_form(None, Some(&preset), window, cx);
+        self.open_travel_form(None, Some(&preset), window, cx);
     }
 
-    pub(super) fn open_mileage_form(
+    pub(super) fn open_travel_form(
         &mut self,
         editing: Option<Box<Mileage>>,
         preset: Option<&config::TripPreset>,
@@ -29,8 +29,8 @@ impl TimeChimpApp {
             return;
         }
         let seed = seed::trip_form(&self.session, editing.as_deref(), preset);
-        let types = MILEAGE_TYPES.iter().map(|(id, name)| (*id, name.to_string())).collect();
-        let form = MileageForm {
+        let types = TRAVEL_TYPES.iter().map(|(id, name)| (*id, name.to_string())).collect();
+        let form = TravelForm {
             editing,
             date: forms::DateField::new(cx, seed.date),
             project: forms::choice(cx, "form-project", "Project", seed.projects, seed.project_id),
@@ -38,7 +38,7 @@ impl TimeChimpApp {
             to: forms::text_input(cx, seed.to),
             distance: forms::text_input(cx, seed.distance),
             return_trip: forms::toggle(cx, "form-return", "Return trip", seed.return_trip),
-            mileage_type: forms::choice(cx, "form-type", "Type", types, seed.mileage_type),
+            travel_type: forms::choice(cx, "form-type", "Type", types, seed.travel_type),
             billable: forms::toggle(cx, "form-billable", "Billable", seed.billable),
             notes: forms::text_input(cx, seed.notes),
             addresses: seed.addresses,
@@ -58,12 +58,12 @@ impl TimeChimpApp {
         window.focus(&form.from.read(cx).focus_handle(cx), cx);
         let id = self.new_form_id();
         self.overlay =
-            Overlay::Form(Box::new(Form { id, body: FormBody::Mileage(form), error: None, _subscriptions: subscriptions }));
+            Overlay::Form(Box::new(Form { id, body: FormBody::Travel(form), error: None, _subscriptions: subscriptions }));
         cx.notify();
     }
 
     pub fn open_addresses(&mut self, field: AddressField, filtered: bool, cx: &mut Context<Self>) {
-        if let Some(form) = self.mileage_form_mut() {
+        if let Some(form) = self.travel_form_mut() {
             let highlighted = (!filtered).then_some(0);
             form.address_menu = Some(AddressMenu { field, filtered, highlighted });
             cx.notify();
@@ -71,7 +71,7 @@ impl TimeChimpApp {
     }
 
     pub fn close_addresses(&mut self, field: AddressField, cx: &mut Context<Self>) {
-        if let Some(form) = self.mileage_form_mut()
+        if let Some(form) = self.travel_form_mut()
             && form.address_menu.as_ref().is_some_and(|m| m.field == field)
         {
             form.address_menu = None;
@@ -80,7 +80,7 @@ impl TimeChimpApp {
     }
 
     pub fn toggle_addresses(&mut self, field: AddressField, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(form) = self.mileage_form() else { return };
+        let Some(form) = self.travel_form() else { return };
         let open = form.address_menu.as_ref().is_some_and(|m| m.field == field);
         window.focus(&form.address_input(field).read(cx).focus_handle(cx), cx);
         if open {
@@ -91,10 +91,10 @@ impl TimeChimpApp {
     }
 
     pub fn move_address(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(form) = self.mileage_form() else { return cx.propagate() };
+        let Some(form) = self.travel_form() else { return cx.propagate() };
         let Some(field) = form.focused_address(window, cx) else { return cx.propagate() };
         let count = form.address_matches(cx).len();
-        let Some(menu) = self.mileage_form_mut().and_then(|f| f.address_menu.as_mut()).filter(|m| m.field == field) else {
+        let Some(menu) = self.travel_form_mut().and_then(|f| f.address_menu.as_mut()).filter(|m| m.field == field) else {
             return self.open_addresses(field, false, cx);
         };
         let last = count.saturating_sub(1);
@@ -107,7 +107,7 @@ impl TimeChimpApp {
 
     /// With nothing highlighted, propagate so Enter saves the form.
     pub fn pick_highlighted_address(&mut self, cx: &mut Context<Self>) {
-        let Some(form) = self.mileage_form() else { return cx.propagate() };
+        let Some(form) = self.travel_form() else { return cx.propagate() };
         let picked = form
             .address_menu
             .as_ref()
@@ -115,7 +115,7 @@ impl TimeChimpApp {
         match picked {
             Some((field, address)) => self.pick_address(field, address, cx),
             None => {
-                if let Some(form) = self.mileage_form_mut() {
+                if let Some(form) = self.travel_form_mut() {
                     form.address_menu = None;
                 }
                 cx.propagate();
@@ -124,7 +124,7 @@ impl TimeChimpApp {
     }
 
     pub fn pick_address(&mut self, field: AddressField, address: String, cx: &mut Context<Self>) {
-        let Some(form) = self.mileage_form_mut() else { return };
+        let Some(form) = self.travel_form_mut() else { return };
         form.address_menu = None;
         // Silent, or the TextChanged subscription would reopen the list filtered by the address.
         form.address_input(field).update(cx, |input, cx| input.set_content_silent(address, cx));
@@ -133,7 +133,7 @@ impl TimeChimpApp {
 
     /// With no suggestions open, propagate so Escape closes the form.
     pub fn dismiss_addresses(&mut self, cx: &mut Context<Self>) {
-        match self.mileage_form_mut() {
+        match self.travel_form_mut() {
             Some(form) if form.address_menu.is_some() => {
                 form.address_menu = None;
                 cx.notify();
@@ -143,7 +143,7 @@ impl TimeChimpApp {
     }
 
     pub fn calculate_distance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(form), Some(client)) = (self.mileage_form(), self.session.client().cloned()) else { return };
+        let (Some(form), Some(client)) = (self.travel_form(), self.session.client().cloned()) else { return };
         let (form_id, from, to) = (self.form().map(|f| f.id), text(&form.from, cx), text(&form.to, cx));
         if from.is_empty() || to.is_empty() {
             return self.form_error("Fill in both addresses first", cx);

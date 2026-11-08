@@ -37,7 +37,7 @@ impl TimeChimpApp {
 
         let body: AnyElement = match self.tab {
             Tab::Week => self.render_day(theme, cx).into_any_element(),
-            Tab::Mileage => self.render_mileage(theme, cx).into_any_element(),
+            Tab::Travel => self.render_travel(theme, cx).into_any_element(),
             Tab::Report => self.render_report(theme).into_any_element(),
         };
 
@@ -100,7 +100,7 @@ impl TimeChimpApp {
         let today = domain::time::today();
         let bar = h_stack().w_full().px(px(16.)).py(px(12.)).gap(px(8.)).items_center();
         match self.tab {
-            Tab::Week | Tab::Mileage => {
+            Tab::Week | Tab::Travel => {
                 let (unit, at_today) = if self.tab == Tab::Week {
                     ("day", self.session.day() == today)
                 } else {
@@ -272,7 +272,7 @@ impl TimeChimpApp {
             button(id, label).on_click(cx.listener(move |this, _: &ClickEvent, window, cx| f(this, window, cx)))
         };
         let week_tab = self.tab == Tab::Week;
-        let has = if week_tab { self.session.selected_entry().is_some() } else { self.session.selected_mileage().is_some() };
+        let has = if week_tab { self.session.selected_entry().is_some() } else { self.session.selected_travel().is_some() };
         h_stack()
             .gap(px(8.))
             .items_center()
@@ -308,7 +308,7 @@ impl TimeChimpApp {
                         hint("D", "delete"),
                         hint("Enter", "details"),
                     ],
-                    Tab::Mileage => vec![
+                    Tab::Travel => vec![
                         hint("←/→", "week"),
                         hint("T", "today"),
                         hint("A", "add"),

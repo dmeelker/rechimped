@@ -75,7 +75,7 @@ pub struct TripPreset {
     #[serde(default)]
     pub return_trip: bool,
     #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
-    pub mileage_type: Option<String>,
+    pub travel_type: Option<String>,
     #[serde(default)]
     pub billable: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -114,18 +114,18 @@ impl Preset for TimePreset {
 
 impl TripPreset {
     pub fn trip_type(&self) -> Option<MileageType> {
-        let Some(name) = &self.mileage_type else { return Some(MileageType::Business) };
+        let Some(name) = &self.travel_type else { return Some(MileageType::Business) };
         let key = |s: &str| s.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
         TRIP_TYPE_KEYS.iter().find(|(_, k)| key(k) == key(name)).map(|(t, _)| *t)
     }
 }
 
-/// Part of the file format, so kept apart from the labels the forms show (`domain::MILEAGE_TYPES`):
+/// Part of the file format, so kept apart from the labels the forms show (`domain::TRAVEL_TYPES`):
 /// rewording those mustn't break existing files.
 const TRIP_TYPE_KEYS: [(MileageType, &str); 2] = [(MileageType::Business, "business"), (MileageType::HomeWork, "home-work")];
 
-pub fn mileage_type_key(mileage_type: MileageType) -> Option<String> {
-    TRIP_TYPE_KEYS.iter().find(|(t, _)| *t == mileage_type).map(|(_, key)| (*key).to_owned())
+pub fn travel_type_key(travel_type: MileageType) -> Option<String> {
+    TRIP_TYPE_KEYS.iter().find(|(t, _)| *t == travel_type).map(|(_, key)| (*key).to_owned())
 }
 
 pub fn preset_name(from: &str, to: &str, notes: &str) -> String {
@@ -171,7 +171,7 @@ fn parse_config(text: &str) -> Result<Config, String> {
             return Err(format!(
                 "trip \"{}\": unknown type \"{}\" (use {})",
                 trip.name,
-                trip.mileage_type.as_deref().unwrap_or_default(),
+                trip.travel_type.as_deref().unwrap_or_default(),
                 known.join(" or ")
             ));
         }
@@ -336,7 +336,7 @@ fn without<P: Preset>(text: &str, preset: &P) -> Result<String, String> {
     Ok(doc.to_string())
 }
 
-const TRIPS_COMMENT: &str = "# Preset trips, in the dropdown of \"+ Add trip\" on the Mileage tab. Fields: name,\n\
+const TRIPS_COMMENT: &str = "# Preset trips, in the dropdown of \"+ Add trip\" on the Travel tab. Fields: name,\n\
      # project, from, to, distance (km, one way; optional), return_trip, type (\"business\" or\n\
      # \"home-work\"), billable, notes (optional).\n";
 
@@ -458,7 +458,7 @@ mod tests {
             to: "B".into(),
             distance: Some(12.0),
             return_trip: true,
-            mileage_type: mileage_type_key(MileageType::HomeWork),
+            travel_type: travel_type_key(MileageType::HomeWork),
             billable: false,
             notes: None,
         };
@@ -503,7 +503,7 @@ mod tests {
             to: "b".into(),
             distance: None,
             return_trip: false,
-            mileage_type: None,
+            travel_type: None,
             billable: false,
             notes: None,
         }
@@ -617,8 +617,8 @@ mod tests {
         assert_eq!(client.distance, None);
         assert!(parse_config("[[trips]]\nname = \"x\"\nproject = \"p\"\nfrom = \"a\"\nto = \"b\"\ntype = \"bike\"\n").is_err());
 
-        assert_eq!(mileage_type_key(MileageType::HomeWork).as_deref(), Some("home-work"));
-        assert!(crate::domain::MILEAGE_TYPES.iter().all(|(t, _)| mileage_type_key(*t).is_some()));
+        assert_eq!(travel_type_key(MileageType::HomeWork).as_deref(), Some("home-work"));
+        assert!(crate::domain::TRAVEL_TYPES.iter().all(|(t, _)| travel_type_key(*t).is_some()));
         let block = preset_toml(commute).unwrap();
         let text = format!("billable_goal = 70\n[projects]\nIntern = []\n\n{block}");
         assert_eq!(parse_config(&text).unwrap().trips, vec![TripPreset { name: "Commute".into(), ..commute.clone() }]);

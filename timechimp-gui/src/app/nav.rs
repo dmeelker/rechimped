@@ -60,8 +60,8 @@ impl TimeChimpApp {
     }
 
     fn move_selection(&mut self, delta: isize) {
-        if self.tab == Tab::Mileage {
-            self.session.move_mileage_selection(delta);
+        if self.tab == Tab::Travel {
+            self.session.move_travel_selection(delta);
         } else {
             self.session.move_entry_selection(delta);
         }
@@ -76,8 +76,8 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    pub fn click_mileage(&mut self, id: i64, clicks: usize, window: &mut Window, cx: &mut Context<Self>) {
-        self.session.select_mileage(id);
+    pub fn click_travel(&mut self, id: i64, clicks: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.session.select_travel(id);
         window.focus(&self.focus, cx);
         if clicks >= 2 {
             self.edit_selected(window, cx);
@@ -166,7 +166,7 @@ fn browse_command(key: &str, shift: bool, ctrl: bool, tab: Tab, has_entry: bool)
         ("left" | "h", _) if tab == Tab::Report => Command::ShiftMonth(-1),
         ("right" | "l", _) if tab == Tab::Report => Command::ShiftMonth(1),
         ("t", _) => Command::Today,
-        (_, _) if !matches!(tab, Tab::Week | Tab::Mileage) => return None,
+        (_, _) if !matches!(tab, Tab::Week | Tab::Travel) => return None,
         ("left" | "h", _) if week_tab && !shift => Command::Step(-1),
         ("right" | "l", _) if week_tab && !shift => Command::Step(1),
         ("left" | "h" | "[", _) => Command::ShiftDay(-7),
@@ -176,7 +176,7 @@ fn browse_command(key: &str, shift: bool, ctrl: bool, tab: Tab, has_entry: bool)
         ("enter", _) if week_tab && has_entry => Command::ShowDetail,
         ("a" | "n", _) => Command::Add,
         ("e", _) => Command::Edit,
-        ("enter", _) if tab == Tab::Mileage => Command::Edit,
+        ("enter", _) if tab == Tab::Travel => Command::Edit,
         ("c", _) if week_tab => Command::Copy,
         ("d" | "delete", _) => Command::Delete,
         _ => return None,
@@ -197,7 +197,7 @@ mod tests {
         assert_eq!(key("left", Tab::Week), Some(Step(-1)), "a shown day on the Week tab");
         assert_eq!(browse_command("left", true, false, Tab::Week, true), Some(ShiftDay(-7)), "Shift: a week");
         assert_eq!(key("]", Tab::Week), Some(ShiftDay(7)));
-        assert_eq!(key("right", Tab::Mileage), Some(ShiftDay(7)), "a week on Mileage");
+        assert_eq!(key("right", Tab::Travel), Some(ShiftDay(7)), "a week on Travel");
         assert_eq!(key("l", Tab::Report), Some(ShiftMonth(1)), "a month on Report");
     }
 
@@ -205,7 +205,7 @@ mod tests {
     fn enter_opens_details_or_edits() {
         assert_eq!(key("enter", Tab::Week), Some(ShowDetail));
         assert_eq!(browse_command("enter", false, false, Tab::Week, false), None, "no entry selected");
-        assert_eq!(key("enter", Tab::Mileage), Some(Edit));
+        assert_eq!(key("enter", Tab::Travel), Some(Edit));
     }
 
     #[test]
@@ -215,7 +215,7 @@ mod tests {
         assert_eq!(browse_command("l", true, false, Tab::Report, false), Some(Logout), "Shift+L before the month keys");
         assert_eq!(key("3", Tab::Week), Some(SwitchTab(2)));
         assert_eq!(key("4", Tab::Week), None, "three tabs");
-        assert_eq!(key("c", Tab::Mileage), None, "copy is for time entries");
+        assert_eq!(key("c", Tab::Travel), None, "copy is for time entries");
         assert_eq!(key("d", Tab::Report), None);
     }
 }
