@@ -3,7 +3,6 @@ use gpui::{
     AnyElement, ClickEvent, Context, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
 };
-use gpuikit::elements::progress::{ProgressVariant, progress};
 use gpuikit::elements::tooltip::tooltip;
 use gpuikit::icons::Icons;
 use gpuikit::layout::{h_stack, v_stack};
@@ -98,13 +97,12 @@ impl TimeChimpApp {
                         .when(is_today, |d| d.child(div().text_xs().text_color(theme.accent()).child("today"))),
                 )
                 .child(div().text_lg().text_color(hours_colour(theme, hours, target)).child(format!("{}h", plain_number(hours))))
-                .child(progress(fraction).variant(if hours >= target { ProgressVariant::Success } else { ProgressVariant::Default }))
+                .child(meter(theme, fraction, hours_colour(theme, hours, target)))
         }));
 
         let crate::domain::week::WeekCard { hours: total, contract, share, .. } =
             crate::domain::week::week_card(self.session.entries(), self.session.contract_hours());
         let ratio = share.unwrap_or(0.0);
-        let goal_met = share.is_some_and(|s| s >= self.session.settings.billable_goal);
         let ratio_colour = goal_colour(theme, share, self.session.settings.billable_goal);
         let week_card = v_stack()
             .flex_1()
@@ -140,10 +138,7 @@ impl TimeChimpApp {
                     .child(div().text_lg().text_color(hours_colour(theme, total, contract)).child(format!("{}h", plain_number(total))))
                     .child(muted(theme, format!("/ {}h", plain_number(contract)))),
             )
-            .child(
-                progress(ratio.min(1.0) as f32)
-                    .variant(if goal_met { ProgressVariant::Success } else { ProgressVariant::Default }),
-            );
+            .child(meter(theme, ratio as f32, ratio_colour));
         let strip = strip.child(week_card);
 
         let visible = self.session.visible_entries();

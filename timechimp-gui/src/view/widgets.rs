@@ -71,6 +71,17 @@ pub(super) fn panel(theme: &T, title: impl IntoElement) -> gpui::Div {
 
 pub(super) const ROW_ACTIONS_WIDTH: f32 = 84.;
 
+/// gpuikit's `progress` draws its Success variant in the accent colour, so it can't show "met".
+pub(super) fn meter(theme: &T, fraction: f32, colour: Hsla) -> gpui::Div {
+    div()
+        .w_full()
+        .h(px(6.))
+        .rounded(px(3.))
+        .overflow_hidden()
+        .bg(theme.surface_secondary())
+        .child(div().h_full().w(gpui::relative(fraction.clamp(0., 1.))).rounded(px(3.)).bg(colour))
+}
+
 pub(super) fn table_rows(id: &'static str, rows: impl IntoIterator<Item = impl IntoElement>) -> gpui::Stateful<gpui::Div> {
     div().id(id).flex().flex_col().min_h_0().overflow_y_scroll().children(rows)
 }
