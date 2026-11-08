@@ -29,14 +29,6 @@ pub fn plain_number(value: f64) -> String {
     s.trim_end_matches('0').trim_end_matches('.').to_owned()
 }
 
-/// The first letters of the first and last word: "Dennis Meelker" → "DM".
-pub fn initials(name: &str) -> String {
-    let words: Vec<&str> = name.split_whitespace().collect();
-    let first = words.first().and_then(|w| w.chars().next());
-    let last = if words.len() > 1 { words.last().and_then(|w| w.chars().next()) } else { None };
-    first.into_iter().chain(last).flat_map(char::to_uppercase).collect()
-}
-
 pub fn matching_addresses<'a>(addresses: &'a [String], query: &str) -> Vec<&'a str> {
     let query = query.trim().to_lowercase();
     addresses.iter().filter(|a| a.to_lowercase().contains(&query)).map(String::as_str).collect()
@@ -45,14 +37,6 @@ pub fn matching_addresses<'a>(addresses: &'a [String], query: &str) -> Vec<&'a s
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn initials_take_the_first_and_last_word() {
-        assert_eq!(initials("Dennis Meelker"), "DM");
-        assert_eq!(initials("jan van der berg"), "JB");
-        assert_eq!(initials("  Cher "), "C");
-        assert_eq!(initials(""), "");
-    }
 
     #[test]
     fn names_match_trimmed_and_ignoring_case() {

@@ -18,10 +18,7 @@ use super::widgets::*;
 
 impl TimeChimpApp {
     pub(super) fn render_main(&mut self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let (title, initials) = match self.session.me() {
-            Some(me) => (format!("{} @ {}", me.display_name, me.company_name), domain::initials(&me.display_name)),
-            None => (String::new(), String::new()),
-        };
+        let title = self.session.me().map_or_else(String::new, |me| format!("{} @ {}", me.display_name, me.company_name));
         let header = h_stack()
             .w_full()
             .px(px(16.))
@@ -33,7 +30,7 @@ impl TimeChimpApp {
             // Pulled 1px down so the selected tab's underline covers the header's border.
             .child(div().mb(px(-1.)).font_weight(FontWeight::MEDIUM).child(self.render_tabs(theme, cx)))
             .child(div().flex_1())
-            .child(div().relative().child(self.render_user_button(theme, title, initials, cx)).when(
+            .child(div().relative().child(self.render_user_button(theme, title, cx)).when(
                 self.menu == Some(Menu::User),
                 |d| d.child(self.render_user_menu(theme, cx)),
             ));
@@ -180,7 +177,7 @@ impl TimeChimpApp {
         .text_color(theme.fg())
     }
 
-    pub(super) fn render_user_button(&self, theme: &T, title: String, initials: String, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn render_user_button(&self, theme: &T, title: String, cx: &mut Context<Self>) -> impl IntoElement {
         h_stack()
             .id("user-button")
             .gap(px(8.))
@@ -191,19 +188,6 @@ impl TimeChimpApp {
             .cursor_pointer()
             .when(self.menu == Some(Menu::User), |d| d.bg(theme.surface()))
             .hover(|s| s.bg(theme.surface()))
-            .child(
-                div()
-                    .size(px(22.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded_full()
-                    .bg(theme.surface_secondary())
-                    .text_xs()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme.fg())
-                    .child(initials),
-            )
             .child(muted(theme, title))
             .child(muted(theme, "▾"))
             .on_click(cx.listener(|this, _, _, cx| this.toggle_menu(Menu::User, cx)))
