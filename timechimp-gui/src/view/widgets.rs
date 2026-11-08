@@ -38,6 +38,18 @@ pub(super) fn right_cell(width: f32, content: impl Into<SharedString>) -> gpui::
     cell(Some(width), content).flex().justify_end()
 }
 
+/// Background of a non-billable row in the Time, Travel and Report tables (their text is muted too):
+/// a lavender tint, apart from the grey header, the orange selection and the green billable figures.
+/// `hover` gives the slightly stronger shade for the pointer.
+pub(super) fn non_billable_bg(hover: bool) -> Hsla {
+    gpuikit::theme::parse_hex("#7287fd").opacity(if hover { 0.16 } else { 0.09 })
+}
+
+/// Row hover background, keeping non-billable rows recognisable.
+pub(super) fn row_hover_bg(theme: &T, billable: bool) -> Hsla {
+    if billable { theme.surface() } else { non_billable_bg(true) }
+}
+
 pub(super) fn header_row(theme: &T, cells: impl IntoIterator<Item = gpui::Div>) -> gpui::Div {
     h_stack()
         .w_full()

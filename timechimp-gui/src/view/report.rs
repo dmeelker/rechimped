@@ -1,5 +1,4 @@
 use gpui::{FontWeight, IntoElement, ParentElement, Styled, div, prelude::FluentBuilder, px};
-use gpuikit::elements::progress::progress;
 use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::Themeable;
 
@@ -26,12 +25,16 @@ impl TimeChimpApp {
                 .items_center()
                 .border_b_1()
                 .border_color(theme.border_subtle())
-                .when(!g.billable, |d| d.text_color(theme.fg_muted()))
+                .when(!g.billable, |d| d.text_color(theme.fg_muted()).bg(non_billable_bg(false)))
                 .child(cell(None, g.project.clone()))
                 .child(cell(None, g.task.clone()))
                 .child(right_cell(70., format!("{:.2}", g.hours)))
                 .child(right_cell(50., format!("{:.0}%", pct(g.hours))))
-                .child(div().w(px(100.)).flex_none().px(px(6.)).child(progress(summary.share(g.hours) as f32)))
+                .child(div().w(px(100.)).flex_none().px(px(6.)).child(meter(
+                    theme,
+                    summary.share(g.hours) as f32,
+                    if g.billable { theme.success() } else { theme.fg_muted() },
+                )))
         });
         let table = panel(theme, format!("{month} · hours per project / task"))
             .flex_1()
