@@ -35,6 +35,14 @@ impl TimeChimpApp {
         }
     }
 
+    pub fn step_period(&mut self, direction: i64, window: &mut Window, cx: &mut Context<Self>) {
+        if self.tab == Tab::Report {
+            self.shift_month(direction as i32, window, cx);
+        } else {
+            self.shift_day(7 * direction, window, cx);
+        }
+    }
+
     pub fn select_day(&mut self, day: NaiveDate, window: &mut Window, cx: &mut Context<Self>) {
         if self.session.select_day(day) {
             self.load_week(None, window, cx);

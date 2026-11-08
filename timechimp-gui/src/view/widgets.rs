@@ -5,7 +5,9 @@ use gpui::{
     AnyElement, BoxShadow, point, ClickEvent, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
 };
+use gpuikit::elements::icon_button::{IconButton, icon_button};
 use gpuikit::elements::kbd::kbd;
+use gpuikit::elements::tooltip::tooltip;
 use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::{ControlSize, Theme, Themeable};
 use gpuikit::traits::control_sized::ControlSized;
@@ -147,76 +149,18 @@ pub(super) fn primary_button(
         })
 }
 
-pub(super) fn period_nav(
-    theme: &T,
-    prev: (&'static str, &'static str, ClickHandler),
-    today: (&'static str, &'static str, ClickHandler),
-    next: (&'static str, &'static str, ClickHandler),
-    at_today: bool,
-) -> gpui::Div {
-    let m = theme.control(ControlSize::Medium);
-    let divider = theme.button_border();
-    let arrow = |id, glyph, tip, on_click| nav_segment(theme, id, glyph, tip, false, on_click).w(m.height).text_size(px(18.));
-    h_stack()
-        .flex_none()
-        .rounded(m.radius)
-        .shadow(button_shadow(theme.border_secondary(), 0.10))
-        .child(arrow(prev.0, "‹", prev.1, prev.2).rounded_l(m.radius))
-        .child(
-            nav_segment(theme, today.0, today.1, format!("{} (T)", today.1), at_today, today.2)
-                .px(m.padding_x)
-                .border_x_1()
-                .border_color(divider),
-        )
-        .child(arrow(next.0, "›", next.1, next.2).rounded_r(m.radius))
-}
-
-pub(super) type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut gpui::App) + 'static>;
-
-fn nav_segment(
-    theme: &T,
+pub(super) fn nav_arrow(
     id: &'static str,
-    label: &'static str,
-    tip: impl Into<SharedString> + 'static,
-    selected: bool,
-    on_click: ClickHandler,
-) -> gpui::Stateful<gpui::Div> {
-    let m = theme.control(ControlSize::Medium);
-    let (bg, fg, hover, active) = if selected {
-        // The accent tints are translucent; blend them over the button fill so the segment is opaque.
-        let base = theme.button_bg();
-        let hover = base.blend(theme.accent_bg_hover());
-        (base.blend(theme.accent_bg()), theme.accent(), hover, hover)
-    } else {
-        (theme.button_bg(), theme.fg(), theme.button_bg_hover(), theme.button_bg_active())
-    };
-    h_stack()
-        .id(id)
-        .flex_none()
-        .h(m.height)
-        .items_center()
-        .justify_center()
-        .text_size(m.text_size)
-        .line_height(m.line_height)
-        .whitespace_nowrap()
-        .bg(bg)
-        .text_color(fg)
-        .when(selected, |d| d.font_weight(FontWeight::SEMIBOLD))
-        .child(label)
-        .tooltip(gpuikit::elements::tooltip::tooltip(tip))
-        .cursor_pointer()
-        .hover(move |s| s.bg(hover))
-        .active(move |s| s.bg(active))
-        .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
-        .on_click(move |event, window, cx| {
-            cx.stop_propagation();
-            on_click(event, window, cx)
-        })
+    icon: gpui::Svg,
+    tip: &'static str,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> IconButton {
+    icon_button(id, icon).control_size(ControlSize::Medium).tooltip(tooltip(tip)).on_click(on_click)
 }
 
 pub(super) fn period_title(theme: &T, main: String, suffix: Option<String>) -> gpui::Div {
     h_stack()
-        .pl(px(12.))
+        .pl(px(4.))
         .gap(px(8.))
         .items_baseline()
         .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child(main))
