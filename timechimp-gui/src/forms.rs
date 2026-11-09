@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 
 use chrono::{Datelike, NaiveDate};
-use gpui::{App, AppContext, ElementId, Entity, Focusable, SharedString, Subscription, Window};
+use gpui::{App, AppContext, ElementId, Entity, FocusHandle, Focusable, SharedString, Subscription, Window};
 use gpuikit::date::Date;
 use gpuikit::elements::calendar::Calendar;
 use gpuikit::elements::checkbox::{Checkbox, checkbox};
@@ -250,10 +250,42 @@ pub fn choice<T: Clone + PartialEq + 'static>(
     })
 }
 
+/// The categories of the Settings window, listed on its left.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SettingsPage {
+    General,
+    Projects,
+    ProjectTags,
+}
+
+impl SettingsPage {
+    pub const ALL: [Self; 3] = [Self::General, Self::Projects, Self::ProjectTags];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::General => "General",
+            Self::Projects => "Projects",
+            Self::ProjectTags => "Project tags",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::General => "Your work week and billable target.",
+            Self::Projects => "The projects the forms offer. Entries of hidden projects still show everywhere.",
+            Self::ProjectTags => "The tags the time form offers as checkboxes, per project.",
+        }
+    }
+}
+
 pub struct SettingsForm {
+    pub page: SettingsPage,
+    /// The window's own, so its keys work on pages without a text field.
+    pub focus: FocusHandle,
     pub work_days: Vec<Entity<Checkbox>>,
     pub billable_goal: Entity<InputState>,
     pub projects: ProjectVisibility,
+    pub tags: ProjectTagsForm,
     pub error: Option<String>,
 }
 
@@ -344,7 +376,6 @@ pub struct ProjectTagsForm {
     pub chosen: HashMap<i64, BTreeSet<i64>>,
     /// So only the projects changed are written.
     original: HashMap<i64, BTreeSet<i64>>,
-    pub error: Option<String>,
 }
 
 impl ProjectTagsForm {
@@ -374,7 +405,7 @@ impl ProjectTagsForm {
             .map(|t| (t.id, t.name.clone()))
             .collect();
         tags.sort_by(|a, b| by_name(&a.1, &b.1));
-        Self { projects, tags, current: 0, original, chosen, error: None }
+        Self { projects, tags, current: 0, original, chosen }
     }
 
     pub fn current_project(&self) -> Option<i64> {

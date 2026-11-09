@@ -106,15 +106,6 @@ impl TimeChimpApp {
                 return;
             }
             Overlay::Form(_) | Overlay::Settings(_) | Overlay::Confirm { .. } => return,
-            // No text fields, so the main view keeps the focus and its keys come here.
-            Overlay::ProjectTags(_) => {
-                match event.keystroke.key.as_str() {
-                    "escape" => self.close_overlay(window, cx),
-                    "enter" => self.save_project_tags(window, cx),
-                    _ => {}
-                }
-                return;
-            }
         }
         let ks = &event.keystroke;
         let (shift, ctrl) = (ks.modifiers.shift, ks.modifiers.control || ks.modifiers.platform);

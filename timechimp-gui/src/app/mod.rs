@@ -21,7 +21,7 @@ use gpuikit::elements::toast::ToastExt;
 use gpuikit::input::InputState;
 use timechimp::{Authenticator, Client, MfaChallenge};
 
-use crate::forms::{Form, TravelForm, ProjectTagsForm, SettingsForm, TimeForm};
+use crate::forms::{Form, TravelForm, SettingsForm, TimeForm};
 use crate::domain;
 use crate::net;
 use crate::session::Session;
@@ -90,8 +90,7 @@ pub enum Overlay {
     About,
     Chart(BillabilityChart),
     Form(Box<Form>),
-    Settings(SettingsForm),
-    ProjectTags(ProjectTagsForm),
+    Settings(Box<SettingsForm>),
     Confirm { dialog: Entity<DialogState>, _closed: Subscription },
 }
 
@@ -227,20 +226,6 @@ impl TimeChimpApp {
     fn settings_form_mut(&mut self) -> Option<&mut SettingsForm> {
         match &mut self.overlay {
             Overlay::Settings(form) => Some(form),
-            _ => None,
-        }
-    }
-
-    pub fn project_tags_form(&self) -> Option<&ProjectTagsForm> {
-        match &self.overlay {
-            Overlay::ProjectTags(form) => Some(form),
-            _ => None,
-        }
-    }
-
-    fn project_tags_form_mut(&mut self) -> Option<&mut ProjectTagsForm> {
-        match &mut self.overlay {
-            Overlay::ProjectTags(form) => Some(form),
             _ => None,
         }
     }

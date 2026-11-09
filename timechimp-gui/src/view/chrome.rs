@@ -12,6 +12,7 @@ use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::{ControlSize, Themeable};
 
 use crate::app::{Menu, Overlay, Tab, TimeChimpApp};
+use crate::forms::SettingsPage;
 use crate::{domain, session};
 
 use super::widgets::*;
@@ -88,7 +89,6 @@ impl TimeChimpApp {
             .when_some(self.chart(), |d, chart| d.child(self.render_chart(chart, theme, cx)))
             .when_some(self.form(), |d, form| d.child(self.render_form(form, theme, cx)))
             .when_some(self.settings_form(), |d, form| d.child(self.render_settings(form, theme, cx)))
-            .when_some(self.project_tags_form(), |d, form| d.child(self.render_project_tags(form, theme, cx)))
     }
 
     fn render_tabs(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
@@ -300,11 +300,7 @@ impl TimeChimpApp {
         let menu = menu_panel(theme, "user-menu")
             .child(
                 menu_item(theme, "user-menu-settings", "Settings…")
-                    .on_click(cx.listener(|this, _, w, cx| this.open_settings(w, cx))),
-            )
-            .child(
-                menu_item(theme, "user-menu-project-tags", "Project tags…")
-                    .on_click(cx.listener(|this, _, w, cx| this.open_project_tags(w, cx))),
+                    .on_click(cx.listener(|this, _, w, cx| this.open_settings(SettingsPage::General, w, cx))),
             )
             .child(
                 menu_item(theme, "user-menu-about", "About Rechimped")

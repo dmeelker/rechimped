@@ -1,18 +1,115 @@
-use gpui::{Context, ElementId, FontWeight, InteractiveElement, StatefulInteractiveElement, IntoElement, ParentElement, Styled, div, prelude::FluentBuilder, px};
+use gpui::{
+    Context, ElementId, FontWeight, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, StatefulInteractiveElement,
+    Styled, div, prelude::FluentBuilder, px,
+};
+use gpuikit::a11y::FocusNavigation;
 use gpuikit::elements::button::button;
 use gpuikit::elements::checkbox::{CheckState, checkbox_box};
 use gpuikit::elements::text_field::{TextField, text_field};
-use gpuikit::a11y::FocusNavigation;
 use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::{ControlSize, Themeable};
 
 use crate::app::{Cancel, Confirm, TimeChimpApp};
-use crate::forms::{ProjectTagsForm, SettingsForm};
+use crate::forms::{ProjectTagsForm, ProjectVisibility, SettingsForm, SettingsPage};
 
 use super::widgets::*;
 
 impl TimeChimpApp {
+    /// One window for all settings: the categories on the left, the chosen one's page on the right.
     pub(super) fn render_settings(&self, form: &SettingsForm, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
+        let categories = SettingsPage::ALL.iter().map(|&page| {
+            let selected = page == form.page;
+            div()
+                .id(ElementId::Name(format!("settings-page-{page:?}").into()))
+                .px(px(10.))
+                .py(px(6.))
+                .rounded(px(6.))
+                .cursor_pointer()
+                .when(selected, |d| d.bg(theme.accent_bg()).font_weight(FontWeight::SEMIBOLD))
+                .when(!selected, |d| d.hover(|s| s.bg(theme.surface())))
+                .on_click(cx.listener(move |this, _, w, cx| this.show_settings_page(page, w, cx)))
+                .child(page.title())
+        });
+        let sidebar = v_stack()
+            .w(px(190.))
+            .flex_none()
+            .p(px(12.))
+            .gap(px(2.))
+            .bg(theme.surface_secondary())
+            .border_r_1()
+            .border_color(theme.border())
+            // The card's own corner radius, which a child's background would otherwise poke out of.
+            .rounded_l(px(10.))
+            .child(
+                div()
+                    .px(px(10.))
+                    .pt(px(8.))
+                    .pb(px(12.))
+                    .text_lg()
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(theme.accent())
+                    .child("Settings"),
+            )
+            .children(categories);
+
+        let content = match form.page {
+            SettingsPage::General => self.render_general(form, theme, cx),
+            SettingsPage::Projects => self.render_project_visibility(&form.projects, theme, cx),
+            SettingsPage::ProjectTags => self.render_project_tags(&form.tags, theme, cx),
+        };
+        let footer = h_stack()
+            .gap(px(8.))
+            .items_center()
+            .child(div().flex_1().min_w_0().when_some(form.error.clone(), |d, e| {
+                d.p(px(8.)).rounded(px(6.)).bg(theme.danger().opacity(0.15)).text_color(theme.danger()).child(e)
+            }))
+            .child(pop(
+                theme,
+                button("settings-cancel", "Cancel").on_click(cx.listener(|this, _, w, cx| this.close_overlay(w, cx))),
+            ))
+            .child(primary_button(
+                theme,
+                "settings-save",
+                "Save",
+                false,
+                cx.listener(|this, _, w, cx| this.save_settings(w, cx)),
+            ));
+        let page = v_stack()
+            .flex_1()
+            .min_w_0()
+            .p(px(24.))
+            .gap(px(14.))
+            .child(
+                v_stack()
+                    .gap(px(4.))
+                    .child(div().text_lg().font_weight(FontWeight::BOLD).child(form.page.title()))
+                    .child(muted(theme, form.page.description())),
+            )
+            .child(v_stack().flex_1().min_h_0().child(content))
+            .child(footer);
+
+        let card = h_stack()
+            .id("settings-card")
+            .key_context("Modal")
+            .track_focus(&form.focus)
+            .moves_focus_on_tab()
+            .on_action(cx.listener(|this, _: &Confirm, w, cx| this.save_settings(w, cx)))
+            .on_action(cx.listener(|this, _: &Cancel, w, cx| this.close_overlay(w, cx)))
+            // Only on the window itself: in a field Enter is `Confirm` already, on a control it's the control's.
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, w, cx| {
+                let on_window = this.settings_form().is_some_and(|f| f.focus.is_focused(w));
+                if on_window && event.keystroke.key == "enter" && !event.keystroke.modifiers.modified() {
+                    this.save_settings(w, cx);
+                }
+            }))
+            .h(px(540.))
+            .items_stretch()
+            .child(sidebar)
+            .child(page);
+        Self::modal(theme, "settings", 880., card, None)
+    }
+
+    fn render_general(&self, form: &SettingsForm, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
         let row = |label: &'static str, control: gpui::AnyElement| {
             h_stack()
                 .gap(px(16.))
@@ -20,49 +117,17 @@ impl TimeChimpApp {
                 .child(div().w(px(130.)).flex_none().text_color(theme.fg_muted()).child(label))
                 .child(div().flex_1().min_w_0().child(control))
         };
-        let card = v_stack()
-            .id("settings-card")
-            .key_context("Modal")
-            .moves_focus_on_tab()
-            .on_action(cx.listener(|this, _: &Confirm, w, cx| this.save_settings(w, cx)))
-            .on_action(cx.listener(|this, _: &Cancel, w, cx| this.close_overlay(w, cx)))
-            .p(px(24.))
+        v_stack()
             .gap(px(14.))
-            .child(div().text_lg().font_weight(FontWeight::BOLD).text_color(theme.accent()).child("Settings"))
-            .child(row(
-                "Work days",
-                h_stack().gap(px(14.)).children(form.work_days.iter().cloned()).into_any_element(),
-            ))
+            .child(row("Work days", h_stack().gap(px(14.)).children(form.work_days.iter().cloned()).into_any_element()))
             .child(row(
                 "Billable target",
                 number_field(text_field(&form.billable_goal, cx).placeholder("80"), muted(theme, "%")),
             ))
-            .child(row("Projects", self.render_project_visibility(form, theme, cx)).items_start())
-            .when_some(form.error.clone(), |d, e| {
-                d.child(div().p(px(8.)).rounded(px(6.)).bg(theme.danger().opacity(0.15)).text_color(theme.danger()).child(e))
-            })
-            .child(
-                h_stack()
-                    .pt(px(8.))
-                    .gap(px(8.))
-                    .justify_end()
-                    .child(pop(
-                        theme,
-                        button("settings-cancel", "Cancel").on_click(cx.listener(|this, _, w, cx| this.close_overlay(w, cx))),
-                    ))
-                    .child(primary_button(
-                        theme,
-                        "settings-save",
-                        "Save",
-                        false,
-                        cx.listener(|this, _, w, cx| this.save_settings(w, cx)),
-                    )),
-            );
-        Self::modal(theme, "settings", 660., card, None)
+            .into_any_element()
     }
 
-    fn render_project_visibility(&self, form: &SettingsForm, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let p = &form.projects;
+    fn render_project_visibility(&self, p: &ProjectVisibility, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
         let rows = p.projects.iter().map(|(id, name, customer)| {
             let (id, shown) = (*id, !p.hidden.contains(id));
             h_stack()
@@ -87,15 +152,8 @@ impl TimeChimpApp {
                 )
                 .child(muted(theme, customer.clone()).text_xs().flex_none())
         });
-        let list = v_stack()
-            .id("settings-projects")
-            .h(px(240.))
+        let list = list_box(theme, "settings-projects")
             .p(px(6.))
-            .overflow_y_scroll()
-            .border_1()
-            .border_color(theme.border())
-            .rounded(px(6.))
-            .bg(theme.surface())
             .when(p.projects.is_empty(), |d| d.child(muted(theme, "No projects.")))
             .children(rows);
         let shown = p.projects.len() - p.hidden.len();
@@ -106,6 +164,8 @@ impl TimeChimpApp {
             )
         };
         v_stack()
+            .flex_1()
+            .min_h_0()
             .gap(px(8.))
             .child(
                 h_stack()
@@ -118,29 +178,14 @@ impl TimeChimpApp {
             .child(list)
             .into_any_element()
     }
-}
 
-fn number_field(field: TextField, unit: gpui::Div) -> gpui::AnyElement {
-    h_stack().gap(px(8.)).items_center().child(div().w(px(100.)).child(field)).child(unit).into_any_element()
-}
-
-impl TimeChimpApp {
-    pub(super) fn render_project_tags(&self, form: &ProjectTagsForm, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let list = |id: &'static str| {
-            v_stack()
-                .id(id)
-                .h(px(344.))
-                .overflow_y_scroll()
-                .border_1()
-                .border_color(theme.border())
-                .rounded(px(6.))
-                .bg(theme.surface())
-        };
-        let projects = list("tag-projects").children(form.projects.iter().enumerate().map(
+    fn render_project_tags(&self, form: &ProjectTagsForm, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let projects = list_box(theme, "tag-projects").children(form.projects.iter().enumerate().map(
             |(i, (id, name, customer))| {
                 let (selected, count) = (i == form.current, form.count(*id));
                 h_stack()
                     .id(ElementId::NamedInteger("tag-project".into(), i as u64))
+                    .flex_none()
                     .px(px(10.))
                     .py(px(6.))
                     .gap(px(8.))
@@ -162,8 +207,8 @@ impl TimeChimpApp {
             },
         ));
         let tags = match form.current_project() {
-            None => list("tag-choices").p(px(12.)).child(muted(theme, "No projects.")),
-            Some(project) => list("tag-choices").p(px(8.)).children(form.tags.iter().map(|(tag_id, name)| {
+            None => list_box(theme, "tag-choices").p(px(12.)).child(muted(theme, "No projects.")),
+            Some(project) => list_box(theme, "tag-choices").p(px(8.)).children(form.tags.iter().map(|(tag_id, name)| {
                 let (tag_id, checked) = (*tag_id, form.is_checked(project, *tag_id));
                 h_stack()
                     .id(ElementId::NamedInteger("tag-choice".into(), tag_id as u64))
@@ -192,9 +237,13 @@ impl TimeChimpApp {
         };
         // Header rows as tall as a button, so both lists line up.
         let column = |header: gpui::Div, list: gpui::Stateful<gpui::Div>| {
-            v_stack().gap(px(8.)).child(header.h(theme.control(ControlSize::Medium).height).items_center()).child(list)
+            v_stack()
+                .min_h_0()
+                .gap(px(8.))
+                .child(header.h(theme.control(ControlSize::Medium).height).items_center())
+                .child(list)
         };
-        let projects = column(h_stack().child(muted(theme, "Projects")), projects).w(px(280.)).flex_none();
+        let projects = column(h_stack().child(muted(theme, "Projects")), projects).w(px(240.)).flex_none();
         let title = form.projects.get(form.current).map_or_else(String::new, |(_, name, _)| format!("Tags for {name}"));
         let tags = column(
             h_stack()
@@ -206,35 +255,25 @@ impl TimeChimpApp {
         )
         .flex_1()
         .min_w_0();
-        let card = v_stack()
-            .id("project-tags-card")
-            .p(px(24.))
-            .gap(px(14.))
-            .child(div().text_lg().font_weight(FontWeight::BOLD).text_color(theme.accent()).child("Project tags"))
-            .child(muted(theme, "The tags the time form offers as checkboxes, per project."))
-            .child(h_stack().gap(px(12.)).child(projects).child(tags))
-            .when_some(form.error.clone(), |d, e| {
-                d.child(div().p(px(8.)).rounded(px(6.)).bg(theme.danger().opacity(0.15)).text_color(theme.danger()).child(e))
-            })
-            .child(
-                h_stack()
-                    .pt(px(8.))
-                    .gap(px(8.))
-                    .justify_end()
-                    .child(pop(
-                        theme,
-                        button("project-tags-cancel", "Cancel").on_click(cx.listener(|this, _, w, cx| this.close_overlay(w, cx))),
-                    ))
-                    .child(primary_button(
-                        theme,
-                        "project-tags-save",
-                        "Save",
-                        false,
-                        cx.listener(|this, _, w, cx| this.save_project_tags(w, cx)),
-                    )),
-            );
-        Self::modal(theme, "project-tags", 720., card, None)
+        h_stack().flex_1().min_h_0().items_stretch().gap(px(12.)).child(projects).child(tags).into_any_element()
     }
+}
+
+/// A bordered list that fills the rest of its page and scrolls.
+fn list_box(theme: &T, id: &'static str) -> gpui::Stateful<gpui::Div> {
+    v_stack()
+        .id(id)
+        .flex_1()
+        .min_h_0()
+        .overflow_y_scroll()
+        .border_1()
+        .border_color(theme.border())
+        .rounded(px(6.))
+        .bg(theme.surface())
+}
+
+fn number_field(field: TextField, unit: gpui::Div) -> gpui::AnyElement {
+    h_stack().gap(px(8.)).items_center().child(div().w(px(100.)).child(field)).child(unit).into_any_element()
 }
 
 impl TimeChimpApp {
