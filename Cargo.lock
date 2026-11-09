@@ -4787,6 +4787,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03251193000f4bd3b042892be858ee50e8b3719f2b08e5833ac4353724632430"
 
 [[package]]
+name = "rechimped"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "embed-resource",
+ "futures",
+ "gpui-platform-gpui-unofficial",
+ "gpui-unofficial",
+ "gpuikit",
+ "serde",
+ "serde_json",
+ "timechimp-api",
+ "tokio",
+ "toml 0.8.23",
+ "toml_edit 0.22.27",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6000,7 +6019,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109"
 
 [[package]]
-name = "timechimp"
+name = "timechimp-api"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
@@ -6015,25 +6034,6 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror 2.0.21",
  "tokio",
-]
-
-[[package]]
-name = "timechimp-gui"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "chrono-tz",
- "embed-resource",
- "futures",
- "gpui-platform-gpui-unofficial",
- "gpui-unofficial",
- "gpuikit",
- "serde",
- "serde_json",
- "timechimp",
- "tokio",
- "toml 0.8.23",
- "toml_edit 0.22.27",
 ]
 
 [[package]]

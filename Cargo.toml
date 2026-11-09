@@ -1,5 +1,5 @@
 [workspace]
-members = ["timechimp", "timechimp-gui"]
+members = ["timechimp-api", "rechimped"]
 resolver = "3"
 
 # For size (about 13 MB instead of 19 MB). Panics still unwind, so a panicking background task is

@@ -18,13 +18,13 @@ folder to remove everything it stored.
 
 Written in Rust, as a Cargo workspace of two crates:
 
-- `timechimp`: an async client for TimeChimp's web API (`reqwest`, `tokio`, `serde`), with
+- `timechimp-api`: an async client for TimeChimp's web API (`reqwest`, `tokio`, `serde`), with
   login through AWS Cognito using SRP, so your password is never sent as-is.
-- `timechimp-gui`: the desktop app (`rechimped.exe`), built with [gpui](https://www.gpui.rs/),
+- `rechimped`: the desktop app (`rechimped.exe`), built with [gpui](https://www.gpui.rs/),
   the GPU-accelerated UI framework from the Zed editor, and the
   [gpuikit](https://crates.io/crates/gpuikit) component library.
 
-Build with `cargo build --release -p timechimp-gui` (Rust 1.93 or newer). It has been built and
+Build with `cargo build --release -p rechimped` (Rust 1.93 or newer). It has been built and
 used on Windows only.
 
 ## Written by Claude Code

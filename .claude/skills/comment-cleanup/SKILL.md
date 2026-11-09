@@ -9,7 +9,7 @@ The rule, from the user: comments only say **why** something happens, and only w
 doesn't make that clear. Never **what**. When in doubt, no comment.
 
 Scope: every `//`, `///`, `//!`, trailing comment and commented-out code in the repo
-(`.rs` files, plus `#` comments in the Cargo manifests and `timechimp-gui/assets/make-icon.ps1`).
+(`.rs` files, plus `#` comments in the Cargo manifests and `rechimped/assets/make-icon.ps1`).
 **Out of scope:** string literals. `store/config.rs` writes a starter `config.toml`
 (`write_template`, `TRIPS_COMMENT`, `TIME_ENTRIES_COMMENT`, the `with_settings` key comments), and
 those `#` lines are file content, not code comments.
@@ -19,7 +19,7 @@ those `#` lines are file content, not code comments.
 Count comment lines per file to balance the split:
 
 ```sh
-grep -rcE '^\s*//' --include=*.rs timechimp timechimp-gui | sort -t: -k2 -n
+grep -rcE '^\s*//' --include=*.rs timechimp-api rechimped | sort -t: -k2 -n
 ```
 
 ## 2. Fan out
@@ -27,12 +27,12 @@ grep -rcE '^\s*//' --include=*.rs timechimp timechimp-gui | sort -t: -k2 -n
 Launch four `general-purpose` agents in one message, each on a **disjoint** set of files so they can
 edit the same working tree at once. Last time's split (rebalance it if the counts have shifted):
 
-1. API library: `timechimp/src/*`, `timechimp/examples/`, `timechimp/tests/`, both `Cargo.toml`s
+1. API library: `timechimp-api/src/*`, `timechimp-api/examples/`, `timechimp-api/tests/`, both `Cargo.toml`s
    except the GUI one.
 2. State and data: `session.rs`, `store/*`, `seed.rs`, `validate.rs`.
 3. Behaviour: `forms.rs` and all of `app/`.
 4. The rest: `view/`, `domain/`, `fx.rs`, `main.rs`, `net.rs`, `password.rs`, `test_support.rs`,
-   `build.rs`, `timechimp-gui/Cargo.toml`, `assets/make-icon.ps1`.
+   `build.rs`, `rechimped/Cargo.toml`, `assets/make-icon.ps1`.
 
 The brief for each (fill in the file list):
 

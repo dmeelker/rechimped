@@ -4,15 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Toolchain
 
-The GUI needs Rust ≥ 1.93 (gpui uses `slice::as_array`; `rust-version` in `timechimp-gui/Cargo.toml` enforces it).
+The GUI needs Rust ≥ 1.93 (gpui uses `slice::as_array`; `rust-version` in `rechimped/Cargo.toml` enforces it).
 
 ```sh
 cargo build                                   # whole workspace
-cargo run -p timechimp-gui                    # desktop app (binary: rechimped)
+cargo run -p rechimped                    # desktop app (binary: rechimped)
 cargo test                                    # all tests
-cargo test -p timechimp-gui lenient_times     # single test by name
+cargo test -p rechimped lenient_times     # single test by name
 cargo clippy --workspace --all-targets
-TIMECHIMP_REFRESH_TOKEN=... cargo run -p timechimp --example smoke [-- --write]
+TIMECHIMP_REFRESH_TOKEN=... cargo run -p timechimp-api --example smoke [-- --write]
 ```
 
 Keep `cargo clippy --workspace --all-targets` free of warnings and errors: fix every one before committing, including ones that were already there, rather than leaving them for later.
@@ -27,7 +27,7 @@ gpui crates are pinned to `=1.17.2` (`gpui-unofficial`, `gpui-platform-gpui-unof
 
 Cargo workspace with two crates.
 
-### `timechimp` — API client library
+### `timechimp-api` — API client library
 Client for TimeChimp's **undocumented internal** web API (`web.timechimp.com/api`, as used by app.timechimp.com); it may change without notice.
 - `auth.rs`: `Authenticator` logs in against AWS Cognito with SRP (`srp.rs`, password never sent), handles SMS/TOTP MFA via `LoginOutcome::MfaRequired(MfaChallenge)`, and refreshes access tokens from a refresh token. Persisting `refresh_token()` lets apps skip the password.
 - `client.rs`: `Client` (cheap to clone, `Arc<Authenticator>`) with one async method per endpoint. Report data (`query_time`, `query_mileage`) comes from a server-side grid and must be paged by the caller.
@@ -36,7 +36,7 @@ Client for TimeChimp's **undocumented internal** web API (`web.timechimp.com/api
 - `error.rs`: `Error::is_auth()` says whether logging in again is the fix (Cognito `Rejected`, i.e. the credential errors listed in `auth::REJECTIONS`; login protocol errors; a 401 after a refresh) as opposed to network/server trouble (including other Cognito errors, `Error::Cognito`, such as throttling). Requests time out (`auth::http_client`: 10 s connect, 60 s total).
 - Tests: `models.rs` decodes the JSON fixtures in `testdata/` (hand-written to the observed shapes, not captured responses; swap in scrubbed real ones when the API changes) and snapshots the `to_json` request bodies; `tests/client.rs` runs `Client` against a local HTTP server (`tests/common/mod.rs`, shared with `tests/auth.rs`) via `Client::with_base_url` and `Authenticator::with_access_token` (whose refresh URL is a closed local port, so a test never reaches AWS); `tests/auth.rs` runs the refresh, retry-after-401 and SRP + MFA login flows against a local server standing in for Cognito too, via `Authenticator::from_refresh_token_at` / `login_at` (all `#[doc(hidden)]`, for tests). An `Authenticator` and the `Client` built on it share one `reqwest::Client`; after a 401 the token is only refreshed if no parallel request did so already (`refresh_after_rejection`).
 
-### `timechimp-gui` — Rechimped, the gpui + gpuikit desktop app
+### `rechimped` — Rechimped, the gpui + gpuikit desktop app
 One root entity, `TimeChimpApp` (`app/mod.rs`), holds the UI state (screen, tab, the `overlay`, the dropdown `menu`, effects) and a `Session` (`session.rs`): the client and everything of the logged-in user (base data, config, week, selection, history, report), with the data-only methods (selection, form options, timezone, week figures) unit-tested there. Logging out replaces the `Session` as a whole. Its behaviour is split over `app/`, one `impl TimeChimpApp` block per concern: `actions` (the `actions!` list), `auth` (login/logout), `loading`, `settings` (the Settings window), `nav` (tabs, days, selection, `on_key`), `time_form`, `trip_form`, `date_field` (the calendar), `save` (submit, presets, form errors), `delete` and `chart` (the billability chart); Whatever covers the main screen is one `app::Overlay` (`Detail`, `About`, `Chart`, `Form`, `Settings`, `Confirm`): `open_overlay` refuses a second one, `close_overlay` closes it and refocuses the main view, and `on_key` only has to match on it; `TimeChimpApp::form()`/`settings_form()`/`chart()` and `time_form()`/`travel_form()` (via `Form::time()`/`trip()`) reach the open one. Views change it only through those methods (`close_overlay`, `toggle_menu`, `close_menu`), not by assigning fields. `view/` implements `Render` for `TimeChimpApp`, one file per screen or tab (`login`, `chrome` for header/toolbar/footer (including the tab strip, `render_tabs`: underline only, since gpuikit's `Tabs` also fills the selected tab), `week`, `travel`, `report`, `popups` for details and forms, `settings` for the Settings window and About, `chart` for the billability chart) plus `widgets` for the shared building blocks.
 - **Async**: reqwest needs tokio, gpui has its own executor. `TimeChimpApp::run` spawns the future on a global tokio runtime (`net::runtime()`), awaits the `JoinHandle` inside `cx.spawn_in`, and applies the result in a callback with `&mut Self, Window, Context`. Each `Session` has a unique `epoch`; `run` drops results that come back for an older one (and `busy()` only counts the current session's tasks), so nothing of a logged-out account lands on screen; `show_login` also aborts that session's loads (`cancel_loads`; saves and deletes are left to finish). Week loads also carry a generation counter (`Session::begin_week_load`/`is_latest_week_load`) so a response for a week already left is dropped. All network work goes through `run`.
 - **Session state**: the day, week, report month and report, and the selection are private to `Session` and change only through its methods (`select_day`, `select_entry`, `set_report_month`, `apply_report`, `invalidate_report`, …). The base data (user, projects, project tasks, tags) is one `Option<Base>` read through `me()`/`projects()`/`project_tasks(id)`/`tags()`, and `entries()`/`travel()` and `client()` are read-only too; a login creates a new `Session` around its client (new epoch). Moving to another week empties `entries`/`travel` at once; a loaded `session::Week` carries its Monday, and `week_loaded()` / `report()` (None unless loaded for the month shown) let the views say "Not loaded" after a failed load instead of showing stale or empty data. `net` returns `session::Base`/`session::Week`, so the state model doesn't depend on the I/O module.

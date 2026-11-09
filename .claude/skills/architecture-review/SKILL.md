@@ -14,8 +14,8 @@ Launch one `general-purpose` agent with `effort: "higher"`. It reports back; rel
 version to the user (ranked findings plus roadmap), not the raw report. Brief it like this (adapt
 the paths if the layout changed; read `CLAUDE.md` first so the brief matches the current modules):
 
-> Do a critical architecture review of the Rust workspace in this repository (crates `timechimp`,
-> the API library, and `timechimp-gui`, the gpui desktop app). Read-only: don't modify files, don't
+> Do a critical architecture review of the Rust workspace in this repository (crates `timechimp-api`,
+> the API library, and `rechimped`, the gpui desktop app). Read-only: don't modify files, don't
 > run `cargo` builds that write to `target/` unless needed, don't commit. Read `CLAUDE.md`, the
 > Cargo manifests and every source file.
 >
