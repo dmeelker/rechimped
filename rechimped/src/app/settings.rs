@@ -10,7 +10,9 @@ use crate::validate;
 use super::{Overlay, TimeChimpApp};
 
 impl TimeChimpApp {
-    pub fn open_settings(&mut self, page: SettingsPage, window: &mut Window, cx: &mut Context<Self>) {
+    /// Opens on the page it was last on.
+    pub fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let page = self.settings_page;
         if self.overlay_open() {
             return self.close_menu(cx);
         }
@@ -43,6 +45,7 @@ impl TimeChimpApp {
 
     /// Focuses the page's first field, or the window itself on pages without one.
     pub fn show_settings_page(&mut self, page: SettingsPage, window: &mut Window, cx: &mut Context<Self>) {
+        self.settings_page = page;
         let Some(form) = self.settings_form_mut() else { return };
         form.page = page;
         form.tasks.order(&form.projects.hidden);

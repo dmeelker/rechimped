@@ -105,6 +105,8 @@ pub struct TimeChimpApp {
     in_flight: Vec<Task>,
     tasks_started: u64,
     forms_opened: u64,
+    /// The Settings window reopens on the page it was last on.
+    settings_page: crate::forms::SettingsPage,
     pub fx: crate::fx::Fx,
 }
 
@@ -121,6 +123,7 @@ impl TimeChimpApp {
             in_flight: Vec::new(),
             tasks_started: 0,
             forms_opened: 0,
+            settings_page: crate::forms::SettingsPage::General,
             fx: crate::fx::Fx::new(),
         };
 

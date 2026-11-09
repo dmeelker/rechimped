@@ -128,7 +128,7 @@ impl TimeChimpApp {
             Command::Add => self.add(window, cx),
             Command::Edit => self.edit_selected(window, cx),
             Command::Copy => self.copy_selected(window, cx),
-            Command::Settings => self.open_settings(crate::forms::SettingsPage::General, window, cx),
+            Command::Settings => self.open_settings(window, cx),
             Command::Delete => self.ask_delete(window, cx),
         }
         cx.stop_propagation();

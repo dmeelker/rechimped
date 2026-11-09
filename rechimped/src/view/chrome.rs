@@ -12,7 +12,6 @@ use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::{ControlSize, Themeable};
 
 use crate::app::{Menu, Overlay, Tab, TimeChimpApp};
-use crate::forms::SettingsPage;
 use crate::{domain, session};
 
 use super::widgets::*;
@@ -300,7 +299,7 @@ impl TimeChimpApp {
         let menu = menu_panel(theme, "user-menu")
             .child(
                 menu_item(theme, "user-menu-settings", "Settings…")
-                    .on_click(cx.listener(|this, _, w, cx| this.open_settings(SettingsPage::General, w, cx))),
+                    .on_click(cx.listener(|this, _, w, cx| this.open_settings(w, cx))),
             )
             .child(
                 menu_item(theme, "user-menu-about", "About Rechimped")
