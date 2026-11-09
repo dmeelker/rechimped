@@ -150,6 +150,20 @@ fn range_junction((_, prev_end): (NaiveTime, NaiveTime), (next_start, next_end):
     })
 }
 
+/// The contract hours from TimeChimp spread over the work days, so the Settings window can show
+/// whether the two agree.
+pub fn contract_summary(contract_hours: f64, work_days: usize) -> String {
+    if contract_hours <= 0.0 {
+        return "No contract hours in TimeChimp".into();
+    }
+    let week = format!("{} h a week in TimeChimp", super::plain_number(contract_hours));
+    match work_days {
+        0 => week,
+        1 => format!("{week}, all on your one work day"),
+        n => format!("{week}, {} h a day over your {n} work days", super::plain_number(contract_hours / n as f64)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,5 +260,13 @@ mod tests {
         assert!(matches_words(haystack, "REV tourn"));
         assert!(matches_words(haystack, "  visual   wbso "));
         assert!(!matches_words(haystack, "code daily"));
+    }
+
+    #[test]
+    fn contract_summary_per_day() {
+        assert_eq!(contract_summary(32.0, 4), "32 h a week in TimeChimp, 8 h a day over your 4 work days");
+        assert_eq!(contract_summary(36.0, 5), "36 h a week in TimeChimp, 7.2 h a day over your 5 work days");
+        assert_eq!(contract_summary(32.0, 0), "32 h a week in TimeChimp");
+        assert_eq!(contract_summary(0.0, 5), "No contract hours in TimeChimp");
     }
 }

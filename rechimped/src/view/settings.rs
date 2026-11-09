@@ -107,6 +107,8 @@ impl TimeChimpApp {
     }
 
     fn render_general(&self, form: &SettingsForm, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let work_days = form.values(cx).work_days.iter().filter(|on| **on).count();
+        let contract = crate::domain::week::contract_summary(self.session.contract_hours(), work_days);
         let row = |label: &'static str, control: gpui::AnyElement| {
             h_stack()
                 .gap(px(16.))
@@ -117,6 +119,7 @@ impl TimeChimpApp {
         v_stack()
             .gap(px(14.))
             .child(row("Work days", h_stack().gap(px(14.)).children(form.work_days.iter().cloned()).into_any_element()))
+            .child(row("Contract", muted(theme, contract).into_any_element()))
             .child(row(
                 "Billable target",
                 number_field(text_field(&form.billable_goal, cx).placeholder("80"), muted(theme, "%")),
