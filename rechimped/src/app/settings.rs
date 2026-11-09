@@ -26,8 +26,7 @@ impl TimeChimpApp {
             .collect();
         let billable_goal = forms::text_input(cx, plain_number(current.billable_goal * 100.0));
         let projects = ProjectVisibility::new(&self.session);
-        let trips = self.session.trip_presets.iter().map(|t| (t.clone(), forms::text_input(cx, t.name.clone()))).collect();
-        let presets = PresetsForm::new(trips, self.session.time_presets.clone());
+        let presets = PresetsForm::new(self.session.trip_presets.clone(), self.session.time_presets.clone());
         let form = SettingsForm {
             page,
             focus: cx.focus_handle(),
@@ -55,11 +54,7 @@ impl TimeChimpApp {
         form.tags.order(&form.projects.hidden);
         let focus = match page {
             SettingsPage::General => form.billable_goal.read(cx).focus_handle(cx),
-            SettingsPage::Presets => match form.presets.trips.first() {
-                Some((_, name)) => name.read(cx).focus_handle(cx),
-                None => form.focus.clone(),
-            },
-            SettingsPage::Projects | SettingsPage::Tasks | SettingsPage::ProjectTags => form.focus.clone(),
+            SettingsPage::Projects | SettingsPage::Tasks | SettingsPage::ProjectTags | SettingsPage::Presets => form.focus.clone(),
         };
         window.focus(&focus, cx);
         cx.notify();
@@ -177,13 +172,8 @@ impl TimeChimpApp {
             Ok(settings) => settings,
             Err(e) => return self.settings_failed(e, Some(SettingsPage::General), window, cx),
         };
-        let trips = form.presets.trip_names(cx);
-        let names: Vec<String> = trips.iter().map(|(_, name)| name.clone()).collect();
-        if let Err(e) = validate::trip_names(&names) {
-            return self.settings_failed(e, Some(SettingsPage::Presets), window, cx);
-        }
-        let presets_changed = form.presets.is_changed(cx);
-        let times = form.presets.times.clone();
+        let presets_changed = form.presets.is_changed();
+        let (trips, times) = (form.presets.trips.clone(), form.presets.times.clone());
         let tag_changes = form.tags.changes();
         let saved = config::path().and_then(|path| {
             config::save_settings(&path, &settings)?;

@@ -370,39 +370,24 @@ fn without<P: Preset>(text: &str, preset: &P) -> Result<String, String> {
     Ok(doc.to_string())
 }
 
-/// Writes the presets as the Presets page left them: in this order, trips renamed to the names
-/// given, the ones left out removed. Each is found by `Preset::is`, so its block keeps its own
+/// Writes the presets as the Presets page left them: in this order, the ones left out removed. Each is found by `Preset::is`, so its block keeps its own
 /// comments; the section comment stays above whichever comes first.
-pub fn save_presets(path: &Path, trips: &[(TripPreset, String)], times: &[TimePreset]) -> Result<(), String> {
+pub fn save_presets(path: &Path, trips: &[TripPreset], times: &[TimePreset]) -> Result<(), String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
     let text = with_presets(&text, trips, times).map_err(|e| format!("{}: {e}", path.display()))?;
     replace_file(path, &text)
 }
 
-fn with_presets(text: &str, trips: &[(TripPreset, String)], times: &[TimePreset]) -> Result<String, String> {
+fn with_presets(text: &str, trips: &[TripPreset], times: &[TimePreset]) -> Result<String, String> {
     let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| e.to_string())?;
-    let kept: Vec<_> = trips.iter().map(|(preset, _)| preset).collect();
-    rearrange(&mut doc, &kept, |i, table| {
-        let name = trips[i].1.as_str();
-        if let Some(value) = table.get_mut("name").and_then(|item| item.as_value_mut())
-            && value.as_str() != Some(name)
-        {
-            let decor = value.decor().clone();
-            *value = name.into();
-            *value.decor_mut() = decor;
-        }
-    })?;
-    rearrange(&mut doc, &times.iter().collect::<Vec<_>>(), |_, _| {})?;
+    rearrange(&mut doc, trips)?;
+    rearrange(&mut doc, times)?;
     let text = doc.to_string();
     parse_config(&text)?;
     Ok(text)
 }
 
-fn rearrange<P: Preset>(
-    doc: &mut toml_edit::DocumentMut,
-    kept: &[&P],
-    mut change: impl FnMut(usize, &mut toml_edit::Table),
-) -> Result<(), String> {
+fn rearrange<P: Preset>(doc: &mut toml_edit::DocumentMut, kept: &[P]) -> Result<(), String> {
     let not_found = || "preset not found (was it changed in the meantime?)".to_owned();
     let Some(item) = doc.get_mut(P::KEY) else {
         return if kept.is_empty() { Ok(()) } else { Err(not_found()) };
@@ -428,7 +413,6 @@ fn rearrange<P: Preset>(
         if let Some(&position) = positions.get(i) {
             table.set_position(position);
         }
-        change(i, &mut table);
         new.push(table);
     }
     if new.is_empty() {
@@ -793,19 +777,19 @@ mod tests {
         let [commute, client, gym] = [0, 1, 2].map(|i| config.trips[i].clone());
         let times = config.time_entries.clone();
 
-        let done = with_presets(&text, &[(gym, "Gym".into()), (commute, "Home".into())], &[times[1].clone(), times[0].clone()]).unwrap();
+        let done = with_presets(&text, &[gym, commute], &[times[1].clone(), times[0].clone()]).unwrap();
         let config = parse_config(&done).unwrap();
-        assert_eq!(config.trips.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["Gym", "Home"], "reordered, renamed, Client gone");
+        assert_eq!(config.trips.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["Gym", "Commute"], "reordered, Client gone");
         assert_eq!(config.time_entries.iter().map(|t| t.notes.as_deref().unwrap()).collect::<Vec<_>>(), ["b", "a"]);
         let at = |needle: &str| done.find(needle).unwrap_or_else(|| panic!("{needle} missing:\n{done}"));
-        assert!(at("# about trips") < at("name = \"Gym\"") && at("name = \"Gym\"") < at("name = \"Home\""), "section comment stays on top:\n{done}");
+        assert!(at("# about trips") < at("name = \"Gym\"") && at("name = \"Gym\"") < at("name = \"Commute\""), "section comment stays on top:\n{done}");
         assert!(!done.contains("# second"), "Client's own comment went with it");
         assert!(at("# about time") < at("notes = \"b\""));
         assert!(done.contains("Intern = []"));
 
         let none = with_presets(&text, &[], &[]).unwrap();
         assert!(parse_config(&none).unwrap().trips.is_empty() && !none.contains("[[time_entries]]"));
-        assert!(with_presets(&text, &[(preset_named("Nope"), "Nope".into())], &[]).is_err());
-        assert_eq!(with_presets(&text, &[(client, "Client".into())], &times).unwrap().matches("[[trips]]").count(), 1);
+        assert!(with_presets(&text, &[preset_named("Nope")], &[]).is_err());
+        assert_eq!(with_presets(&text, &[client], &times).unwrap().matches("[[trips]]").count(), 1);
     }
 }

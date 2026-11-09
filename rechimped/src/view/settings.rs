@@ -277,15 +277,15 @@ impl TimeChimpApp {
 }
 
 impl TimeChimpApp {
-    /// Trips on the left, time entries on the right, each row with ↑ ↓ and × buttons; trips also
-    /// have their name as a field.
+    /// Trips on the left, time entries on the right, each row with ↑ ↓ and × buttons.
     fn render_presets(&self, form: &PresetsForm, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let trips = form.trips.iter().enumerate().map(|(i, (trip, name))| {
+        let trips = form.trips.iter().enumerate().map(|(i, trip)| {
             let details = format!("{} → {} · {}", trip.from, trip.to, trip.project);
+            let label = v_stack().child(div().truncate().child(trip.name.clone())).child(muted(theme, details).text_xs().truncate());
             preset_row(
                 theme,
                 ElementId::NamedInteger("preset-trip".into(), i as u64),
-                v_stack().gap(px(2.)).child(text_field(name, cx).full_width(true)).child(muted(theme, details).text_xs().truncate()),
+                label,
                 (i, form.trips.len()),
                 |f, i, delta| shift(&mut f.presets.trips, i, delta),
                 |f, i| {
@@ -469,7 +469,7 @@ fn key_hints(page: SettingsPage) -> &'static str {
         SettingsPage::General => "Ctrl+Tab next page · Enter save · Esc cancel",
         SettingsPage::Projects => "↑↓ or type to move · Space toggle · Ctrl+Tab next page · Enter save",
         SettingsPage::Tasks | SettingsPage::ProjectTags => "↑↓ or type to move · ←→ switch list · Space toggle · Ctrl+Tab next page",
-        SettingsPage::Presets => "Tab between names · Ctrl+Tab next page · Enter save · Esc cancel",
+        SettingsPage::Presets => "Ctrl+Tab next page · Enter save · Esc cancel",
     }
 }
 

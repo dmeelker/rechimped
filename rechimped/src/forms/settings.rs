@@ -79,7 +79,7 @@ impl SettingsForm {
     }
 
     pub fn is_dirty(&self, cx: &App) -> bool {
-        self.values(cx) != self.initial || !self.tags.changes().is_empty() || self.presets.is_changed(cx)
+        self.values(cx) != self.initial || !self.tags.changes().is_empty() || self.presets.is_changed()
     }
 }
 
@@ -113,10 +113,10 @@ fn order_projects<T>(items: &mut [T], row: impl Fn(&T) -> &ProjectRow, hidden: &
     *current = keep.and_then(|id| items.iter().position(|item| row(item).id == id)).unwrap_or(0);
 }
 
-/// The trip and time presets, reordered, renamed (trips) and removed here and written on Save.
+/// The trip and time presets, reordered and removed here and written on Save.
 pub struct PresetsForm {
-    /// In their new order, each trip with its name field.
-    pub trips: Vec<(TripPreset, Entity<InputState>)>,
+    /// In their new order.
+    pub trips: Vec<TripPreset>,
     pub times: Vec<TimePreset>,
     original: (Vec<TripPreset>, Vec<TimePreset>),
     pub trips_scroll: ScrollHandle,
@@ -124,19 +124,13 @@ pub struct PresetsForm {
 }
 
 impl PresetsForm {
-    pub fn new(trips: Vec<(TripPreset, Entity<InputState>)>, times: Vec<TimePreset>) -> Self {
-        let original = (trips.iter().map(|(t, _)| t.clone()).collect(), times.clone());
+    pub fn new(trips: Vec<TripPreset>, times: Vec<TimePreset>) -> Self {
+        let original = (trips.clone(), times.clone());
         Self { trips, times, original, trips_scroll: ScrollHandle::default(), times_scroll: ScrollHandle::default() }
     }
 
-    /// Each trip as it was, with the name it gets.
-    pub fn trip_names(&self, cx: &App) -> Vec<(TripPreset, String)> {
-        self.trips.iter().map(|(trip, name)| (trip.clone(), text(name, cx))).collect()
-    }
-
-    pub fn is_changed(&self, cx: &App) -> bool {
-        let trips: Vec<_> = self.trips.iter().map(|(t, _)| t.clone()).collect();
-        (trips, self.times.clone()) != self.original || self.trip_names(cx).iter().any(|(trip, name)| *name != trip.name)
+    pub fn is_changed(&self) -> bool {
+        self.trips != self.original.0 || self.times != self.original.1
     }
 }
 
