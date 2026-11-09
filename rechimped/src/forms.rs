@@ -511,26 +511,23 @@ pub struct ProjectTagsForm {
     pub tags: Vec<(i64, String)>,
     pub current: usize,
     pub chosen: HashMap<i64, BTreeSet<i64>>,
-    /// So only the projects changed are written.
+    /// What the page opened with, so only the projects changed are written.
     original: HashMap<i64, BTreeSet<i64>>,
+    /// Whether the config names tags for any project; until then every project offers all tags.
+    configured: bool,
 }
 
 impl ProjectTagsForm {
     pub fn new(session: &Session) -> Self {
-        let original: HashMap<i64, BTreeSet<i64>> = session
-            .project_tags
-            .iter()
-            .map(|(id, tags)| (*id, tags.iter().map(|t| t.id).collect()))
-            .collect();
-        let in_use: BTreeSet<i64> = original.values().flatten().copied().collect();
+        let in_use: BTreeSet<i64> = session.project_tags.values().flatten().map(|t| t.id).collect();
         let by_name = |a: &String, b: &String| a.to_lowercase().cmp(&b.to_lowercase());
         let mut projects: Vec<_> = session
             .projects()
             .iter()
-            .filter(|p| p.active || original.get(&p.id).is_some_and(|t| !t.is_empty()))
+            .filter(|p| p.active || session.project_tags.get(&p.id).is_some_and(|t| !t.is_empty()))
             .map(|p| (p.id, p.name.clone(), p.customer_name.clone()))
             .collect();
-        let chosen = projects
+        let chosen: HashMap<i64, BTreeSet<i64>> = projects
             .iter()
             .map(|(id, ..)| (*id, session.tags_for(Some(*id)).iter().map(|t| t.id).collect()))
             .collect();
@@ -542,7 +539,7 @@ impl ProjectTagsForm {
             .map(|t| (t.id, t.name.clone()))
             .collect();
         tags.sort_by(|a, b| by_name(&a.1, &b.1));
-        Self { projects, tags, current: 0, original, chosen }
+        Self { projects, tags, current: 0, original: chosen.clone(), chosen, configured: session.tags_configured() }
     }
 
     pub fn current_project(&self) -> Option<i64> {
@@ -571,11 +568,15 @@ impl ProjectTagsForm {
         self.chosen.insert(project, all);
     }
 
+    /// The projects to write. The first change while nothing is configured writes them all, since
+    /// from then on a project without tags in the config offers none.
     pub fn changes(&self) -> Vec<(String, Vec<String>)> {
         let none = BTreeSet::new();
+        let changed = |id: &i64| self.chosen.get(id).unwrap_or(&none) != self.original.get(id).unwrap_or(&none);
+        let any = self.projects.iter().any(|(id, ..)| changed(id));
         self.projects
             .iter()
-            .filter(|(id, ..)| self.chosen.get(id).unwrap_or(&none) != self.original.get(id).unwrap_or(&none))
+            .filter(|(id, ..)| any && (!self.configured || changed(id)))
             .map(|(id, name, _)| {
                 let names = self.tags.iter().filter(|(t, _)| self.is_checked(*id, *t)).map(|(_, n)| n.clone()).collect();
                 (name.clone(), names)
@@ -665,11 +666,13 @@ mod tests {
         assert_eq!(form.count(3), 0);
 
         s.project_tags = HashMap::new();
-        let form = ProjectTagsForm::new(&s);
-        assert_eq!(form.count(6), 2);
+        let mut form = ProjectTagsForm::new(&s);
+        assert_eq!(form.count(6), 2, "all tags while none are configured");
+        assert!(form.changes().is_empty(), "nothing written unless changed");
+        form.toggle(10);
         assert_eq!(form.changes(), [
-            ("Other".to_owned(), vec!["A".to_owned(), "b".to_owned()]),
+            ("Other".to_owned(), vec!["A".to_owned()]),
             ("P".to_owned(), vec!["A".to_owned(), "b".to_owned()]),
-        ]);
+        ], "the first change writes every project, so the others keep their tags");
     }
 }
