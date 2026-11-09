@@ -78,3 +78,32 @@ async fn logs_in_with_srp_and_an_sms_code() {
     assert!(requests[1].contains("PASSWORD_CLAIM_SIGNATURE"), "{}", requests[1]);
     assert!(requests[2].contains(r#""SMS_MFA_CODE":"123456""#) && requests[2].contains(r#""Session":"s1""#), "{}", requests[2]);
 }
+
+#[tokio::test]
+async fn a_wrong_authenticator_code_can_be_retried() {
+    let verifier = r#"{"ChallengeName": "PASSWORD_VERIFIER", "ChallengeParameters": {
+        "SALT": "abcd", "SRP_B": "02", "SECRET_BLOCK": "c2VjcmV0", "USER_ID_FOR_SRP": "uid", "USERNAME": "uid"}}"#;
+    let mfa = r#"{"ChallengeName": "SOFTWARE_TOKEN_MFA", "Session": "s1", "ChallengeParameters": {}}"#;
+    let mismatch = r#"{"__type": "CodeMismatchException", "message": "Invalid code received for user"}"#;
+    let done = r#"{"AuthenticationResult": {"AccessToken": "t", "RefreshToken": "r", "ExpiresIn": 3600}}"#;
+    let (base, requests) = serve(vec![
+        ("200 OK", verifier.into()),
+        ("200 OK", mfa.into()),
+        ("400 Bad Request", mismatch.into()),
+        ("200 OK", done.into()),
+    ])
+    .await;
+
+    let LoginOutcome::MfaRequired(challenge) = Authenticator::login_at(&base, "me@example.com", "secret").await.unwrap()
+    else {
+        panic!("expected an MFA challenge")
+    };
+    assert_eq!(challenge.kind(), MfaKind::Totp);
+    let error = challenge.respond("000000").await.err().expect("a wrong code fails");
+    assert!(error.is_wrong_code(), "{error}");
+    assert_eq!(challenge.respond("123456").await.unwrap().refresh_token(), "r");
+
+    let requests = requests.await.unwrap();
+    assert!(requests[3].contains(r#""SOFTWARE_TOKEN_MFA_CODE":"123456""#), "{}", requests[3]);
+    assert!(requests[3].contains(r#""Session":"s1""#) && requests[3].contains(r#""USERNAME":"uid""#), "{}", requests[3]);
+}

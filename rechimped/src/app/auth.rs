@@ -84,17 +84,26 @@ impl TimeChimpApp {
     }
 
     fn submit_mfa_code(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.busy().is_some() {
+            return;
+        }
         let Screen::Login(login) = &mut self.screen else { return };
-        let Some(challenge) = login.mfa.take() else { return };
-        let code = text(&login.code, cx);
+        let Some(challenge) = login.mfa.clone() else { return };
+        let code: String = text(&login.code, cx).chars().filter(|c| !c.is_whitespace()).collect();
         forms::set_text(&login.code, "", cx);
         self.run("Logging in…", async move { challenge.respond(&code).await }, window, cx, |this, result, window, cx| {
             match result {
                 Ok(auth) => this.logged_in(auth, window, cx),
                 Err(e) => {
                     if let Screen::Login(login) = &mut this.screen {
-                        login.error = Some(format!("{e}. Please log in again."));
-                        let focus = login.password.read(cx).focus_handle(cx);
+                        let focus = if e.is_wrong_code() {
+                            login.error = Some("Wrong code, please try again.".into());
+                            login.code.read(cx).focus_handle(cx)
+                        } else {
+                            login.mfa = None;
+                            login.error = Some(format!("{e}. Please log in again."));
+                            login.password.read(cx).focus_handle(cx)
+                        };
                         window.focus(&focus, cx);
                     }
                 }

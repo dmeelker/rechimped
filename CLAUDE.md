@@ -29,7 +29,7 @@ Cargo workspace with two crates.
 
 ### `timechimp-api` — API client library
 Client for TimeChimp's **undocumented internal** web API (`web.timechimp.com/api`, as used by app.timechimp.com); it may change without notice.
-- `auth.rs`: `Authenticator` logs in against AWS Cognito with SRP (`srp.rs`, password never sent), handles SMS/TOTP MFA via `LoginOutcome::MfaRequired(MfaChallenge)`, and refreshes access tokens from a refresh token. Persisting `refresh_token()` lets apps skip the password.
+- `auth.rs`: `Authenticator` logs in against AWS Cognito with SRP (`srp.rs`, password never sent), handles SMS/TOTP MFA via `LoginOutcome::MfaRequired(MfaChallenge)` (after a wrong code, `Error::is_wrong_code`, the login screen keeps the challenge and asks again), and refreshes access tokens from a refresh token. Persisting `refresh_token()` lets apps skip the password.
 - `client.rs`: `Client` (cheap to clone, `Arc<Authenticator>`) with one async method per endpoint. Report data (`query_time`, `query_mileage`) comes from a server-side grid and must be paged by the caller.
 - `models.rs`: serde models; `NewTimeEntry` / `NewMileage` are the write payloads.
 - `srp.rs` has unit tests against a pycognito-generated vector in `testdata/`.

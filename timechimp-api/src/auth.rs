@@ -51,6 +51,8 @@ pub enum LoginOutcome {
     MfaRequired(MfaChallenge),
 }
 
+/// Kept after a wrong code, so the same challenge can be answered again.
+#[derive(Clone)]
 pub struct MfaChallenge {
     http: reqwest::Client,
     cognito_url: String,
@@ -227,21 +229,21 @@ impl MfaChallenge {
         if self.challenge_name == "SMS_MFA" { MfaKind::Sms } else { MfaKind::Totp }
     }
 
-    pub async fn respond(self, code: &str) -> Result<Authenticator> {
+    pub async fn respond(&self, code: &str) -> Result<Authenticator> {
         let code_key = format!("{}_CODE", self.challenge_name);
         let response = cognito(
             &self.http,
             &self.cognito_url,
             "RespondToAuthChallenge",
             json!({
-                "ChallengeName": self.challenge_name,
+                "ChallengeName": &self.challenge_name,
                 "ClientId": CLIENT_ID,
-                "Session": self.session,
-                "ChallengeResponses": { "USERNAME": self.username, code_key: code },
+                "Session": &self.session,
+                "ChallengeResponses": { "USERNAME": &self.username, code_key: code },
             }),
         )
         .await?;
-        Authenticator::from_auth_result(self.http, &self.cognito_url, &response)
+        Authenticator::from_auth_result(self.http.clone(), &self.cognito_url, &response)
     }
 }
 

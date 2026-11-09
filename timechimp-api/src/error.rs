@@ -32,6 +32,11 @@ impl Error {
             _ => false,
         }
     }
+
+    /// A mistyped MFA code: the challenge can be answered again.
+    pub fn is_wrong_code(&self) -> bool {
+        matches!(self, Error::Rejected { kind, .. } if kind == "CodeMismatchException")
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -49,5 +54,13 @@ mod tests {
         assert!(!api(StatusCode::INTERNAL_SERVER_ERROR).is_auth());
         assert!(!Error::NotFound("no route".into()).is_auth());
         assert!(!Error::Cognito { kind: "TooManyRequestsException".into(), message: String::new() }.is_auth());
+    }
+
+    #[test]
+    fn wrong_codes() {
+        let rejected = |kind: &str| Error::Rejected { kind: kind.into(), message: String::new() };
+        assert!(rejected("CodeMismatchException").is_wrong_code());
+        assert!(!rejected("ExpiredCodeException").is_wrong_code());
+        assert!(!rejected("NotAuthorizedException").is_wrong_code());
     }
 }
