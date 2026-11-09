@@ -252,14 +252,8 @@ impl TimeChimpApp {
             )
         };
         let title = form.projects.get(form.current).map_or_else(String::new, |p| format!("Tags for {}", p.name));
-        // A project without tags offers none once any project has some; until then all are offered.
-        let note = if !form.configured {
-            Some("No project has tags set yet, so each offers all of them. The first change sets them for every project.")
-        } else if !no_project && count == 0 {
-            Some("The time form offers no tags for this project.")
-        } else {
-            None
-        };
+        let note = (!form.configured)
+            .then_some("No project has tags set yet, so each offers all of them. The first change sets them for every project.");
         let tags = settings_column(
             theme,
             h_stack()
