@@ -66,13 +66,13 @@ impl TimeChimpApp {
             }))
             .child(pop(
                 theme,
-                button("settings-cancel", "Cancel").on_click(cx.listener(|this, _, w, cx| this.close_overlay(w, cx))),
+                button("settings-cancel", "Cancel").on_click(cx.listener(|this, _, w, cx| this.cancel_settings(w, cx))),
             ))
             .child(primary_button(
                 theme,
                 "settings-save",
                 "Save",
-                false,
+                !form.is_dirty(cx),
                 cx.listener(|this, _, w, cx| this.save_settings(w, cx)),
             ));
         let page = v_stack()
@@ -95,7 +95,7 @@ impl TimeChimpApp {
             .track_focus(&form.focus)
             .moves_focus_on_tab()
             .on_action(cx.listener(|this, _: &Confirm, w, cx| this.save_settings(w, cx)))
-            .on_action(cx.listener(|this, _: &Cancel, w, cx| this.close_overlay(w, cx)))
+            .on_action(cx.listener(|this, _: &Cancel, w, cx| this.cancel_settings(w, cx)))
             // Only on the window itself: in a field Enter is `Confirm` already, on a control it's the control's.
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, w, cx| {
                 let on_window = this.settings_form().is_some_and(|f| f.focus.is_focused(w));

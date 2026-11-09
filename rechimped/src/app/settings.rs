@@ -1,5 +1,6 @@
 use gpui::{AppContext, Context, ElementId, Focusable, Window};
 use gpuikit::elements::checkbox::checkbox;
+use gpuikit::elements::dialog::{DialogClosed, DialogState, dialog};
 
 use crate::domain::plain_number;
 use crate::forms::{self, ProjectTagsForm, ProjectVisibility, SettingsForm, SettingsPage, TaskVisibility};
@@ -32,7 +33,10 @@ impl TimeChimpApp {
             tags: ProjectTagsForm::new(&self.session, &projects.hidden),
             projects,
             error: None,
+            initial: Default::default(),
+            discard: None,
         };
+        let form = SettingsForm { initial: form.values(cx), ..form };
         self.open_overlay(Overlay::Settings(Box::new(form)), cx);
         self.show_settings_page(page, window, cx);
     }
@@ -107,9 +111,45 @@ impl TimeChimpApp {
         }
     }
 
+    /// Closes the window, asking first when something changed.
+    pub fn cancel_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(form) = self.settings_form() else { return };
+        if !form.is_dirty(cx) {
+            return self.close_overlay(window, cx);
+        }
+        let this = cx.weak_entity();
+        let state = cx.new(|_| {
+            DialogState::new(
+                dialog("settings-discard")
+                    .confirm("Discard changes?", "Your changes to the settings haven't been saved.")
+                    .confirm_label("Discard")
+                    .cancel_label("Keep editing")
+                    .on_confirm(move |window, cx| {
+                        let _ = this.update(cx, |this, cx| this.close_overlay(window, cx));
+                    }),
+            )
+        });
+        // Kept editing: back to the page, which had the focus.
+        let sub = cx.subscribe_in(&state, window, |this, _, _: &DialogClosed, window, cx| {
+            if let Some(form) = this.settings_form_mut() {
+                form.discard = None;
+                let page = form.page;
+                this.show_settings_page(page, window, cx);
+            }
+        });
+        state.update(cx, |d, cx| d.open(window, cx));
+        if let Some(form) = self.settings_form_mut() {
+            form.discard = Some((state, sub));
+        }
+        cx.notify();
+    }
+
     /// Saves every page at once; project tags only when changed, then rereads the config for them.
     pub fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(form) = self.settings_form() else { return };
+        if !form.is_dirty(cx) {
+            return self.close_overlay(window, cx);
+        }
         let settings = match validate::settings(&form.values(cx)) {
             Ok(settings) => settings,
             // Only the General page has fields that can be invalid.

@@ -1,8 +1,9 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use gpui::{App, Entity, FocusHandle};
+use gpui::{App, Entity, FocusHandle, Subscription};
 use gpuikit::elements::checkbox::Checkbox;
+use gpuikit::elements::dialog::DialogState;
 use gpuikit::input::InputState;
 use timechimp_api::Project;
 
@@ -52,6 +53,10 @@ pub struct SettingsForm {
     pub tasks: TaskVisibility,
     pub tags: ProjectTagsForm,
     pub error: Option<String>,
+    /// What the window opened with, to tell whether anything changed.
+    pub initial: SettingsValues,
+    /// The "Discard changes?" dialog, while open.
+    pub discard: Option<(Entity<DialogState>, Subscription)>,
 }
 
 impl SettingsForm {
@@ -66,6 +71,10 @@ impl SettingsForm {
             hidden_projects: self.projects.hidden_names(),
             hidden_tasks: self.tasks.hidden_names(),
         }
+    }
+
+    pub fn is_dirty(&self, cx: &App) -> bool {
+        self.values(cx) != self.initial || !self.tags.changes().is_empty()
     }
 }
 

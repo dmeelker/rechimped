@@ -48,6 +48,7 @@ impl Render for TimeChimpApp {
         })
         .children(match &self.overlay {
             Overlay::Confirm { dialog, .. } => Some(dialog.clone()),
+            Overlay::Settings(form) => form.discard.as_ref().map(|(dialog, _)| dialog.clone()),
             _ => None,
         })
         .child(cx.toast_manager().clone())

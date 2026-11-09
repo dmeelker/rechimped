@@ -207,7 +207,7 @@ pub fn time_preset(v: &TimeValues, session: &Session) -> Result<TimePreset, Stri
     Ok(preset)
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct SettingsValues {
     pub work_days: [bool; 7],
     pub billable_goal: String,
