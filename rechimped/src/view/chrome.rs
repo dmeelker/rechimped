@@ -60,16 +60,6 @@ impl TimeChimpApp {
             .child(self.render_footer(theme));
 
         let focus = self.focus.clone();
-        // Painted first so it sits behind the panels.
-        let disclaimer = div()
-            .absolute()
-            .right(px(24.))
-            .bottom(px(40.))
-            .text_xs()
-            .text_color(theme.fg_muted())
-            .opacity(0.6)
-            .child("Rechimped is not affiliated with or endorsed by TimeChimp.");
-
         div()
             .size_full()
             .relative()
@@ -80,7 +70,7 @@ impl TimeChimpApp {
                     window.focus(&focus, cx);
                 }
             })
-            .child(disclaimer)
+            .child(disclaimer(theme))
             .child(browse)
             .when(self.menu.is_some(), |d| d.child(self.render_menu_backdrop(cx)))
             .when(matches!(self.overlay, Overlay::Detail), |d| d.child(self.render_detail(theme, cx)))

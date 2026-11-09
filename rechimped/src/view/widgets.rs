@@ -103,6 +103,18 @@ pub(super) fn muted(theme: &T, text: impl Into<SharedString>) -> gpui::Div {
     div().text_color(theme.fg_muted()).child(text.into())
 }
 
+/// Bottom-right of a `relative()` parent; add it before the content so it is painted behind it.
+pub(super) fn disclaimer(theme: &T) -> gpui::Div {
+    div()
+        .absolute()
+        .right(px(24.))
+        .bottom(px(40.))
+        .text_xs()
+        .text_color(theme.fg_muted())
+        .opacity(0.6)
+        .child("Rechimped is not affiliated with or endorsed by TimeChimp.")
+}
+
 pub(super) const NOT_LOADED: &str = "Not loaded. Press R to try again.";
 
 pub(super) fn empty_message(theme: &T, text: &'static str) -> gpui::Div {

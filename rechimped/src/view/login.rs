@@ -65,7 +65,7 @@ impl TimeChimpApp {
             Animation::new(std::time::Duration::from_millis(700)).with_easing(gpui::ease_out_quint()),
             |el, d| el.opacity(d).mt(px(24. * (1. - d))),
         );
-        div().size_full().flex().items_center().justify_center().child(card)
+        div().size_full().relative().flex().items_center().justify_center().child(disclaimer(theme)).child(card)
     }
 
     pub(super) fn login_confirm_click(&mut self, window: &mut Window, cx: &mut Context<Self>) {
