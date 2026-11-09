@@ -113,7 +113,10 @@ impl TimeChimpApp {
         if query.is_empty() {
             return Vec::new();
         }
-        let recent = self.session.recent.iter().filter(|item| !self.session.is_hidden(item.entry.project_id));
+        let recent = self.session.recent.iter().filter(|item| {
+            let e = &item.entry;
+            !self.session.is_hidden(e.project_id) && !self.session.is_task_hidden(e.project_id, &e.task_name)
+        });
         recent.filter(|item| item.matches(&query)).take(RECENT_ROWS).collect()
     }
 

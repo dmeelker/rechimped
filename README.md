@@ -27,7 +27,7 @@ going through the web app.
 - Lenient time input: `9`, `930` or `12:30`, and an end time as a duration such as `+1h30`.
 - Gaps and overlaps between consecutive entries of a day are marked.
 - A weekly billable percentage against your own goal, with a chart of the last five weeks.
-- Hide projects you don't use, and limit which tags each project offers, so forms only show
+- Hide projects and tasks you don't use, and limit which tags each project offers, so forms only show
   what is relevant.
 - Choose your work days; the week view shows only those (plus today).
 - Your settings live in a plain `config.toml` you can read and edit.

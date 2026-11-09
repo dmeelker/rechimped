@@ -10,7 +10,7 @@ use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::{ControlSize, Themeable};
 
 use crate::app::{Cancel, Confirm, TimeChimpApp};
-use crate::forms::{ProjectTagsForm, ProjectVisibility, SettingsForm, SettingsPage};
+use crate::forms::{ProjectTagsForm, ProjectVisibility, SettingsForm, SettingsPage, TaskVisibility};
 
 use super::widgets::*;
 
@@ -55,6 +55,7 @@ impl TimeChimpApp {
         let content = match form.page {
             SettingsPage::General => self.render_general(form, theme, cx),
             SettingsPage::Projects => self.render_project_visibility(&form.projects, theme, cx),
+            SettingsPage::Tasks => self.render_task_visibility(&form.tasks, theme, cx),
             SettingsPage::ProjectTags => self.render_project_tags(&form.tags, theme, cx),
         };
         let footer = h_stack()
@@ -179,49 +180,54 @@ impl TimeChimpApp {
             .into_any_element()
     }
 
+    fn render_task_visibility(&self, form: &TaskVisibility, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let projects = form.projects.iter().map(|(id, name, customer, tasks)| {
+            let hidden = form.hidden_count(*id);
+            (name, customer, (hidden > 0).then(|| format!("{} of {}", tasks.len() - hidden, tasks.len())))
+        });
+        let projects = project_list(theme, "task-projects", projects, form.current, Self::show_tasks_of, cx);
+        let current = form.projects.get(form.current);
+        let tasks = match current {
+            None => list_box(theme, "task-choices").p(px(12.)).child(muted(theme, "No projects with tasks.")),
+            Some((project, .., tasks)) => list_box(theme, "task-choices").p(px(8.)).children(tasks.iter().map(|(task_id, name)| {
+                let (task_id, shown) = (*task_id, !form.is_hidden(*project, *task_id));
+                check_row(theme, ElementId::NamedInteger("task-choice".into(), task_id as u64), shown)
+                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_task_hidden(task_id, cx)))
+                    .child(div().when(!shown, |d| d.text_color(theme.fg_muted())).child(name.clone()))
+            })),
+        };
+        let hidden = current.map_or(0, |(id, ..)| form.hidden_count(*id));
+        let total = current.map_or(0, |(.., tasks)| tasks.len());
+        let set_all = |id: &'static str, label: &'static str, shown: bool, disabled: bool| {
+            pop(theme, button(id, label).disabled(disabled).on_click(cx.listener(move |this, _, _, cx| this.show_all_tasks(shown, cx))))
+        };
+        let title = current.map_or_else(String::new, |(_, name, ..)| format!("Tasks of {name}"));
+        let tasks = settings_column(
+            theme,
+            h_stack()
+                .gap(px(8.))
+                .child(muted(theme, title).flex_1().min_w_0().truncate())
+                .child(set_all("tasks-all", "Show all", true, current.is_none() || hidden == 0))
+                .child(set_all("tasks-none", "Hide all", false, current.is_none() || hidden == total)),
+            tasks,
+        )
+        .flex_1()
+        .min_w_0();
+        h_stack().flex_1().min_h_0().items_stretch().gap(px(12.)).child(projects).child(tasks).into_any_element()
+    }
+
     fn render_project_tags(&self, form: &ProjectTagsForm, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let projects = list_box(theme, "tag-projects").children(form.projects.iter().enumerate().map(
-            |(i, (id, name, customer))| {
-                let (selected, count) = (i == form.current, form.count(*id));
-                h_stack()
-                    .id(ElementId::NamedInteger("tag-project".into(), i as u64))
-                    .flex_none()
-                    .px(px(10.))
-                    .py(px(6.))
-                    .gap(px(8.))
-                    .items_center()
-                    .border_b_1()
-                    .border_color(theme.border_subtle())
-                    .cursor_pointer()
-                    .when(selected, |d| d.bg(theme.accent_bg()))
-                    .when(!selected, |d| d.hover(|s| s.bg(theme.surface_secondary())))
-                    .on_click(cx.listener(move |this, _, _, cx| this.show_project_tags_of(i, cx)))
-                    .child(
-                        v_stack()
-                            .flex_1()
-                            .min_w_0()
-                            .child(div().truncate().when(selected, |d| d.font_weight(FontWeight::SEMIBOLD)).child(name.clone()))
-                            .child(muted(theme, customer.clone()).text_xs().truncate()),
-                    )
-                    .when(count > 0, |d| d.child(muted(theme, count.to_string()).flex_none()))
-            },
-        ));
+        let projects = form.projects.iter().map(|(id, name, customer)| {
+            let count = form.count(*id);
+            (name, customer, (count > 0).then(|| count.to_string()))
+        });
+        let projects = project_list(theme, "tag-projects", projects, form.current, Self::show_project_tags_of, cx);
         let tags = match form.current_project() {
             None => list_box(theme, "tag-choices").p(px(12.)).child(muted(theme, "No projects.")),
             Some(project) => list_box(theme, "tag-choices").p(px(8.)).children(form.tags.iter().map(|(tag_id, name)| {
                 let (tag_id, checked) = (*tag_id, form.is_checked(project, *tag_id));
-                h_stack()
-                    .id(ElementId::NamedInteger("tag-choice".into(), tag_id as u64))
-                    .flex_none()
-                    .px(px(6.))
-                    .py(px(4.))
-                    .gap(px(10.))
-                    .items_center()
-                    .rounded(px(4.))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme.surface_secondary()))
+                check_row(theme, ElementId::NamedInteger("tag-choice".into(), tag_id as u64), checked)
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_project_tag(tag_id, cx)))
-                    .child(checkbox_box(if checked { CheckState::Checked } else { CheckState::Unchecked }))
                     .child(name.clone())
             })),
         };
@@ -235,17 +241,9 @@ impl TimeChimpApp {
                     .on_click(cx.listener(move |this, _, _, cx| this.set_all_project_tags(checked, cx))),
             )
         };
-        // Header rows as tall as a button, so both lists line up.
-        let column = |header: gpui::Div, list: gpui::Stateful<gpui::Div>| {
-            v_stack()
-                .min_h_0()
-                .gap(px(8.))
-                .child(header.h(theme.control(ControlSize::Medium).height).items_center())
-                .child(list)
-        };
-        let projects = column(h_stack().child(muted(theme, "Projects")), projects).w(px(240.)).flex_none();
         let title = form.projects.get(form.current).map_or_else(String::new, |(_, name, _)| format!("Tags for {name}"));
-        let tags = column(
+        let tags = settings_column(
+            theme,
             h_stack()
                 .gap(px(8.))
                 .child(muted(theme, title).flex_1().min_w_0().truncate())
@@ -257,6 +255,62 @@ impl TimeChimpApp {
         .min_w_0();
         h_stack().flex_1().min_h_0().items_stretch().gap(px(12.)).child(projects).child(tags).into_any_element()
     }
+}
+
+/// The left column of the Tasks and Project tags pages: the projects, `badge` on the right of each.
+fn project_list<'a>(
+    theme: &T,
+    id: &'static str,
+    projects: impl Iterator<Item = (&'a String, &'a String, Option<String>)>,
+    current: usize,
+    pick: fn(&mut TimeChimpApp, usize, &mut Context<TimeChimpApp>),
+    cx: &mut Context<TimeChimpApp>,
+) -> gpui::Div {
+    let rows = projects.enumerate().map(|(i, (name, customer, badge))| {
+        let selected = i == current;
+        h_stack()
+            .id(ElementId::NamedInteger(format!("{id}-row").into(), i as u64))
+            .flex_none()
+            .px(px(10.))
+            .py(px(6.))
+            .gap(px(8.))
+            .items_center()
+            .border_b_1()
+            .border_color(theme.border_subtle())
+            .cursor_pointer()
+            .when(selected, |d| d.bg(theme.accent_bg()))
+            .when(!selected, |d| d.hover(|s| s.bg(theme.surface_secondary())))
+            .on_click(cx.listener(move |this, _, _, cx| pick(this, i, cx)))
+            .child(
+                v_stack()
+                    .flex_1()
+                    .min_w_0()
+                    .child(div().truncate().when(selected, |d| d.font_weight(FontWeight::SEMIBOLD)).child(name.clone()))
+                    .child(muted(theme, customer.clone()).text_xs().truncate()),
+            )
+            .when_some(badge, |d, badge| d.child(muted(theme, badge).flex_none()))
+    });
+    settings_column(theme, h_stack().child(muted(theme, "Projects")), list_box(theme, id).children(rows)).w(px(240.)).flex_none()
+}
+
+/// Its header row as tall as a button, so columns side by side line up.
+fn settings_column(theme: &T, header: gpui::Div, list: gpui::Stateful<gpui::Div>) -> gpui::Div {
+    v_stack().min_h_0().gap(px(8.)).child(header.h(theme.control(ControlSize::Medium).height).items_center()).child(list)
+}
+
+/// A clickable row with a drawn checkbox; the caller adds the click handler and the label.
+fn check_row(theme: &T, id: ElementId, checked: bool) -> gpui::Stateful<gpui::Div> {
+    h_stack()
+        .id(id)
+        .flex_none()
+        .px(px(6.))
+        .py(px(4.))
+        .gap(px(10.))
+        .items_center()
+        .rounded(px(4.))
+        .cursor_pointer()
+        .hover(|s| s.bg(theme.surface_secondary()))
+        .child(checkbox_box(if checked { CheckState::Checked } else { CheckState::Unchecked }))
 }
 
 /// A bordered list that fills the rest of its page and scrolls.

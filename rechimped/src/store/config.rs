@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use timechimp_api::{MileageType, Project, Tag};
@@ -20,6 +20,8 @@ pub struct Settings {
     /// A fraction, while `config.toml` holds a percentage.
     pub billable_goal: f64,
     pub hidden_projects: Vec<String>,
+    /// Per project name, the task names the time form doesn't offer.
+    pub hidden_tasks: BTreeMap<String, Vec<String>>,
 }
 
 impl Default for Settings {
@@ -28,6 +30,7 @@ impl Default for Settings {
             work_days: [true, true, true, true, true, false, false],
             billable_goal: DEFAULT_BILLABLE_GOAL,
             hidden_projects: Vec::new(),
+            hidden_tasks: BTreeMap::new(),
         }
     }
 }
@@ -43,6 +46,8 @@ struct ConfigFile {
     billable_goal: Option<f64>,
     #[serde(default)]
     hidden_projects: Vec<String>,
+    #[serde(default)]
+    hidden_tasks: BTreeMap<String, Vec<String>>,
     #[serde(default)]
     projects: HashMap<String, Vec<String>>,
     #[serde(default)]
@@ -164,7 +169,7 @@ fn parse_config(text: &str) -> Result<Config, String> {
             days
         }
     };
-    let settings = Settings { work_days, billable_goal, hidden_projects: file.hidden_projects };
+    let settings = Settings { work_days, billable_goal, hidden_projects: file.hidden_projects, hidden_tasks: file.hidden_tasks };
     for trip in &file.trips {
         if trip.trip_type().is_none() {
             let known: Vec<&str> = TRIP_TYPE_KEYS.iter().map(|(_, key)| *key).collect();
@@ -240,6 +245,30 @@ fn with_settings(text: &str, settings: &Settings) -> Result<String, String> {
         let comment = "# Projects the forms don't offer (Settings, in the menu under your name).\n";
         set(&mut doc, "hidden_projects", toml_edit::value(hidden), comment);
     }
+    if !settings.hidden_tasks.is_empty() || doc.contains_key("hidden_tasks") {
+        let tasks = doc
+            .entry("hidden_tasks")
+            .or_insert_with(|| {
+                let mut table = toml_edit::Table::new();
+                table.decor_mut().set_prefix("
+# Per project, the tasks the time form doesn't offer (Settings, in the menu under your name).
+");
+                toml_edit::Item::Table(table)
+            })
+            .as_table_like_mut()
+            .ok_or("hidden_tasks is not a table")?;
+        let stale: Vec<String> = tasks
+            .iter()
+            .map(|(key, _)| key.to_owned())
+            .filter(|key| !settings.hidden_tasks.iter().any(|(p, names)| same_name(p, key) && !names.is_empty()))
+            .collect();
+        for key in stale {
+            tasks.remove(&key);
+        }
+        for (project, names) in &settings.hidden_tasks {
+            set_names(tasks, project, names);
+        }
+    }
     let text = doc.to_string();
     parse_config(&text)?;
     Ok(text)
@@ -264,24 +293,29 @@ fn with_project_tags(text: &str, changes: &[(String, Vec<String>)]) -> Result<St
         .as_table_mut()
         .ok_or("[projects] is not a table")?;
     for (project, tags) in changes {
-        let tags: toml_edit::Array = tags.iter().map(String::as_str).collect();
-        let existing = projects.iter().map(|(key, _)| key.to_owned()).find(|key| same_name(key, project));
-        match existing.and_then(|key| projects.get_mut(&key)).and_then(|item| item.as_value_mut()) {
-            // In place, so the key keeps its position and the comment above it.
-            Some(value) => {
-                let decor = value.decor().clone();
-                *value = toml_edit::Value::Array(tags);
-                *value.decor_mut() = decor;
-            }
-            None if !tags.is_empty() => {
-                projects.insert(project, toml_edit::value(tags));
-            }
-            None => {}
-        }
+        set_names(projects, project, tags);
     }
     let text = doc.to_string();
     parse_config(&text)?;
     Ok(text)
+}
+
+/// Sets `key` (matched case-insensitively) to `names`; an absent key is only added when there are any.
+fn set_names(table: &mut dyn toml_edit::TableLike, key: &str, names: &[String]) {
+    let names: toml_edit::Array = names.iter().map(String::as_str).collect();
+    let existing = table.iter().map(|(k, _)| k.to_owned()).find(|k| same_name(k, key));
+    match existing.and_then(|k| table.get_mut(&k)).and_then(|item| item.as_value_mut()) {
+        // In place, so the key keeps its position and the comment above it.
+        Some(value) => {
+            let decor = value.decor().clone();
+            *value = toml_edit::Value::Array(names);
+            *value.decor_mut() = decor;
+        }
+        None if !names.is_empty() => {
+            table.insert(key, toml_edit::value(names));
+        }
+        None => {}
+    }
 }
 
 fn preset_toml<P: Preset>(preset: &P) -> Result<String, String> {
@@ -575,6 +609,7 @@ mod tests {
             work_days: [false, true, true, false, true, true, false],
             billable_goal: 0.7,
             hidden_projects: vec!["Old \"one\"".into()],
+            hidden_tasks: BTreeMap::from([("Intern".into(), vec!["Verlof".into()])]),
         };
         let text = "# top\n# goal\nbillable_goal = 75 # inline\n\n[projects]\n# keep me\nIntern = []\n";
         let saved = with_settings(text, &settings).unwrap();
@@ -599,6 +634,26 @@ mod tests {
         save_settings(&path, &Settings { billable_goal: 0.5, ..settings.clone() }).unwrap();
         assert_eq!(load(&path).unwrap().unwrap().settings.billable_goal, 0.5, "replaces an existing file");
         assert!(!path.with_extension("toml.tmp").exists(), "no temporary file left behind");
+    }
+
+    #[test]
+    fn save_hidden_tasks_in_place() {
+        let hidden = |pairs: &[(&str, &[&str])]| Settings {
+            hidden_tasks: pairs.iter().map(|(p, t)| ((*p).to_owned(), t.iter().map(|t| (*t).to_owned()).collect())).collect(),
+            ..Settings::default()
+        };
+        let text = "[hidden_tasks]\n# mine\nintern = [\"Verlof\"]\nGone = [\"x\"]\n\n[projects]\nIntern = []\n";
+        let saved = with_settings(text, &hidden(&[("Intern", &["Verlof", "Ziek"]), ("New", &["T"])])).unwrap();
+        assert!(saved.contains("# mine\nintern = [\"Verlof\", \"Ziek\"]"), "in place, case-insensitively: {saved}");
+        assert!(saved.contains("New = [\"T\"]") && !saved.contains("Gone"), "added and dropped: {saved}");
+        assert!(saved.contains("[projects]\nIntern = []"), "{saved}");
+
+        let none = with_settings(&saved, &hidden(&[("Intern", &[])])).unwrap();
+        assert!(none.contains("[hidden_tasks]") && !none.contains("intern ="), "empty lists go: {none}");
+        assert!(!with_settings("", &Settings::default()).unwrap().contains("hidden_tasks"), "no table while nothing is hidden");
+        let fresh = with_settings("billable_goal = 80\n", &hidden(&[("P", &["T"])])).unwrap();
+        assert!(fresh.contains("# Per project, the tasks") && fresh.contains("[hidden_tasks]\nP = [\"T\"]"), "{fresh}");
+        assert!(with_settings("hidden_tasks = { P = [\"A\"] }", &hidden(&[("P", &["B"])])).unwrap().contains("P = [\"B\"]"));
     }
 
     #[test]

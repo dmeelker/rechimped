@@ -2,7 +2,7 @@ use gpui::{AppContext, Context, ElementId, Focusable, Window};
 use gpuikit::elements::checkbox::checkbox;
 
 use crate::domain::plain_number;
-use crate::forms::{self, ProjectTagsForm, ProjectVisibility, SettingsForm, SettingsPage};
+use crate::forms::{self, ProjectTagsForm, ProjectVisibility, SettingsForm, SettingsPage, TaskVisibility};
 use crate::store::config;
 use crate::validate;
 
@@ -28,6 +28,7 @@ impl TimeChimpApp {
             work_days,
             billable_goal,
             projects: ProjectVisibility::new(&self.session),
+            tasks: TaskVisibility::new(&self.session),
             tags: ProjectTagsForm::new(&self.session),
             error: None,
         };
@@ -41,7 +42,7 @@ impl TimeChimpApp {
         form.page = page;
         let focus = match page {
             SettingsPage::General => form.billable_goal.read(cx).focus_handle(cx),
-            SettingsPage::Projects | SettingsPage::ProjectTags => form.focus.clone(),
+            SettingsPage::Projects | SettingsPage::Tasks | SettingsPage::ProjectTags => form.focus.clone(),
         };
         window.focus(&focus, cx);
         cx.notify();
@@ -57,6 +58,27 @@ impl TimeChimpApp {
     pub fn show_all_projects(&mut self, shown: bool, cx: &mut Context<Self>) {
         if let Some(form) = self.settings_form_mut() {
             form.projects.set_all(shown);
+            cx.notify();
+        }
+    }
+
+    pub fn show_tasks_of(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(form) = self.settings_form_mut() {
+            form.tasks.current = index;
+            cx.notify();
+        }
+    }
+
+    pub fn toggle_task_hidden(&mut self, task_id: i64, cx: &mut Context<Self>) {
+        if let Some(form) = self.settings_form_mut() {
+            form.tasks.toggle(task_id);
+            cx.notify();
+        }
+    }
+
+    pub fn show_all_tasks(&mut self, shown: bool, cx: &mut Context<Self>) {
+        if let Some(form) = self.settings_form_mut() {
+            form.tasks.set_all(shown);
             cx.notify();
         }
     }

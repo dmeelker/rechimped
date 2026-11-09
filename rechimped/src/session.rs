@@ -307,9 +307,27 @@ impl Session {
         options
     }
 
-    pub fn task_options(&self, project_id: Option<i64>, entry: Option<&TimeEntry>) -> Vec<(i64, String)> {
+    /// By name, as the config holds them, so it also answers for inactive or deleted tasks.
+    pub fn is_task_hidden(&self, project_id: i64, task_name: &str) -> bool {
+        self.project(project_id).is_some_and(|p| {
+            self.settings
+                .hidden_tasks
+                .iter()
+                .any(|(project, tasks)| same_name(project, &p.name) && tasks.iter().any(|t| same_name(t, task_name)))
+        })
+    }
+
+    /// `entry`'s task is offered even if hidden or inactive, and `keep` (a task chosen elsewhere,
+    /// as by a preset) even if hidden.
+    pub fn task_options(&self, project_id: Option<i64>, entry: Option<&TimeEntry>, keep: Option<i64>) -> Vec<(i64, String)> {
         let mut tasks: Vec<(i64, String)> = project_id
-            .map(|id| self.project_tasks(id).iter().filter(|t| t.active).map(|t| (t.id, t.name.clone())).collect())
+            .map(|id| {
+                self.project_tasks(id)
+                    .iter()
+                    .filter(|t| t.active && (Some(t.id) == keep || !self.is_task_hidden(id, &t.name)))
+                    .map(|t| (t.id, t.name.clone()))
+                    .collect()
+            })
             .unwrap_or_default();
         if let Some(e) = entry.filter(|e| Some(e.project_id) == project_id)
             && !tasks.iter().any(|(id, _)| *id == e.project_task_id) {
@@ -443,6 +461,8 @@ fn reselect(selected: Option<i64>, wanted: Option<i64>, old: &[i64], new: &[i64]
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
     use crate::test_support::*;
 
@@ -546,6 +566,21 @@ mod tests {
         assert!(s.is_hidden(2) && !s.is_hidden(1));
         assert_eq!(ids(s.project_options(None)), [1]);
         assert_eq!(ids(s.project_options(Some((2, "Old", "Us")))), [1, 2], "still offered when editing its entry");
+    }
+
+    #[test]
+    fn hidden_tasks_are_not_offered() {
+        let mut s = Session::new(None, date(4));
+        let tasks = HashMap::from([(1, vec![task(10, 1, "Dev"), task(20, 1, "Old"), task(30, 1, "Meet")])]);
+        s.apply_base(base(vec![project(1, "Keep"), project(2, "Other")], tasks, Vec::new()), None, &[]);
+        s.settings.hidden_tasks = BTreeMap::from([("keep".into(), vec!["old".into(), "meet".into()])]);
+        let ids = |options: Vec<(i64, String)>| options.into_iter().map(|(id, _)| id).collect::<Vec<_>>();
+        assert!(s.is_task_hidden(1, "OLD") && !s.is_task_hidden(1, "Dev") && !s.is_task_hidden(2, "Old"));
+        assert_eq!(ids(s.task_options(Some(1), None, None)), [10]);
+        assert_eq!(ids(s.task_options(Some(1), None, Some(30))), [10, 30], "kept when a preset picks it");
+        let mut e = entry(5, 4, "09:00-10:00");
+        (e.project_id, e.project_task_id, e.task_name) = (1, 20, "Old".into());
+        assert_eq!(ids(s.task_options(Some(1), Some(&e), None)), [10, 20], "still offered when editing its entry");
     }
 
     #[test]

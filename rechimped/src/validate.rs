@@ -1,5 +1,7 @@
 //! Works on plain snapshots of the forms, so it needs no window and is unit-tested.
 
+use std::collections::BTreeMap;
+
 use chrono::NaiveDate;
 use timechimp_api::{Mileage, MileageType, NewMileage, NewTimeEntry};
 
@@ -210,6 +212,7 @@ pub struct SettingsValues {
     pub work_days: [bool; 7],
     pub billable_goal: String,
     pub hidden_projects: Vec<String>,
+    pub hidden_tasks: BTreeMap<String, Vec<String>>,
 }
 
 pub fn settings(v: &SettingsValues) -> Result<Settings, String> {
@@ -219,7 +222,12 @@ pub fn settings(v: &SettingsValues) -> Result<Settings, String> {
     let billable_goal = parse_decimal(v.billable_goal.trim_end_matches('%'))
         .filter(|p| (0.0..=100.0).contains(p))
         .ok_or("Billable target must be a percentage between 0 and 100")?;
-    Ok(Settings { work_days: v.work_days, billable_goal: billable_goal / 100.0, hidden_projects: v.hidden_projects.clone() })
+    Ok(Settings {
+        work_days: v.work_days,
+        billable_goal: billable_goal / 100.0,
+        hidden_projects: v.hidden_projects.clone(),
+        hidden_tasks: v.hidden_tasks.clone(),
+    })
 }
 
 #[cfg(test)]
@@ -355,11 +363,17 @@ mod tests {
             work_days: days,
             billable_goal: goal.into(),
             hidden_projects: vec!["Old".into()],
+            hidden_tasks: BTreeMap::from([("P".into(), vec!["T".into()])]),
         };
         let weekdays = [true, true, true, true, true, false, false];
         assert_eq!(
             settings(&v(weekdays, "75 %")),
-            Ok(Settings { work_days: weekdays, billable_goal: 0.75, hidden_projects: vec!["Old".into()] })
+            Ok(Settings {
+                work_days: weekdays,
+                billable_goal: 0.75,
+                hidden_projects: vec!["Old".into()],
+                hidden_tasks: BTreeMap::from([("P".into(), vec!["T".into()])]),
+            })
         );
         assert_eq!(settings(&v(weekdays, "82,5")).unwrap().billable_goal, 0.825);
         assert!(settings(&v([false; 7], "80")).unwrap_err().contains("work day"));

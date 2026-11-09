@@ -79,7 +79,7 @@ pub fn time_form(session: &Session, entry: Option<&TimeEntry>, copy: bool) -> Ti
     });
     let project_id = template.map(|e| e.project_id).or(projects.first().map(|(id, _)| *id));
     let project = ProjectSeed {
-        tasks: session.task_options(project_id, entry),
+        tasks: session.task_options(project_id, entry, None),
         task_id: template.map(|e| e.project_task_id),
         tags: tags(session, project_id, template.map_or(&[], |e| &e.tag_ids)),
         kept_tag_ids: entry.map(|e| session.kept_tags(project_id, &e.tag_ids)).unwrap_or_default(),
@@ -122,7 +122,7 @@ pub fn time_fill(session: &Session, fill: TimeFill, from: Option<&TimeEntry>) ->
         projects: session.project_options(from.map(|e| (e.project_id, &*e.project_name, &*e.customer_name))),
         project_id: fill.project_id,
         project: ProjectSeed {
-            tasks: session.task_options(project_id, from),
+            tasks: session.task_options(project_id, from, fill.project_task_id),
             task_id: fill.project_task_id,
             tags: tags(session, project_id, &fill.tag_ids),
             kept_tag_ids: session.kept_tags(project_id, &fill.tag_ids),
@@ -136,7 +136,7 @@ pub fn project_changed(session: &Session, project_id: Option<i64>, kept_tag_ids:
     let mut checked: Vec<i64> = last.map_or(&[][..], |e| &e.tag_ids).to_vec();
     checked.extend(kept_tag_ids);
     ProjectSeed {
-        tasks: session.task_options(project_id, None),
+        tasks: session.task_options(project_id, None, None),
         task_id: None,
         tags: tags(session, project_id, &checked),
         kept_tag_ids: session.kept_tags(project_id, kept_tag_ids),
