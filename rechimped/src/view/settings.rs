@@ -173,8 +173,8 @@ impl TimeChimpApp {
                     .gap(px(8.))
                     .items_center()
                     .child(muted(theme, format!("{shown} of {} offered in the forms", p.projects.len())).flex_1().min_w_0())
-                    .child(set_all("settings-projects-all", "Show all", true, p.hidden.is_empty()))
-                    .child(set_all("settings-projects-none", "Hide all", false, shown == 0)),
+                    .child(set_all("settings-projects-all", "Select all", true, p.hidden.is_empty()))
+                    .child(set_all("settings-projects-none", "Clear all", false, shown == 0)),
             )
             .child(list)
             .into_any_element()
@@ -183,7 +183,7 @@ impl TimeChimpApp {
     fn render_task_visibility(&self, form: &TaskVisibility, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
         let projects = form.projects.iter().map(|(project, tasks)| {
             let hidden = form.hidden_count(project.id);
-            let badge = (hidden > 0).then(|| format!("{} of {}", tasks.len() - hidden, tasks.len()));
+            let badge = Some(format!("{} of {}", tasks.len() - hidden, tasks.len()));
             (project, form.hidden_projects.contains(&project.id), badge)
         });
         let projects = project_list(theme, "task-projects", projects, form.current, Self::show_tasks_of, cx);
@@ -208,8 +208,8 @@ impl TimeChimpApp {
             h_stack()
                 .gap(px(8.))
                 .child(muted(theme, title).flex_1().min_w_0().truncate())
-                .child(set_all("tasks-all", "Show all", true, current.is_none() || hidden == 0))
-                .child(set_all("tasks-none", "Hide all", false, current.is_none() || hidden == total)),
+                .child(set_all("tasks-all", "Select all", true, current.is_none() || hidden == 0))
+                .child(set_all("tasks-none", "Clear all", false, current.is_none() || hidden == total)),
             tasks,
         )
         .flex_1()
@@ -220,7 +220,7 @@ impl TimeChimpApp {
     fn render_project_tags(&self, form: &ProjectTagsForm, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
         let projects = form.projects.iter().map(|project| {
             let count = form.count(project.id);
-            (project, form.hidden_projects.contains(&project.id), (count > 0).then(|| count.to_string()))
+            (project, form.hidden_projects.contains(&project.id), Some(format!("{count} of {}", form.tags.len())))
         });
         let projects = project_list(theme, "tag-projects", projects, form.current, Self::show_project_tags_of, cx);
         let tags = match form.current_project() {
@@ -243,6 +243,14 @@ impl TimeChimpApp {
             )
         };
         let title = form.projects.get(form.current).map_or_else(String::new, |p| format!("Tags for {}", p.name));
+        // A project without tags offers none once any project has some; until then all are offered.
+        let note = if !form.configured {
+            Some("No project has tags set yet, so each offers all of them. The first change sets them for every project.")
+        } else if !no_project && count == 0 {
+            Some("The time form offers no tags for this project.")
+        } else {
+            None
+        };
         let tags = settings_column(
             theme,
             h_stack()
@@ -252,6 +260,7 @@ impl TimeChimpApp {
                 .child(set_all("project-tags-none", "Clear all", false, no_project || count == 0)),
             tags,
         )
+        .when_some(note, |d, note| d.child(muted(theme, note).text_xs()))
         .flex_1()
         .min_w_0();
         h_stack().flex_1().min_h_0().items_stretch().gap(px(12.)).child(projects).child(tags).into_any_element()
