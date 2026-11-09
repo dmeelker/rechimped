@@ -1,4 +1,4 @@
-use gpui::{Context, Entity, Focusable, Subscription, Window};
+use gpui::{Context, Focusable, Subscription, Window};
 use gpuikit::elements::select::SelectChanged;
 use gpuikit::input::InputStateEvent;
 use timechimp_api::TimeEntry;
@@ -96,11 +96,11 @@ impl TimeChimpApp {
 
     fn subscribe_project(
         &self,
-        project: &Entity<gpuikit::elements::select::SelectState<i64>>,
+        project: &forms::Choice<i64>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Subscription {
-        cx.subscribe_in(project, window, |this, _, _: &SelectChanged, window, cx| this.on_project_changed(window, cx))
+        cx.subscribe_in(&project.state, window, |this, _, _: &SelectChanged, window, cx| this.on_project_changed(window, cx))
     }
 
     fn recent_picker_mut(&mut self) -> Option<&mut forms::RecentPicker> {

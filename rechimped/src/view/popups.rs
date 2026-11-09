@@ -120,8 +120,8 @@ impl TimeChimpApp {
                     .items_start(),
                 h_stack().h(px(1.)).w_full().bg(theme.border()).when(f.recent.is_none(), |d| d.hidden()),
                 row("Date", self.render_date(&f.date, theme, cx)),
-                row("Project", f.project.clone().into_any_element()),
-                row("Task", f.task.clone().into_any_element()),
+                row("Project", keyboard_select(&f.project)),
+                row("Task", keyboard_select(&f.task)),
                 row("Start", field(&f.start, "HH:MM", cx)),
                 row("End", field(&f.end, "HH:MM, +15 or +1h30", cx)),
                 row("Notes", field(&f.notes, "What did you work on?", cx)),
@@ -141,7 +141,7 @@ impl TimeChimpApp {
             .collect(),
             FormBody::Travel(f) => vec![
                 row("Date", self.render_date(&f.date, theme, cx)),
-                row("Project", f.project.clone().into_any_element()),
+                row("Project", keyboard_select(&f.project)),
                 row("From", self.render_address(f, AddressField::From, theme, cx)),
                 row("To", self.render_address(f, AddressField::To, theme, cx)),
                 row(
@@ -158,7 +158,7 @@ impl TimeChimpApp {
                 ),
                 // Editing changes one trip; the return switch only applies to new ones.
                 row("", f.return_trip.clone().into_any_element()).when(f.editing.is_some(), |d| d.hidden()),
-                row("Type", f.travel_type.clone().into_any_element()),
+                row("Type", keyboard_select(&f.travel_type)),
                 row("", f.billable.clone().into_any_element()),
                 row("Notes", field(&f.notes, "", cx)),
             ]

@@ -1,4 +1,7 @@
+use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
+use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use chrono::{Datelike, NaiveDate};
 use gpui::{App, AppContext, ElementId, Entity, FocusHandle, Focusable, SharedString, Subscription, Window};
@@ -17,8 +20,8 @@ use crate::validate::{TravelValues, SettingsValues, TimeKind, TimeValues};
 pub struct TimeForm {
     pub kind: TimeKind,
     pub date: DateField,
-    pub project: Entity<SelectState<i64>>,
-    pub task: Entity<SelectState<i64>>,
+    pub project: Choice<i64>,
+    pub task: Choice<i64>,
     pub start: Entity<InputState>,
     pub end: Entity<InputState>,
     pub hours: Entity<InputState>,
@@ -65,12 +68,12 @@ pub struct TagCheckbox {
 pub struct TravelForm {
     pub editing: Option<Box<Mileage>>,
     pub date: DateField,
-    pub project: Entity<SelectState<i64>>,
+    pub project: Choice<i64>,
     pub from: Entity<InputState>,
     pub to: Entity<InputState>,
     pub distance: Entity<InputState>,
     pub return_trip: Entity<Switch>,
-    pub travel_type: Entity<SelectState<MileageType>>,
+    pub travel_type: Choice<MileageType>,
     pub billable: Entity<Switch>,
     pub notes: Entity<InputState>,
     pub addresses: Vec<String>,
@@ -237,17 +240,50 @@ pub fn choice<T: Clone + PartialEq + 'static>(
     label: &'static str,
     options: Vec<(T, String)>,
     selected: Option<T>,
-) -> Entity<SelectState<T>> {
+) -> Choice<T> {
     let selected =
         selected.filter(|s| options.iter().any(|(id, _)| id == s)).or_else(|| options.first().map(|(id, _)| id.clone()));
+    let labels = Rc::new(options.iter().map(|(id, l)| (id.clone(), l.clone())).collect::<Vec<_>>());
     let options: Vec<(T, SharedString)> = options.into_iter().map(|(id, l)| (id, l.into())).collect();
-    cx.new(|_| {
+    let state = cx.new(|_| {
         let mut builder = select(id, label, options).full_width(true).placeholder("(none available)");
         if let Some(s) = selected {
             builder = builder.selected(s);
         }
         SelectState::new(builder)
-    })
+    });
+    Choice { state, labels, typed: Rc::new(RefCell::new((String::new(), Instant::now()))) }
+}
+
+/// A dropdown plus what its keyboard type-ahead needs: the option labels (gpuikit keeps them
+/// private) and the characters typed so far.
+#[derive(Clone)]
+pub struct Choice<T: Clone + PartialEq + 'static> {
+    pub state: Entity<SelectState<T>>,
+    labels: Rc<Vec<(T, String)>>,
+    typed: Rc<RefCell<(String, Instant)>>,
+}
+
+/// Typing pauses longer than this start a new prefix.
+const TYPE_AHEAD_RESET: Duration = Duration::from_millis(1000);
+
+impl<T: Clone + PartialEq + 'static> Choice<T> {
+    /// Adds `typed` to the prefix typed so far and returns the first option starting with it,
+    /// ignoring case. A prefix nothing matches is dropped, so the next key starts over.
+    pub fn type_ahead(&self, typed: &str) -> Option<T> {
+        let mut state = self.typed.borrow_mut();
+        let (prefix, last) = &mut *state;
+        if last.elapsed() > TYPE_AHEAD_RESET {
+            prefix.clear();
+        }
+        *last = Instant::now();
+        prefix.push_str(&typed.to_lowercase());
+        let found = self.labels.iter().find(|(_, l)| l.to_lowercase().starts_with(prefix.as_str()));
+        if found.is_none() {
+            prefix.clear();
+        }
+        found.map(|(id, _)| id.clone())
+    }
 }
 
 /// The categories of the Settings window, listed on its left.
@@ -355,8 +391,8 @@ pub fn text(input: &Entity<InputState>, cx: &App) -> String {
     input.read(cx).content().trim().to_owned()
 }
 
-pub fn chosen<T: Clone + PartialEq + 'static>(select: &Entity<SelectState<T>>, cx: &App) -> Option<T> {
-    select.read(cx).selected.clone()
+pub fn chosen<T: Clone + PartialEq + 'static>(select: &Choice<T>, cx: &App) -> Option<T> {
+    select.state.read(cx).selected.clone()
 }
 
 pub fn set_text(input: &Entity<InputState>, value: impl Into<String>, cx: &mut App) {

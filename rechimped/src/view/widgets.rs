@@ -12,6 +12,7 @@ use gpuikit::theme::{ControlSize, Theme, Themeable};
 use gpuikit::traits::control_sized::ControlSized;
 
 use crate::app::TimeChimpApp;
+use crate::forms::Choice;
 pub(super) use crate::domain::plain_number;
 
 pub(super) type T = Arc<Theme>;
@@ -249,4 +250,48 @@ pub(super) fn menu_panel(theme: &T, id: &'static str) -> gpui::Stateful<gpui::Di
         .bg(theme.surface())
         .shadow_lg()
         .text_color(theme.fg())
+}
+
+/// A select that also opens on ↓ / ↑ while its trigger has focus, as native dropdowns do
+/// (gpuikit's trigger only opens on Enter / Space), and picks the first option starting with what
+/// is typed on it. The open popup handles its own keys as bound actions, so this listener only
+/// ever sees the keys of a closed one.
+pub(super) fn keyboard_select<T: Clone + PartialEq + 'static>(choice: &Choice<T>) -> gpui::AnyElement {
+    let choice = choice.clone();
+    let child = choice.state.clone();
+    div()
+        .w_full()
+        .on_key_down(move |event, window, cx| {
+            let key = event.keystroke.key.as_str();
+            let modifiers = &event.keystroke.modifiers;
+            if choice.state.read(cx).is_open() || modifiers.control || modifiers.alt || modifiers.platform {
+                return;
+            }
+            if matches!(key, "down" | "up") && !modifiers.shift {
+                cx.stop_propagation();
+                // Enter on the focused trigger opens it; it needs the key up to count as a click.
+                window.defer(cx, |window, cx| {
+                    for up in [false, true] {
+                        let keystroke = gpui::Keystroke::parse("enter").expect("a valid keystroke");
+                        let input = if up {
+                            gpui::PlatformInput::KeyUp(gpui::KeyUpEvent { keystroke })
+                        } else {
+                            gpui::PlatformInput::KeyDown(gpui::KeyDownEvent {
+                                keystroke,
+                                is_held: false,
+                                prefer_character_input: false,
+                            })
+                        };
+                        window.dispatch_event(input, cx);
+                    }
+                });
+            } else if let Some(typed) = event.keystroke.key_char.as_deref().filter(|c| c.chars().all(char::is_alphanumeric)) {
+                if let Some(value) = choice.type_ahead(typed) {
+                    choice.state.update(cx, |state, cx| state.set_selected(Some(value), cx));
+                }
+                cx.stop_propagation();
+            }
+        })
+        .child(child)
+        .into_any_element()
 }
