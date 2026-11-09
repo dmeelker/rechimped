@@ -407,17 +407,11 @@ fn project_list<'a>(
                     .flex_1()
                     .min_w_0()
                     .child(
-                        h_stack()
-                            .gap(px(6.))
-                            .items_center()
-                            .when(hidden, |d| d.child(Icons::eye_closed().flex_none().size(px(14.)).text_color(theme.fg_muted())))
-                            .child(
-                                div()
-                                    .truncate()
-                                    .when(selected, |d| d.font_weight(FontWeight::SEMIBOLD))
-                                    .when(hidden || !project.active, |d| d.text_color(theme.fg_muted()))
-                                    .child(project.name.clone()),
-                            ),
+                        div()
+                            .truncate()
+                            .when(selected, |d| d.font_weight(FontWeight::SEMIBOLD))
+                            .when(hidden || !project.active, |d| d.text_color(theme.fg_muted()))
+                            .child(project.name.clone()),
                     )
                     .child(muted(theme, subtitle).text_xs().truncate()),
             )
@@ -431,14 +425,12 @@ fn project_list<'a>(
                         .px(px(10.))
                         .pt(px(10.))
                         .pb(px(4.))
-                        .gap(px(6.))
                         .items_center()
                         .border_b_1()
                         .border_color(theme.border())
                         .text_xs()
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme.fg_muted())
-                        .child(Icons::eye_closed().size(px(12.)).text_color(theme.fg_muted()))
                         .child("Hidden on the Projects page"),
                 )
             })
