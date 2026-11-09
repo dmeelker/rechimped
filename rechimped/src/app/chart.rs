@@ -12,7 +12,7 @@ pub struct BillabilityChart {
 }
 
 impl TimeChimpApp {
-    /// Fetched afresh: the weeks may lie outside what is loaded already.
+    /// The weeks may lie outside what is loaded.
     pub fn open_chart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (Some(client), Some(me)) = (self.session.client().cloned(), self.session.me()) else { return };
         let (user_id, contract) = (me.id, self.session.contract_hours());

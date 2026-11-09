@@ -39,14 +39,10 @@ pub(super) fn right_cell(width: f32, content: impl Into<SharedString>) -> gpui::
     cell(Some(width), content).flex().justify_end()
 }
 
-/// Background of a non-billable row in the Time, Travel and Report tables (their text is muted too):
-/// a lavender tint, apart from the grey header, the orange selection and the green billable figures.
-/// `hover` gives the slightly stronger shade for the pointer.
 pub(super) fn non_billable_bg(hover: bool) -> Hsla {
     gpuikit::theme::parse_hex("#7287fd").opacity(if hover { 0.16 } else { 0.09 })
 }
 
-/// Row hover background, keeping non-billable rows recognisable.
 pub(super) fn row_hover_bg(theme: &T, billable: bool) -> Hsla {
     if billable { theme.surface() } else { non_billable_bg(true) }
 }
@@ -103,7 +99,6 @@ pub(super) fn muted(theme: &T, text: impl Into<SharedString>) -> gpui::Div {
     div().text_color(theme.fg_muted()).child(text.into())
 }
 
-/// Bottom-right of a `relative()` parent; add it before the content so it is painted behind it.
 pub(super) fn disclaimer(theme: &T) -> gpui::Div {
     div()
         .absolute()
@@ -264,10 +259,8 @@ pub(super) fn menu_panel(theme: &T, id: &'static str) -> gpui::Stateful<gpui::Di
         .text_color(theme.fg())
 }
 
-/// A select that also opens on ↓ / ↑ while its trigger has focus, as native dropdowns do
-/// (gpuikit's trigger only opens on Enter / Space), and picks the first option starting with what
-/// is typed on it. The open popup handles its own keys as bound actions, so this listener only
-/// ever sees the keys of a closed one.
+/// gpuikit's trigger only opens on Enter / Space. The open popup handles its own keys as bound
+/// actions, so this listener only ever sees the keys of a closed one.
 pub(super) fn keyboard_select<T: Clone + PartialEq + 'static>(choice: &Choice<T>) -> gpui::AnyElement {
     let choice = choice.clone();
     let child = choice.state.clone();

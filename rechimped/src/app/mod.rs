@@ -105,7 +105,6 @@ pub struct TimeChimpApp {
     in_flight: Vec<Task>,
     tasks_started: u64,
     forms_opened: u64,
-    /// The Settings window reopens on the page it was last on.
     settings_page: crate::forms::SettingsPage,
     pub fx: crate::fx::Fx,
 }
@@ -138,7 +137,6 @@ impl TimeChimpApp {
         app
     }
 
-    /// Results for an older session (logged out meanwhile) are dropped, so none of it lands on screen.
     fn run<T: Send + 'static>(
         &mut self,
         label: &'static str,

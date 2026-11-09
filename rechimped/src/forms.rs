@@ -28,10 +28,9 @@ pub struct TimeForm {
     pub hours: Entity<InputState>,
     pub notes: Entity<InputState>,
     pub tags: Vec<TagCheckbox>,
-    /// Tags the selected project has no checkbox for; kept so saving doesn't drop them.
     pub kept_tag_ids: Vec<i64>,
     pub recent: Option<RecentPicker>,
-    /// Replaced together with `project`, since selects can't change options in place.
+    /// Replaced with `project`: selects can't change options in place.
     pub project_sub: Subscription,
 }
 
@@ -163,7 +162,6 @@ pub enum FormBody {
 }
 
 pub struct Form {
-    /// Lets a request's result tell whether the form it came from is still the one open.
     pub id: u64,
     pub body: FormBody,
     pub error: Option<String>,
@@ -256,8 +254,7 @@ pub fn choice<T: Clone + PartialEq + 'static>(
     Choice { state, labels, typed: Rc::default() }
 }
 
-/// A dropdown plus what its keyboard type-ahead needs: the option labels (gpuikit keeps them
-/// private) and the characters typed so far.
+/// gpuikit keeps the option labels private.
 #[derive(Clone)]
 pub struct Choice<T: Clone + PartialEq + 'static> {
     pub state: Entity<SelectState<T>>,
@@ -266,17 +263,14 @@ pub struct Choice<T: Clone + PartialEq + 'static> {
 }
 
 impl<T: Clone + PartialEq + 'static> Choice<T> {
-    /// The first option starting with what was typed; see `TypeAhead::find`.
     pub fn type_ahead(&self, typed: &str) -> Option<T> {
         let index = self.typed.borrow_mut().find(typed, self.labels.iter().map(|(_, l)| l.as_str()))?;
         Some(self.labels[index].0.clone())
     }
 }
 
-/// Typing pauses longer than this start a new prefix.
 const TYPE_AHEAD_RESET: Duration = Duration::from_millis(1000);
 
-/// The characters typed so far for a keyboard type-ahead.
 pub struct TypeAhead {
     prefix: String,
     last: Instant,
@@ -289,8 +283,6 @@ impl Default for TypeAhead {
 }
 
 impl TypeAhead {
-    /// Adds `typed` to the prefix typed so far and returns the index of the first label starting
-    /// with it, ignoring case. A prefix nothing matches is dropped, so the next key starts over.
     pub fn find<'a>(&mut self, typed: &str, labels: impl IntoIterator<Item = &'a str>) -> Option<usize> {
         if self.last.elapsed() > TYPE_AHEAD_RESET {
             self.prefix.clear();

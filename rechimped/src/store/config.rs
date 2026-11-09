@@ -17,10 +17,8 @@ fn day_key(i: usize) -> &'static str {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     pub work_days: [bool; 7],
-    /// A fraction, while `config.toml` holds a percentage.
     pub billable_goal: f64,
     pub hidden_projects: Vec<String>,
-    /// Per project name, the task names the time form doesn't offer.
     pub hidden_tasks: BTreeMap<String, Vec<String>>,
 }
 
@@ -42,7 +40,6 @@ pub fn path() -> Result<PathBuf, String> {
 #[derive(serde::Deserialize, Default)]
 struct ConfigFile {
     work_days: Option<Vec<String>>,
-    /// A percentage, not a fraction.
     billable_goal: Option<f64>,
     #[serde(default)]
     hidden_projects: Vec<String>,
@@ -201,7 +198,6 @@ fn replace_file(path: &Path, text: &str) -> Result<(), String> {
         })
 }
 
-/// `40`, not `40.0`, as people write it.
 fn number(value: f64) -> toml_edit::Item {
     if value.fract() == 0.0 && value.abs() < 1e15 { toml_edit::value(value as i64) } else { toml_edit::value(value) }
 }
@@ -300,7 +296,7 @@ fn with_project_tags(text: &str, changes: &[(String, Vec<String>)]) -> Result<St
     Ok(text)
 }
 
-/// Sets `key` (matched case-insensitively) to `names`; an absent key is only added when there are any.
+/// An absent key is only added when there are any.
 fn set_names(table: &mut dyn toml_edit::TableLike, key: &str, names: &[String]) {
     let names: toml_edit::Array = names.iter().map(String::as_str).collect();
     let existing = table.iter().map(|(k, _)| k.to_owned()).find(|k| same_name(k, key));
@@ -322,7 +318,6 @@ fn preset_toml<P: Preset>(preset: &P) -> Result<String, String> {
     toml::to_string(&std::collections::BTreeMap::from([(P::KEY, [preset])])).map_err(|e| e.to_string())
 }
 
-/// As text, so the comments stay.
 pub fn append_preset<P: Preset>(path: &Path, preset: &P) -> Result<(), String> {
     let block = preset_toml(preset)?;
     let mut text = match std::fs::read_to_string(path) {
@@ -370,8 +365,7 @@ fn without<P: Preset>(text: &str, preset: &P) -> Result<String, String> {
     Ok(doc.to_string())
 }
 
-/// Writes the presets as the Presets page left them: in this order, the ones left out removed. Each is found by `Preset::is`, so its block keeps its own
-/// comments; the section comment stays above whichever comes first.
+/// Each preset is found by `Preset::is`, so its block keeps its own comments.
 pub fn save_presets(path: &Path, trips: &[TripPreset], times: &[TimePreset]) -> Result<(), String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
     let text = with_presets(&text, trips, times).map_err(|e| format!("{}: {e}", path.display()))?;

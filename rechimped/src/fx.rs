@@ -47,7 +47,6 @@ impl Fx {
         if cx.reduce_motion() { 4.0 } else { self.start.elapsed().as_secs_f32() }
     }
 
-    /// Call at the start of every render.
     pub fn begin_frame(&mut self, animate: bool, window: &mut Window, cx: &App) -> Instant {
         let now = Instant::now();
         self.frames.push_back(now);
@@ -178,7 +177,6 @@ fn palette(accent: Hsla) -> [Hsla; 6] {
     ]
 }
 
-/// Place in an `absolute().inset_0()` parent behind the content.
 pub fn aurora(t: f32, accent: Hsla, base: Hsla, strength: f32) -> gpui::Canvas<()> {
     canvas(
         |_, _, _| (),

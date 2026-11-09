@@ -1,4 +1,3 @@
-//! Dates are in November 2026; the 2nd is a Monday.
 
 use std::collections::HashMap;
 

@@ -20,9 +20,8 @@ impl TimeChimpApp {
         }
     }
 
-    /// The Date field keeps the focus and drives the calendar (`move_calendar`): gpuikit draws a
-    /// focused calendar's focus ring as a filled shadow behind its transparent grid, which turns
-    /// the whole grid accent-coloured, so a click on it hands the focus straight back.
+    /// gpuikit draws a focused calendar's focus ring as a filled shadow behind its transparent grid,
+    /// so the field keeps the focus and a click on the calendar hands it straight back.
     pub fn open_calendar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(form) = self.form() else { return };
         if form.date().picker.is_some() {
@@ -90,7 +89,6 @@ impl TimeChimpApp {
         }
     }
 
-    /// With the calendar closed, propagate so the key does what it normally does in a text field.
     pub fn move_calendar(&mut self, days: i64, months: i32, cx: &mut Context<Self>) {
         let Some(form) = self.form() else { return cx.propagate() };
         let field = form.date();
@@ -102,7 +100,6 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// With no calendar open the key goes on, so Enter saves and Escape cancels the form.
     pub fn dismiss_calendar(&mut self, cx: &mut Context<Self>) {
         match self.form() {
             Some(form) if form.date().picker.is_some() => self.close_calendar(cx),

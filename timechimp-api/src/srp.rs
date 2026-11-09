@@ -1,4 +1,3 @@
-//! Cognito's variant of SRP-6a (USER_SRP_AUTH), as implemented by amazon-cognito-identity-js.
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use chrono::{DateTime, Utc};
@@ -10,7 +9,6 @@ use sha2::{Digest, Sha256};
 
 type HmacSha256 = Hmac<Sha256>;
 
-/// RFC 3526 3072-bit MODP group prime.
 const N_HEX: &str = concat!(
     "FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD1",
     "29024E088A67CC74020BBEA63B139B22514A08798E3404DD",

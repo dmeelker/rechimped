@@ -105,7 +105,6 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// With nothing highlighted, propagate so Enter saves the form.
     pub fn pick_highlighted_address(&mut self, cx: &mut Context<Self>) {
         let Some(form) = self.travel_form() else { return cx.propagate() };
         let picked = form
@@ -131,7 +130,6 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// With no suggestions open, propagate so Escape closes the form.
     pub fn dismiss_addresses(&mut self, cx: &mut Context<Self>) {
         match self.travel_form_mut() {
             Some(form) if form.address_menu.is_some() => {

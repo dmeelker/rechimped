@@ -1,4 +1,3 @@
-//! Logging out replaces the whole `Session`, so nothing of the previous account survives.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -291,7 +290,6 @@ impl Session {
             .is_some_and(|p| self.settings.hidden_projects.iter().any(|name| same_name(name, &p.name)))
     }
 
-    /// `current` is the project of the entry or trip at hand, offered even if hidden or inactive.
     pub fn project_options(&self, current: Option<(i64, &str, &str)>) -> Vec<(i64, String)> {
         let mut options: Vec<(i64, String)> = self
             .projects()
@@ -435,7 +433,6 @@ impl Session {
 #[derive(Debug, PartialEq)]
 pub struct ResolvedTimePreset {
     pub project_id: i64,
-    /// None: the form picks the project's first task.
     pub project_task_id: Option<i64>,
     pub tag_ids: Vec<i64>,
     pub unknown_tags: Vec<String>,
@@ -534,7 +531,6 @@ mod tests {
     fn kept_tags() {
         let mut s = Session::new(None, date(4));
         s.project_tags = HashMap::from([(1, vec![tag(10, "a")]), (2, vec![tag(20, "b")])]);
-        // A tag only another project configures has no checkbox here either, so it is kept.
         assert_eq!(s.kept_tags(Some(2), &[10, 20, 30]), [10, 30]);
         assert_eq!(s.kept_tags(Some(1), &[10, 20, 30]), [20, 30]);
         assert_eq!(s.kept_tags(None, &[10, 20]), [10, 20]);

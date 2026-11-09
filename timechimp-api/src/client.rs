@@ -345,7 +345,6 @@ impl Client {
     }
 }
 
-/// The report endpoints take ag-Grid's server-side row model request.
 fn report_query(from: NaiveDate, to: NaiveDate, rows: std::ops::Range<u32>) -> Value {
     json!({
         "startRow": rows.start,

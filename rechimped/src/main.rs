@@ -60,7 +60,6 @@ fn theme() -> Theme {
     theme.name = "Rechimped".into();
     theme.accent_color = parse_hex("#f36f21");
     theme.input_border_focused_color = Some(parse_hex("#f36f21"));
-    // Off-white so fields stand out from the dialog surface without glaring.
     theme.input_bg_color = Some(parse_hex("#f6f7fa"));
     theme.input_cursor_color = Some(parse_hex("#f36f21"));
     theme.accent_bg_color = Some(parse_hex("#f36f21").opacity(0.14));
@@ -70,7 +69,6 @@ fn theme() -> Theme {
     theme.button_bg_hover_color = Some(parse_hex("#fdeee6"));
     theme.button_bg_active_color = Some(parse_hex("#fbdccb"));
     theme.button_border_color = Some(parse_hex("#bcc0cc"));
-    // gpuikit's default control sizes feel cramped in a desktop window.
     theme.controls.medium = ControlMetrics {
         height: Rems(1.75),
         padding_x: Rems(0.75),
@@ -93,8 +91,7 @@ fn theme() -> Theme {
 }
 
 /// Registered after `gpuikit::init`, so at equal context depth these win over gpuikit's own
-/// `Input` bindings: in our single-line forms Tab moves to the next field instead of typing a
-/// tab character, Enter submits and Escape cancels the dialog instead of just blurring.
+/// `Input` bindings.
 fn bind_keys(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("tab", FocusNext, Some(INPUT_CONTEXT)),

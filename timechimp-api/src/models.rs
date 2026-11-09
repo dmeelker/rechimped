@@ -4,7 +4,6 @@ use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, Utc};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 
-/// Reads return `2026-11-04T00:00:00`, writes `2026-11-04T00:00:00Z` / `2026-11-04T09:23:00.7720557Z`.
 fn parse_datetime(s: &str) -> Result<NaiveDateTime, String> {
     if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
         return Ok(dt.naive_utc());
@@ -265,7 +264,6 @@ pub struct Tag {
     pub tag_type: TagType,
 }
 
-/// Observed: 1 = time entries, 6 = users; 5 and 7 also occur.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(from = "i32")]
 pub enum TagType {
@@ -411,7 +409,6 @@ pub struct ExpenseCategory {
     pub cost_rate: Option<f64>,
 }
 
-/// Its `id` is a time entry's `project_task_id`.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectTask {
@@ -604,7 +601,6 @@ impl NewMileage {
     }
 }
 
-/// `row_count` counts all matching rows, not just this page.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryResult<T> {

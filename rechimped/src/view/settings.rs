@@ -19,7 +19,6 @@ use crate::forms::{Column, ListNav, PresetsForm, ProjectRow, shift, ProjectTagsF
 use super::widgets::*;
 
 impl TimeChimpApp {
-    /// One window for all settings: the categories on the left, the chosen one's page on the right.
     pub(super) fn render_settings(&self, form: &SettingsForm, window: &Window, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         let focused = form.focus.is_focused(window);
         let categories = SettingsPage::ALL.iter().map(|&page| {
@@ -271,7 +270,6 @@ impl TimeChimpApp {
 }
 
 impl TimeChimpApp {
-    /// Trips on the left, time entries on the right, each row with ↑ ↓ and × buttons.
     fn render_presets(&self, form: &PresetsForm, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
         let trips = form.trips.iter().enumerate().map(|(i, trip)| {
             let details = format!("{} → {} · {}", trip.from, trip.to, trip.project);
@@ -322,7 +320,6 @@ impl TimeChimpApp {
     }
 }
 
-/// A preset with its move and delete buttons; `at` is its index and the length of its list.
 #[allow(clippy::too_many_arguments)]
 fn preset_row(
     theme: &T,
@@ -366,8 +363,6 @@ fn preset_row(
         )
 }
 
-/// The left column of the Tasks and Project tags pages: the projects, the hidden ones last under
-/// a heading of their own, `badge` on the right of each, and an accent bar on the selected one while the keys move in this list.
 #[allow(clippy::too_many_arguments)]
 fn project_list<'a>(
     theme: &T,
@@ -382,7 +377,6 @@ fn project_list<'a>(
     let mut in_hidden = false;
     let rows = projects.enumerate().map(|(i, (project, hidden, badge))| {
         let selected = i == current;
-        // Hidden projects come last; the first one gets the heading of their section.
         let first_hidden = hidden && !in_hidden;
         in_hidden |= hidden;
         let subtitle = if project.active { project.customer.clone() } else { format!("{} · inactive", project.customer) };
@@ -445,8 +439,6 @@ fn settings_column(theme: &T, header: gpui::Div, list: gpui::Stateful<gpui::Div>
     v_stack().min_h_0().gap(px(8.)).child(header.h(theme.control(ControlSize::Medium).height).items_center()).child(list)
 }
 
-/// A clickable row with a drawn checkbox, outlined under the keyboard cursor; the caller adds the
-/// click handler and the label.
 fn check_row(theme: &T, id: ElementId, checked: bool, cursor: bool) -> gpui::Stateful<gpui::Div> {
     h_stack()
         .id(id)
@@ -463,7 +455,6 @@ fn check_row(theme: &T, id: ElementId, checked: bool, cursor: bool) -> gpui::Sta
         .child(checkbox_box(if checked { CheckState::Checked } else { CheckState::Unchecked }))
 }
 
-/// A bordered list that fills the rest of its page and scrolls.
 fn list_box(theme: &T, id: &'static str, scroll: &ScrollHandle) -> gpui::Stateful<gpui::Div> {
     v_stack()
         .id(id)
@@ -477,7 +468,6 @@ fn list_box(theme: &T, id: &'static str, scroll: &ScrollHandle) -> gpui::Statefu
         .bg(theme.surface())
 }
 
-/// The keys of the page, under it while there is no error to show.
 fn key_hints(page: SettingsPage) -> &'static str {
     match page {
         SettingsPage::General => "Ctrl+Tab next page · Enter save · Esc cancel",
@@ -492,7 +482,6 @@ fn number_field(field: TextField, unit: gpui::Div) -> gpui::AnyElement {
 }
 
 impl TimeChimpApp {
-    /// Like the chart: no fields, so any key, the backdrop or Close shuts it.
     pub(super) fn render_about(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         let card = v_stack()
             .id("about-card")

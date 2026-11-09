@@ -147,7 +147,6 @@ mod tests {
         let nine = NaiveTime::from_hms_opt(9, 0, 0).unwrap();
         assert_eq!(local(date, nine, chrono_tz::Europe::Amsterdam).unwrap().to_rfc3339(), "2026-11-04T09:00:00+01:00");
         assert_eq!(local(date, nine, chrono_tz::Europe::London).unwrap().to_rfc3339(), "2026-11-04T09:00:00+00:00");
-        // The hour skipped when summer time starts.
         let spring = NaiveDate::from_ymd_opt(2026, 3, 29).unwrap();
         assert!(local(spring, NaiveTime::from_hms_opt(2, 30, 0).unwrap(), chrono_tz::Europe::Amsterdam).is_err());
     }

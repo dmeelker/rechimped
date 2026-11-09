@@ -1,4 +1,3 @@
-//! Works on plain snapshots of the forms, so it needs no window and is unit-tested.
 
 use std::collections::BTreeMap;
 

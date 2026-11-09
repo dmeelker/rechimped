@@ -10,7 +10,6 @@ use crate::validate;
 use super::{Overlay, TimeChimpApp};
 
 impl TimeChimpApp {
-    /// Opens on the page it was last on.
     pub fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let page = self.settings_page;
         if self.overlay_open() {
@@ -45,7 +44,6 @@ impl TimeChimpApp {
         self.show_settings_page(page, window, cx);
     }
 
-    /// Focuses the page's first field, or the window itself on pages without one.
     pub fn show_settings_page(&mut self, page: SettingsPage, window: &mut Window, cx: &mut Context<Self>) {
         self.settings_page = page;
         let Some(form) = self.settings_form_mut() else { return };
@@ -60,8 +58,7 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// Applies a change to the open Settings window from a click, and gives the window the focus
-    /// back so its keys keep working after a button took it.
+    /// Hands the focus back to the window so its keys keep working after a button took it.
     pub fn edit_settings(&mut self, window: &mut Window, cx: &mut Context<Self>, change: impl FnOnce(&mut SettingsForm)) {
         let Some(form) = self.settings_form_mut() else { return };
         change(form);
@@ -70,8 +67,7 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// Ctrl+Tab and Ctrl+1… switch pages from anywhere in the window; the list keys and Enter
-    /// only work on the window itself, since in a field or on a control they are that one's.
+    /// The list keys and Enter only work on the window itself: in a field or control they are that one's.
     pub fn on_settings_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let keystroke = &event.keystroke;
         let m = keystroke.modifiers;
@@ -81,7 +77,6 @@ impl TimeChimpApp {
         let Some(form) = self.settings_form_mut() else { return };
         let on_window = form.focus.is_focused(window);
         let Some(command) = settings_key(&keystroke.key, m.control, m.shift) else {
-            // Letters jump to the first row of the active list starting with what was typed.
             let typed = keystroke.key_char.as_deref().filter(|c| c.chars().all(char::is_alphanumeric));
             if let Some(typed) = typed.filter(|_| on_window && !m.control) {
                 match form.page {
@@ -128,7 +123,6 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// Closes the window, asking first when something changed.
     pub fn cancel_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(form) = self.settings_form() else { return };
         if !form.is_dirty(cx) {
@@ -146,7 +140,6 @@ impl TimeChimpApp {
                     }),
             )
         });
-        // Kept editing: back to the page, which had the focus.
         let sub = cx.subscribe_in(&state, window, |this, _, _: &DialogClosed, window, cx| {
             if let Some(form) = this.settings_form_mut() {
                 form.discard = None;
@@ -161,8 +154,6 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// Saves every page at once; project tags and presets only when changed, then rereads the
-    /// config for them.
     pub fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(form) = self.settings_form() else { return };
         if !form.is_dirty(cx) {

@@ -1,4 +1,3 @@
-//! Plain data rather than gpuikit entities, so working it out needs no window and is unit-tested.
 
 use chrono::NaiveDate;
 use timechimp_api::{Mileage, MileageType, TimeEntry};
@@ -17,7 +16,6 @@ pub struct TagSeed {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProjectSeed {
     pub tasks: Vec<(i64, String)>,
-    /// None: the first task.
     pub task_id: Option<i64>,
     pub tags: Vec<TagSeed>,
     pub kept_tag_ids: Vec<i64>,
@@ -234,7 +232,6 @@ mod tests {
         assert!(matches!(seed.kind, TimeKind::Edit { id: 1, .. }));
         assert_eq!((seed.start.as_str(), seed.end.as_str(), seed.hours.as_str()), ("09:00", "10:00", "1"));
         assert_eq!(checked(&seed.project.tags), [(10, true)]);
-        // Tag 20 is configured, but for project 6 only: it used to get lost here.
         assert_eq!(seed.project.kept_tag_ids, [20, 99]);
         assert!(!seed.recent);
 

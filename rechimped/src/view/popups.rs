@@ -199,7 +199,6 @@ impl TimeChimpApp {
                     .pt(px(8.))
                     .gap(px(8.))
                     .items_center()
-                    // Any form, so an existing entry or trip can become a preset too.
                     .child(pop(
                         theme,
                         button("form-preset", "Save as preset").on_click(cx.listener(|this, _, w, cx| this.save_as_preset(w, cx))),
@@ -258,7 +257,6 @@ impl TimeChimpApp {
                     .child(chevron(Icons::chevron_left()))
                     .child(chevron(Icons::chevron_right())),
             );
-            // The calendar draws its own border but no fill.
             let panel = div()
                 .id("date-calendar")
                 .relative()
@@ -297,7 +295,6 @@ impl TimeChimpApp {
         let input = text_field(form.address_input(field), cx).placeholder("Address").suffix(Adornment::element(chevron));
         let menu = form.address_menu.as_ref().filter(|m| m.field == field).and_then(|menu| {
             let matches = form.address_matches(cx);
-            // Typing something new isn't worth an empty list; ▾ without saved addresses says so.
             if matches.is_empty() && menu.filtered {
                 return None;
             }

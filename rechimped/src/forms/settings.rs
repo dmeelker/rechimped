@@ -13,7 +13,6 @@ use crate::session::Session;
 use crate::store::config::{TimePreset, TripPreset};
 use crate::validate::SettingsValues;
 
-/// The categories of the Settings window, listed on its left.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SettingsPage {
     General,
@@ -49,7 +48,7 @@ impl SettingsPage {
 
 pub struct SettingsForm {
     pub page: SettingsPage,
-    /// The window's own, so its keys work on pages without a text field.
+    /// So its keys work on pages without a text field.
     pub focus: FocusHandle,
     pub work_days: Vec<Entity<Checkbox>>,
     pub billable_goal: Entity<InputState>,
@@ -58,9 +57,7 @@ pub struct SettingsForm {
     pub tags: ProjectTagsForm,
     pub presets: PresetsForm,
     pub error: Option<String>,
-    /// What the window opened with, to tell whether anything changed.
     pub initial: SettingsValues,
-    /// The "Discard changes?" dialog, while open.
     pub discard: Option<(Entity<DialogState>, Subscription)>,
 }
 
@@ -83,7 +80,6 @@ impl SettingsForm {
     }
 }
 
-/// A project as the settings lists show it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProjectRow {
     pub id: i64,
@@ -103,7 +99,6 @@ fn by_name(a: &ProjectRow, b: &ProjectRow) -> Ordering {
     lower(&a.name).cmp(&lower(&b.name)).then_with(|| lower(&a.customer).cmp(&lower(&b.customer)))
 }
 
-/// Shown projects first, then the hidden ones, each by name; `current` stays on its project.
 fn order_projects<T>(items: &mut [T], row: impl Fn(&T) -> &ProjectRow, hidden: &BTreeSet<i64>, current: &mut usize) {
     let keep = items.get(*current).map(|item| row(item).id);
     items.sort_by(|a, b| {
@@ -113,9 +108,7 @@ fn order_projects<T>(items: &mut [T], row: impl Fn(&T) -> &ProjectRow, hidden: &
     *current = keep.and_then(|id| items.iter().position(|item| row(item).id == id)).unwrap_or(0);
 }
 
-/// The trip and time presets, reordered and removed here and written on Save.
 pub struct PresetsForm {
-    /// In their new order.
     pub trips: Vec<TripPreset>,
     pub times: Vec<TimePreset>,
     original: (Vec<TripPreset>, Vec<TimePreset>),
@@ -134,7 +127,6 @@ impl PresetsForm {
     }
 }
 
-/// Moves `items[index]` one place up (`delta` -1) or down (1), if there is room.
 pub fn shift<T>(items: &mut [T], index: usize, delta: isize) {
     if let Some(other) = index.checked_add_signed(delta).filter(|&o| o < items.len())
         && index < items.len()
@@ -143,7 +135,6 @@ pub fn shift<T>(items: &mut [T], index: usize, delta: isize) {
     }
 }
 
-/// Which list of a page the arrow keys move in.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Column {
     #[default]
@@ -151,8 +142,6 @@ pub enum Column {
     Items,
 }
 
-/// The keyboard cursor of a list page: in the left list it is the selected project, in the right
-/// one `item`.
 #[derive(Default)]
 pub struct ListNav {
     pub column: Column,
@@ -171,8 +160,6 @@ impl ListNav {
         Self { column: Column::Items, ..Self::default() }
     }
 
-    /// Moves the cursor of the active list; moving `current`, the selected project, puts the
-    /// right list's cursor back on top.
     fn move_by(&mut self, delta: isize, current: &mut usize, projects: usize, items: usize) {
         match self.column {
             Column::Projects if projects > 0 => {
@@ -189,7 +176,6 @@ impl ListNav {
         }
     }
 
-    /// Moves the cursor of the active list to the first row starting with what was typed.
     fn type_ahead<'a>(
         &mut self,
         typed: &str,
@@ -228,10 +214,9 @@ impl ListNav {
 }
 
 pub struct ProjectVisibility {
-    /// Active projects, by name.
     pub projects: Vec<ProjectRow>,
     pub hidden: BTreeSet<i64>,
-    /// Hidden names matching no active project (gone or inactive), kept so saving doesn't drop them.
+    /// Kept so saving doesn't drop them.
     others: Vec<String>,
     pub nav: ListNav,
 }
@@ -265,7 +250,6 @@ impl ProjectVisibility {
         self.nav.type_ahead(typed, &mut 0, [], self.projects.iter().map(|p| p.name.as_str()));
     }
 
-    /// Toggles the project under the cursor, after moving it to `index` if given.
     pub fn toggle_at(&mut self, index: Option<usize>) {
         if let Some(index) = index {
             self.nav.pick_item(index);
@@ -286,13 +270,11 @@ impl ProjectVisibility {
 }
 
 pub struct TaskVisibility {
-    /// Active projects with active tasks, each with those tasks (id, name) by name.
     pub projects: Vec<(ProjectRow, Vec<(i64, String)>)>,
     pub current: usize,
     pub hidden: HashMap<i64, BTreeSet<i64>>,
-    /// The projects hidden on the Projects page, listed last and dimmed.
     pub hidden_projects: BTreeSet<i64>,
-    /// Hidden names matching no listed project or task, kept so saving doesn't drop them.
+    /// Kept so saving doesn't drop them.
     others: BTreeMap<String, Vec<String>>,
     pub nav: ListNav,
 }
@@ -333,7 +315,6 @@ impl TaskVisibility {
         form
     }
 
-    /// Lists the projects hidden on the Projects page last, keeping the selection.
     pub fn order(&mut self, hidden_projects: &BTreeSet<i64>) {
         order_projects(&mut self.projects, |(p, _)| p, hidden_projects, &mut self.current);
         self.hidden_projects = hidden_projects.clone();
@@ -374,7 +355,6 @@ impl TaskVisibility {
         self.nav.pick_project(&mut self.current, index);
     }
 
-    /// Toggles the task under the cursor, after moving it to `index` if given.
     pub fn toggle_at(&mut self, index: Option<usize>) {
         if let Some(index) = index {
             self.nav.pick_item(index);
@@ -393,7 +373,6 @@ impl TaskVisibility {
         self.hidden.insert(p.id, hidden);
     }
 
-    /// Per project name; projects with nothing hidden are left out.
     pub fn hidden_names(&self) -> BTreeMap<String, Vec<String>> {
         let mut names = BTreeMap::new();
         for (project, tasks) in &self.projects {
@@ -419,16 +398,13 @@ impl TaskVisibility {
 }
 
 pub struct ProjectTagsForm {
-    /// Active projects, and inactive ones that still have tags configured.
     pub projects: Vec<ProjectRow>,
     pub tags: Vec<(i64, String)>,
     pub current: usize,
     pub chosen: HashMap<i64, BTreeSet<i64>>,
-    /// The projects hidden on the Projects page, listed last and dimmed.
     pub hidden_projects: BTreeSet<i64>,
-    /// What the page opened with, so only the projects changed are written.
+    /// So only the projects changed are written.
     original: HashMap<i64, BTreeSet<i64>>,
-    /// Whether the config names tags for any project; until then every project offers all tags.
     pub configured: bool,
     pub nav: ListNav,
 }
@@ -467,7 +443,6 @@ impl ProjectTagsForm {
         form
     }
 
-    /// Lists the projects hidden on the Projects page last, keeping the selection.
     pub fn order(&mut self, hidden_projects: &BTreeSet<i64>) {
         order_projects(&mut self.projects, |p| p, hidden_projects, &mut self.current);
         self.hidden_projects = hidden_projects.clone();
@@ -506,7 +481,6 @@ impl ProjectTagsForm {
         self.nav.pick_project(&mut self.current, index);
     }
 
-    /// Toggles the tag under the cursor, after moving it to `index` if given.
     pub fn toggle_at(&mut self, index: Option<usize>) {
         if let Some(index) = index {
             self.nav.pick_item(index);
@@ -524,8 +498,8 @@ impl ProjectTagsForm {
         self.chosen.insert(project, all);
     }
 
-    /// The projects to write. The first change while nothing is configured writes them all, since
-    /// from then on a project without tags in the config offers none.
+    /// The first change while nothing is configured writes them all: from then on a project
+    /// without tags in the config offers none.
     pub fn changes(&self) -> Vec<(String, Vec<String>)> {
         let none = BTreeSet::new();
         let changed = |id: &i64| self.chosen.get(id).unwrap_or(&none) != self.original.get(id).unwrap_or(&none);

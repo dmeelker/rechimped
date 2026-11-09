@@ -150,8 +150,6 @@ fn range_junction((_, prev_end): (NaiveTime, NaiveTime), (next_start, next_end):
     })
 }
 
-/// The contract hours from TimeChimp spread over the work days, so the Settings window can show
-/// whether the two agree.
 pub fn contract_summary(contract_hours: f64, work_days: usize) -> String {
     if contract_hours <= 0.0 {
         return "No contract hours in TimeChimp".into();
