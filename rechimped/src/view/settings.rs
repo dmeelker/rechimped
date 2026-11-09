@@ -366,8 +366,8 @@ fn preset_row(
         )
 }
 
-/// The left column of the Tasks and Project tags pages: the projects, hidden ones dimmed, `badge`
-/// on the right of each, and an accent bar on the selected one while the keys move in this list.
+/// The left column of the Tasks and Project tags pages: the projects, the hidden ones last under
+/// a heading of their own, `badge` on the right of each, and an accent bar on the selected one while the keys move in this list.
 #[allow(clippy::too_many_arguments)]
 fn project_list<'a>(
     theme: &T,
@@ -379,14 +379,14 @@ fn project_list<'a>(
     pick: fn(&mut SettingsForm, usize),
     cx: &mut Context<TimeChimpApp>,
 ) -> gpui::Div {
+    let mut in_hidden = false;
     let rows = projects.enumerate().map(|(i, (project, hidden, badge))| {
         let selected = i == current;
-        let notes = [(hidden, "hidden"), (!project.active, "inactive")];
-        let subtitle = std::iter::once(project.customer.as_str())
-            .chain(notes.iter().filter(|(on, _)| *on).map(|(_, note)| *note))
-            .collect::<Vec<_>>()
-            .join(" · ");
-        h_stack()
+        // Hidden projects come last; the first one gets the heading of their section.
+        let first_hidden = hidden && !in_hidden;
+        in_hidden |= hidden;
+        let subtitle = if project.active { project.customer.clone() } else { format!("{} · inactive", project.customer) };
+        let row = h_stack()
             .id(ElementId::NamedInteger(format!("{id}-row").into(), i as u64))
             .relative()
             .flex_none()
@@ -398,6 +398,7 @@ fn project_list<'a>(
             .border_color(theme.border_subtle())
             .cursor_pointer()
             .when(selected, |d| d.bg(theme.accent_bg()))
+            .when(!selected && hidden, |d| d.bg(theme.surface_secondary()))
             .when(!selected, |d| d.hover(|s| s.bg(theme.surface_secondary())))
             .when(selected && active, |d| d.child(div().absolute().left_0().top_0().bottom_0().w(px(3.)).bg(theme.accent())))
             .on_click(cx.listener(move |this, _, w, cx| this.edit_settings(w, cx, |f| pick(f, i))))
@@ -406,15 +407,42 @@ fn project_list<'a>(
                     .flex_1()
                     .min_w_0()
                     .child(
-                        div()
-                            .truncate()
-                            .when(selected, |d| d.font_weight(FontWeight::SEMIBOLD))
-                            .when(hidden || !project.active, |d| d.text_color(theme.fg_muted()))
-                            .child(project.name.clone()),
+                        h_stack()
+                            .gap(px(6.))
+                            .items_center()
+                            .when(hidden, |d| d.child(Icons::eye_closed().flex_none().size(px(14.)).text_color(theme.fg_muted())))
+                            .child(
+                                div()
+                                    .truncate()
+                                    .when(selected, |d| d.font_weight(FontWeight::SEMIBOLD))
+                                    .when(hidden || !project.active, |d| d.text_color(theme.fg_muted()))
+                                    .child(project.name.clone()),
+                            ),
                     )
                     .child(muted(theme, subtitle).text_xs().truncate()),
             )
-            .when_some(badge, |d, badge| d.child(muted(theme, badge).flex_none()))
+            .when_some(badge, |d, badge| d.child(muted(theme, badge).flex_none()));
+        // Wrapped rather than a row of its own, so row i stays child i for `scroll_to_item`.
+        v_stack()
+            .flex_none()
+            .when(first_hidden, |d| {
+                d.child(
+                    h_stack()
+                        .px(px(10.))
+                        .pt(px(10.))
+                        .pb(px(4.))
+                        .gap(px(6.))
+                        .items_center()
+                        .border_b_1()
+                        .border_color(theme.border())
+                        .text_xs()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme.fg_muted())
+                        .child(Icons::eye_closed().size(px(12.)).text_color(theme.fg_muted()))
+                        .child("Hidden on the Projects page"),
+                )
+            })
+            .child(row)
     });
     let list = list_box(theme, id, &nav.projects_scroll).children(rows);
     settings_column(theme, h_stack().child(muted(theme, "Projects")), list).w(px(240.)).flex_none()
