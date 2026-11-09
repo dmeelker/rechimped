@@ -1,9 +1,9 @@
-use gpui::{AppContext, Context, ElementId, Focusable, Window};
+use gpui::{AppContext, Context, ElementId, Focusable, KeyDownEvent, Window};
 use gpuikit::elements::checkbox::checkbox;
 use gpuikit::elements::dialog::{DialogClosed, DialogState, dialog};
 
 use crate::domain::plain_number;
-use crate::forms::{self, ProjectTagsForm, ProjectVisibility, SettingsForm, SettingsPage, TaskVisibility};
+use crate::forms::{self, Column, ProjectTagsForm, ProjectVisibility, SettingsForm, SettingsPage, TaskVisibility};
 use crate::store::config;
 use crate::validate;
 
@@ -55,60 +55,58 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    pub fn toggle_project_hidden(&mut self, project_id: i64, cx: &mut Context<Self>) {
-        if let Some(form) = self.settings_form_mut() {
-            form.projects.toggle(project_id);
-            cx.notify();
-        }
+    /// Applies a change to the open Settings window from a click, and gives the window the focus
+    /// back so its keys keep working after a button took it.
+    pub fn edit_settings(&mut self, window: &mut Window, cx: &mut Context<Self>, change: impl FnOnce(&mut SettingsForm)) {
+        let Some(form) = self.settings_form_mut() else { return };
+        change(form);
+        let focus = form.focus.clone();
+        window.focus(&focus, cx);
+        cx.notify();
     }
 
-    pub fn show_all_projects(&mut self, shown: bool, cx: &mut Context<Self>) {
-        if let Some(form) = self.settings_form_mut() {
-            form.projects.set_all(shown);
-            cx.notify();
+    /// Ctrl+Tab and Ctrl+1… switch pages from anywhere in the window; the list keys and Enter
+    /// only work on the window itself, since in a field or on a control they are that one's.
+    pub fn on_settings_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let keystroke = &event.keystroke;
+        let m = keystroke.modifiers;
+        if m.alt || m.platform || m.function {
+            return;
         }
-    }
-
-    pub fn show_tasks_of(&mut self, index: usize, cx: &mut Context<Self>) {
-        if let Some(form) = self.settings_form_mut() {
-            form.tasks.current = index;
-            cx.notify();
+        let Some(form) = self.settings_form_mut() else { return };
+        let Some(command) = settings_key(&keystroke.key, m.control, m.shift) else { return };
+        let on_window = form.focus.is_focused(window);
+        let page = |index: usize| SettingsPage::ALL[index % SettingsPage::ALL.len()];
+        let current = SettingsPage::ALL.iter().position(|p| *p == form.page).unwrap_or(0);
+        match command {
+            SettingsKey::Page(delta) => {
+                let len = SettingsPage::ALL.len() as isize;
+                return self.show_settings_page(page((current as isize + delta).rem_euclid(len) as usize), window, cx);
+            }
+            SettingsKey::PageTo(index) if index < SettingsPage::ALL.len() => return self.show_settings_page(page(index), window, cx),
+            SettingsKey::PageTo(_) => return,
+            _ if !on_window => return,
+            SettingsKey::Save => return self.save_settings(window, cx),
+            SettingsKey::Move(delta) => match form.page {
+                SettingsPage::General => return,
+                SettingsPage::Projects => form.projects.move_cursor(delta),
+                SettingsPage::Tasks => form.tasks.move_cursor(delta),
+                SettingsPage::ProjectTags => form.tags.move_cursor(delta),
+            },
+            SettingsKey::List(column) => match form.page {
+                SettingsPage::Tasks => form.tasks.nav.column = column,
+                SettingsPage::ProjectTags => form.tags.nav.column = column,
+                SettingsPage::General | SettingsPage::Projects => return,
+            },
+            SettingsKey::Toggle => match form.page {
+                SettingsPage::General => return,
+                SettingsPage::Projects => form.projects.toggle_at(None),
+                SettingsPage::Tasks => form.tasks.toggle_at(None),
+                SettingsPage::ProjectTags => form.tags.toggle_at(None),
+            },
         }
-    }
-
-    pub fn toggle_task_hidden(&mut self, task_id: i64, cx: &mut Context<Self>) {
-        if let Some(form) = self.settings_form_mut() {
-            form.tasks.toggle(task_id);
-            cx.notify();
-        }
-    }
-
-    pub fn show_all_tasks(&mut self, shown: bool, cx: &mut Context<Self>) {
-        if let Some(form) = self.settings_form_mut() {
-            form.tasks.set_all(shown);
-            cx.notify();
-        }
-    }
-
-    pub fn show_project_tags_of(&mut self, index: usize, cx: &mut Context<Self>) {
-        if let Some(form) = self.settings_form_mut() {
-            form.tags.current = index;
-            cx.notify();
-        }
-    }
-
-    pub fn toggle_project_tag(&mut self, tag_id: i64, cx: &mut Context<Self>) {
-        if let Some(form) = self.settings_form_mut() {
-            form.tags.toggle(tag_id);
-            cx.notify();
-        }
-    }
-
-    pub fn set_all_project_tags(&mut self, checked: bool, cx: &mut Context<Self>) {
-        if let Some(form) = self.settings_form_mut() {
-            form.tags.set_all(checked);
-            cx.notify();
-        }
+        cx.stop_propagation();
+        cx.notify();
     }
 
     /// Closes the window, asking first when something changed.
@@ -193,5 +191,59 @@ impl TimeChimpApp {
             return self.close_menu(cx);
         }
         self.open_overlay(Overlay::About, cx);
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SettingsKey {
+    Page(isize),
+    PageTo(usize),
+    Move(isize),
+    List(Column),
+    Toggle,
+    Save,
+}
+
+fn settings_key(key: &str, ctrl: bool, shift: bool) -> Option<SettingsKey> {
+    use SettingsKey::*;
+    Some(match (key, ctrl) {
+        ("tab", true) => Page(if shift { -1 } else { 1 }),
+        ("pageup", true) => Page(-1),
+        ("pagedown", true) => Page(1),
+        (_, true) => match key.parse::<usize>() {
+            Ok(n @ 1..=9) => PageTo(n - 1),
+            _ => return None,
+        },
+        ("up" | "k", _) => Move(-1),
+        ("down" | "j", _) => Move(1),
+        ("pageup", _) => Move(-10),
+        ("pagedown", _) => Move(10),
+        ("home", _) => Move(isize::MIN),
+        ("end", _) => Move(isize::MAX),
+        ("left" | "h", _) => List(crate::forms::Column::Projects),
+        ("right" | "l", _) => List(crate::forms::Column::Items),
+        ("space", _) => Toggle,
+        ("enter", _) if !shift => Save,
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SettingsKey::*;
+    use super::*;
+
+    #[test]
+    fn keymap() {
+        assert_eq!(settings_key("tab", true, false), Some(Page(1)));
+        assert_eq!(settings_key("tab", true, true), Some(Page(-1)));
+        assert_eq!(settings_key("3", true, false), Some(PageTo(2)));
+        assert_eq!(settings_key("0", true, false), None);
+        assert_eq!(settings_key("tab", false, false), None, "plain Tab moves the focus");
+        assert_eq!(settings_key("j", false, false), Some(Move(1)));
+        assert_eq!(settings_key("right", false, false), Some(List(forms::Column::Items)));
+        assert_eq!(settings_key("space", false, false), Some(Toggle));
+        assert_eq!(settings_key("enter", false, false), Some(Save));
+        assert_eq!(settings_key("a", true, false), None);
     }
 }

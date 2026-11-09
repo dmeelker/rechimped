@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use gpui::{App, Entity, FocusHandle, Subscription};
+use gpui::{App, Entity, FocusHandle, ScrollHandle, Subscription};
 use gpuikit::elements::checkbox::Checkbox;
 use gpuikit::elements::dialog::DialogState;
 use gpuikit::input::InputState;
@@ -108,12 +108,70 @@ fn order_projects<T>(items: &mut [T], row: impl Fn(&T) -> &ProjectRow, hidden: &
     *current = keep.and_then(|id| items.iter().position(|item| row(item).id == id)).unwrap_or(0);
 }
 
+/// Which list of a page the arrow keys move in.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Column {
+    #[default]
+    Projects,
+    Items,
+}
+
+/// The keyboard cursor of a list page: in the left list it is the selected project, in the right
+/// one `item`.
+#[derive(Default)]
+pub struct ListNav {
+    pub column: Column,
+    pub item: usize,
+    pub projects_scroll: ScrollHandle,
+    pub items_scroll: ScrollHandle,
+}
+
+fn step(index: usize, delta: isize, len: usize) -> usize {
+    index.saturating_add_signed(delta).min(len.saturating_sub(1))
+}
+
+impl ListNav {
+    fn items_only() -> Self {
+        Self { column: Column::Items, ..Self::default() }
+    }
+
+    /// Moves the cursor of the active list; moving `current`, the selected project, puts the
+    /// right list's cursor back on top.
+    fn move_by(&mut self, delta: isize, current: &mut usize, projects: usize, items: usize) {
+        match self.column {
+            Column::Projects if projects > 0 => {
+                *current = step(*current, delta, projects);
+                self.item = 0;
+                self.projects_scroll.scroll_to_item(*current);
+                self.items_scroll.scroll_to_item(0);
+            }
+            Column::Items if items > 0 => {
+                self.item = step(self.item, delta, items);
+                self.items_scroll.scroll_to_item(self.item);
+            }
+            _ => {}
+        }
+    }
+
+    fn pick_project(&mut self, current: &mut usize, index: usize) {
+        *current = index;
+        self.item = 0;
+        self.column = Column::Projects;
+    }
+
+    fn pick_item(&mut self, index: usize) {
+        self.item = index;
+        self.column = Column::Items;
+    }
+}
+
 pub struct ProjectVisibility {
     /// Active projects, by name.
     pub projects: Vec<ProjectRow>,
     pub hidden: BTreeSet<i64>,
     /// Hidden names matching no active project (gone or inactive), kept so saving doesn't drop them.
     others: Vec<String>,
+    pub nav: ListNav,
 }
 
 impl ProjectVisibility {
@@ -128,12 +186,26 @@ impl ProjectVisibility {
             .filter(|name| !projects.iter().any(|p| same_name(&p.name, name)))
             .cloned()
             .collect();
-        Self { projects, hidden, others }
+        Self { projects, hidden, others, nav: ListNav::items_only() }
     }
 
     pub fn toggle(&mut self, project_id: i64) {
         if !self.hidden.remove(&project_id) {
             self.hidden.insert(project_id);
+        }
+    }
+
+    pub fn move_cursor(&mut self, delta: isize) {
+        self.nav.move_by(delta, &mut 0, 0, self.projects.len());
+    }
+
+    /// Toggles the project under the cursor, after moving it to `index` if given.
+    pub fn toggle_at(&mut self, index: Option<usize>) {
+        if let Some(index) = index {
+            self.nav.pick_item(index);
+        }
+        if let Some(id) = self.projects.get(self.nav.item).map(|p| p.id) {
+            self.toggle(id);
         }
     }
 
@@ -156,6 +228,7 @@ pub struct TaskVisibility {
     pub hidden_projects: BTreeSet<i64>,
     /// Hidden names matching no listed project or task, kept so saving doesn't drop them.
     others: BTreeMap<String, Vec<String>>,
+    pub nav: ListNav,
 }
 
 impl TaskVisibility {
@@ -187,7 +260,8 @@ impl TaskVisibility {
                 others.insert(project.clone(), unlisted);
             }
         }
-        let mut form = Self { projects, current: 0, hidden, hidden_projects: BTreeSet::new(), others };
+        let mut form =
+            Self { projects, current: 0, hidden, hidden_projects: BTreeSet::new(), others, nav: ListNav::default() };
         form.order(hidden_projects);
         form.current = 0;
         form
@@ -216,6 +290,28 @@ impl TaskVisibility {
         let hidden = self.hidden.entry(project).or_default();
         if !hidden.remove(&task_id) {
             hidden.insert(task_id);
+        }
+    }
+
+    pub fn move_cursor(&mut self, delta: isize) {
+        let tasks = self.projects.get(self.current).map_or(0, |(_, tasks)| tasks.len());
+        self.nav.move_by(delta, &mut self.current, self.projects.len(), tasks);
+    }
+
+    pub fn pick_project(&mut self, index: usize) {
+        self.nav.pick_project(&mut self.current, index);
+    }
+
+    /// Toggles the task under the cursor, after moving it to `index` if given.
+    pub fn toggle_at(&mut self, index: Option<usize>) {
+        if let Some(index) = index {
+            self.nav.pick_item(index);
+        }
+        let task = self.projects.get(self.current).and_then(|(_, tasks)| tasks.get(self.nav.item));
+        if self.nav.column == Column::Items
+            && let Some(&(task, _)) = task
+        {
+            self.toggle(task);
         }
     }
 
@@ -262,6 +358,7 @@ pub struct ProjectTagsForm {
     original: HashMap<i64, BTreeSet<i64>>,
     /// Whether the config names tags for any project; until then every project offers all tags.
     pub configured: bool,
+    pub nav: ListNav,
 }
 
 impl ProjectTagsForm {
@@ -283,8 +380,16 @@ impl ProjectTagsForm {
             .collect();
         tags.sort_by_key(|(_, name)| name.to_lowercase());
         let configured = session.tags_configured();
-        let mut form =
-            Self { projects, tags, current: 0, original: chosen.clone(), chosen, hidden_projects: BTreeSet::new(), configured };
+        let mut form = Self {
+            projects,
+            tags,
+            current: 0,
+            original: chosen.clone(),
+            chosen,
+            hidden_projects: BTreeSet::new(),
+            configured,
+            nav: ListNav::default(),
+        };
         form.order(hidden_projects);
         form.current = 0;
         form
@@ -313,6 +418,26 @@ impl ProjectTagsForm {
         let tags = self.chosen.entry(project).or_default();
         if !tags.remove(&tag_id) {
             tags.insert(tag_id);
+        }
+    }
+
+    pub fn move_cursor(&mut self, delta: isize) {
+        self.nav.move_by(delta, &mut self.current, self.projects.len(), self.tags.len());
+    }
+
+    pub fn pick_project(&mut self, index: usize) {
+        self.nav.pick_project(&mut self.current, index);
+    }
+
+    /// Toggles the tag under the cursor, after moving it to `index` if given.
+    pub fn toggle_at(&mut self, index: Option<usize>) {
+        if let Some(index) = index {
+            self.nav.pick_item(index);
+        }
+        if self.nav.column == Column::Items
+            && let Some(&(tag, _)) = self.tags.get(self.nav.item)
+        {
+            self.toggle(tag);
         }
     }
 
@@ -450,5 +575,33 @@ mod tests {
 
         let form = ProjectTagsForm::new(&s, &BTreeSet::from([1, 2]));
         assert_eq!(form.projects.iter().map(|p| p.id).collect::<Vec<_>>(), [3, 1, 2]);
+    }
+
+    #[test]
+    fn keyboard_cursor() {
+        let mut s = Session::new(None, date(4));
+        let tasks = HashMap::from([(1, vec![task(10, 1, "a"), task(11, 1, "b")]), (2, vec![task(20, 2, "c")])]);
+        s.apply_base(base(vec![project(1, "A"), project(2, "B")], tasks, Vec::new()), None, &[]);
+        let mut form = TaskVisibility::new(&s, &BTreeSet::new());
+
+        form.toggle_at(None);
+        assert_eq!(form.hidden_count(1), 0, "Space does nothing in the project list");
+        form.nav.column = Column::Items;
+        form.move_cursor(5);
+        assert_eq!(form.nav.item, 1, "stops at the last task");
+        form.toggle_at(None);
+        assert!(form.is_hidden(1, 11));
+        form.nav.column = Column::Projects;
+        form.move_cursor(1);
+        assert_eq!((form.current_project(), form.nav.item), (Some(2), 0), "a new project starts at its first task");
+        form.move_cursor(isize::MIN);
+        assert_eq!(form.current, 0);
+        form.toggle_at(Some(0));
+        assert!(form.is_hidden(1, 10) && form.nav.column == Column::Items, "a click moves the cursor there");
+
+        let mut projects = ProjectVisibility::new(&s);
+        projects.move_cursor(1);
+        projects.toggle_at(None);
+        assert_eq!(projects.hidden, BTreeSet::from([2]));
     }
 }

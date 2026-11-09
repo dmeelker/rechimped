@@ -128,6 +128,7 @@ impl TimeChimpApp {
             Command::Add => self.add(window, cx),
             Command::Edit => self.edit_selected(window, cx),
             Command::Copy => self.copy_selected(window, cx),
+            Command::Settings => self.open_settings(crate::forms::SettingsPage::General, window, cx),
             Command::Delete => self.ask_delete(window, cx),
         }
         cx.stop_propagation();
@@ -151,12 +152,14 @@ enum Command {
     Edit,
     Copy,
     Delete,
+    Settings,
 }
 
 fn browse_command(key: &str, shift: bool, ctrl: bool, tab: Tab, has_entry: bool) -> Option<Command> {
     let week_tab = tab == Tab::Week;
     Some(match (key, ctrl) {
         ("q", true) => Command::Quit,
+        (",", true) => Command::Settings,
         (_, true) => return None,
         ("1" | "2" | "3", _) => Command::SwitchTab(key.parse::<usize>().expect("digit") - 1),
         ("r", _) => Command::Reload,
@@ -209,6 +212,7 @@ mod tests {
     #[test]
     fn modifiers_and_tab_independent_keys() {
         assert_eq!(browse_command("q", false, true, Tab::Report, false), Some(Quit));
+        assert_eq!(browse_command(",", false, true, Tab::Travel, false), Some(Settings));
         assert_eq!(browse_command("r", false, true, Tab::Week, true), None, "Ctrl+R isn't R");
         assert_eq!(browse_command("l", true, false, Tab::Report, false), Some(Logout), "Shift+L before the month keys");
         assert_eq!(key("3", Tab::Week), Some(SwitchTab(2)));

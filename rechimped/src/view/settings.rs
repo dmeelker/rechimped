@@ -1,5 +1,5 @@
 use gpui::{
-    Context, ElementId, FontWeight, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, StatefulInteractiveElement,
+    Context, ElementId, FontWeight, ScrollHandle, Window, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, StatefulInteractiveElement,
     Styled, div, prelude::FluentBuilder, px,
 };
 use gpuikit::a11y::FocusNavigation;
@@ -10,13 +10,14 @@ use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::{ControlSize, Themeable};
 
 use crate::app::{Cancel, Confirm, TimeChimpApp};
-use crate::forms::{ProjectRow, ProjectTagsForm, ProjectVisibility, SettingsForm, SettingsPage, TaskVisibility};
+use crate::forms::{Column, ListNav, ProjectRow, ProjectTagsForm, ProjectVisibility, SettingsForm, SettingsPage, TaskVisibility};
 
 use super::widgets::*;
 
 impl TimeChimpApp {
     /// One window for all settings: the categories on the left, the chosen one's page on the right.
-    pub(super) fn render_settings(&self, form: &SettingsForm, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn render_settings(&self, form: &SettingsForm, window: &Window, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
+        let focused = form.focus.is_focused(window);
         let categories = SettingsPage::ALL.iter().map(|&page| {
             let selected = page == form.page;
             div()
@@ -54,15 +55,16 @@ impl TimeChimpApp {
 
         let content = match form.page {
             SettingsPage::General => self.render_general(form, theme, cx),
-            SettingsPage::Projects => self.render_project_visibility(&form.projects, theme, cx),
-            SettingsPage::Tasks => self.render_task_visibility(&form.tasks, theme, cx),
-            SettingsPage::ProjectTags => self.render_project_tags(&form.tags, theme, cx),
+            SettingsPage::Projects => self.render_project_visibility(&form.projects, focused, theme, cx),
+            SettingsPage::Tasks => self.render_task_visibility(&form.tasks, focused, theme, cx),
+            SettingsPage::ProjectTags => self.render_project_tags(&form.tags, focused, theme, cx),
         };
         let footer = h_stack()
             .gap(px(8.))
             .items_center()
-            .child(div().flex_1().min_w_0().when_some(form.error.clone(), |d, e| {
-                d.p(px(8.)).rounded(px(6.)).bg(theme.danger().opacity(0.15)).text_color(theme.danger()).child(e)
+            .child(div().flex_1().min_w_0().map(|d| match form.error.clone() {
+                Some(e) => d.p(px(8.)).rounded(px(6.)).bg(theme.danger().opacity(0.15)).text_color(theme.danger()).child(e),
+                None => d.child(muted(theme, key_hints(form.page)).text_xs()),
             }))
             .child(pop(
                 theme,
@@ -96,13 +98,7 @@ impl TimeChimpApp {
             .moves_focus_on_tab()
             .on_action(cx.listener(|this, _: &Confirm, w, cx| this.save_settings(w, cx)))
             .on_action(cx.listener(|this, _: &Cancel, w, cx| this.cancel_settings(w, cx)))
-            // Only on the window itself: in a field Enter is `Confirm` already, on a control it's the control's.
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, w, cx| {
-                let on_window = this.settings_form().is_some_and(|f| f.focus.is_focused(w));
-                if on_window && event.keystroke.key == "enter" && !event.keystroke.modifiers.modified() {
-                    this.save_settings(w, cx);
-                }
-            }))
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, w, cx| this.on_settings_key(event, w, cx)))
             .h(px(540.))
             .items_stretch()
             .child(sidebar)
@@ -128,21 +124,11 @@ impl TimeChimpApp {
             .into_any_element()
     }
 
-    fn render_project_visibility(&self, p: &ProjectVisibility, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let rows = p.projects.iter().map(|project| {
-            let (id, shown) = (project.id, !p.hidden.contains(&project.id));
-            h_stack()
-                .id(ElementId::NamedInteger("settings-project".into(), id as u64))
-                .flex_none()
-                .px(px(8.))
-                .py(px(4.))
-                .gap(px(10.))
-                .items_center()
-                .rounded(px(4.))
-                .cursor_pointer()
-                .hover(|s| s.bg(theme.surface_secondary()))
-                .on_click(cx.listener(move |this, _, _, cx| this.toggle_project_hidden(id, cx)))
-                .child(checkbox_box(if shown { CheckState::Checked } else { CheckState::Unchecked }))
+    fn render_project_visibility(&self, p: &ProjectVisibility, focused: bool, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let rows = p.projects.iter().enumerate().map(|(i, project)| {
+            let shown = !p.hidden.contains(&project.id);
+            check_row(theme, ElementId::NamedInteger("settings-project".into(), project.id as u64), shown, focused && i == p.nav.item)
+                .on_click(cx.listener(move |this, _, w, cx| this.edit_settings(w, cx, |f| f.projects.toggle_at(Some(i)))))
                 .child(
                     div()
                         .flex_1()
@@ -153,7 +139,7 @@ impl TimeChimpApp {
                 )
                 .child(muted(theme, project.customer.clone()).text_xs().flex_none())
         });
-        let list = list_box(theme, "settings-projects")
+        let list = list_box(theme, "settings-projects", &p.nav.items_scroll)
             .p(px(6.))
             .when(p.projects.is_empty(), |d| d.child(muted(theme, "No projects.")))
             .children(rows);
@@ -161,7 +147,9 @@ impl TimeChimpApp {
         let set_all = |id: &'static str, label: &'static str, show: bool, disabled: bool| {
             pop(
                 theme,
-                button(id, label).disabled(disabled).on_click(cx.listener(move |this, _, _, cx| this.show_all_projects(show, cx))),
+                button(id, label)
+                    .disabled(disabled)
+                    .on_click(cx.listener(move |this, _, w, cx| this.edit_settings(w, cx, |f| f.projects.set_all(show)))),
             )
         };
         v_stack()
@@ -180,27 +168,36 @@ impl TimeChimpApp {
             .into_any_element()
     }
 
-    fn render_task_visibility(&self, form: &TaskVisibility, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
+    fn render_task_visibility(&self, form: &TaskVisibility, focused: bool, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
         let projects = form.projects.iter().map(|(project, tasks)| {
             let hidden = form.hidden_count(project.id);
             let badge = Some(format!("{} of {}", tasks.len() - hidden, tasks.len()));
             (project, form.hidden_projects.contains(&project.id), badge)
         });
-        let projects = project_list(theme, "task-projects", projects, form.current, Self::show_tasks_of, cx);
+        let in_projects = focused && form.nav.column == Column::Projects;
+        let projects = project_list(theme, "task-projects", projects, form.current, in_projects, &form.nav, |f, i| f.tasks.pick_project(i), cx);
         let current = form.projects.get(form.current);
+        let cursor = (focused && form.nav.column == Column::Items).then_some(form.nav.item);
         let tasks = match current {
-            None => list_box(theme, "task-choices").p(px(12.)).child(muted(theme, "No projects with tasks.")),
-            Some((project, tasks)) => list_box(theme, "task-choices").p(px(8.)).children(tasks.iter().map(|(task_id, name)| {
-                let (task_id, shown) = (*task_id, !form.is_hidden(project.id, *task_id));
-                check_row(theme, ElementId::NamedInteger("task-choice".into(), task_id as u64), shown)
-                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_task_hidden(task_id, cx)))
-                    .child(div().when(!shown, |d| d.text_color(theme.fg_muted())).child(name.clone()))
-            })),
+            None => list_box(theme, "task-choices", &form.nav.items_scroll).p(px(12.)).child(muted(theme, "No projects with tasks.")),
+            Some((project, tasks)) => {
+                list_box(theme, "task-choices", &form.nav.items_scroll).p(px(8.)).children(tasks.iter().enumerate().map(|(i, (task_id, name))| {
+                    let shown = !form.is_hidden(project.id, *task_id);
+                    check_row(theme, ElementId::NamedInteger("task-choice".into(), *task_id as u64), shown, cursor == Some(i))
+                        .on_click(cx.listener(move |this, _, w, cx| this.edit_settings(w, cx, |f| f.tasks.toggle_at(Some(i)))))
+                        .child(div().when(!shown, |d| d.text_color(theme.fg_muted())).child(name.clone()))
+                }))
+            }
         };
         let hidden = current.map_or(0, |(p, _)| form.hidden_count(p.id));
         let total = current.map_or(0, |(_, tasks)| tasks.len());
         let set_all = |id: &'static str, label: &'static str, shown: bool, disabled: bool| {
-            pop(theme, button(id, label).disabled(disabled).on_click(cx.listener(move |this, _, _, cx| this.show_all_tasks(shown, cx))))
+            pop(
+                theme,
+                button(id, label)
+                    .disabled(disabled)
+                    .on_click(cx.listener(move |this, _, w, cx| this.edit_settings(w, cx, |f| f.tasks.set_all(shown)))),
+            )
         };
         let title = current.map_or_else(String::new, |(p, _)| format!("Tasks of {}", p.name));
         let tasks = settings_column(
@@ -217,20 +214,24 @@ impl TimeChimpApp {
         h_stack().flex_1().min_h_0().items_stretch().gap(px(12.)).child(projects).child(tasks).into_any_element()
     }
 
-    fn render_project_tags(&self, form: &ProjectTagsForm, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
+    fn render_project_tags(&self, form: &ProjectTagsForm, focused: bool, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
         let projects = form.projects.iter().map(|project| {
             let count = form.count(project.id);
             (project, form.hidden_projects.contains(&project.id), Some(format!("{count} of {}", form.tags.len())))
         });
-        let projects = project_list(theme, "tag-projects", projects, form.current, Self::show_project_tags_of, cx);
+        let in_projects = focused && form.nav.column == Column::Projects;
+        let projects = project_list(theme, "tag-projects", projects, form.current, in_projects, &form.nav, |f, i| f.tags.pick_project(i), cx);
+        let cursor = (focused && form.nav.column == Column::Items).then_some(form.nav.item);
         let tags = match form.current_project() {
-            None => list_box(theme, "tag-choices").p(px(12.)).child(muted(theme, "No projects.")),
-            Some(project) => list_box(theme, "tag-choices").p(px(8.)).children(form.tags.iter().map(|(tag_id, name)| {
-                let (tag_id, checked) = (*tag_id, form.is_checked(project, *tag_id));
-                check_row(theme, ElementId::NamedInteger("tag-choice".into(), tag_id as u64), checked)
-                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_project_tag(tag_id, cx)))
-                    .child(name.clone())
-            })),
+            None => list_box(theme, "tag-choices", &form.nav.items_scroll).p(px(12.)).child(muted(theme, "No projects.")),
+            Some(project) => {
+                list_box(theme, "tag-choices", &form.nav.items_scroll).p(px(8.)).children(form.tags.iter().enumerate().map(|(i, (tag_id, name))| {
+                    let checked = form.is_checked(project, *tag_id);
+                    check_row(theme, ElementId::NamedInteger("tag-choice".into(), *tag_id as u64), checked, cursor == Some(i))
+                        .on_click(cx.listener(move |this, _, w, cx| this.edit_settings(w, cx, |f| f.tags.toggle_at(Some(i)))))
+                        .child(name.clone())
+                }))
+            }
         };
         let count = form.current_project().map_or(0, |p| form.count(p));
         let no_project = form.current_project().is_none();
@@ -239,7 +240,7 @@ impl TimeChimpApp {
                 theme,
                 button(id, label)
                     .disabled(disabled)
-                    .on_click(cx.listener(move |this, _, _, cx| this.set_all_project_tags(checked, cx))),
+                    .on_click(cx.listener(move |this, _, w, cx| this.edit_settings(w, cx, |f| f.tags.set_all(checked)))),
             )
         };
         let title = form.projects.get(form.current).map_or_else(String::new, |p| format!("Tags for {}", p.name));
@@ -268,13 +269,16 @@ impl TimeChimpApp {
 }
 
 /// The left column of the Tasks and Project tags pages: the projects, hidden ones dimmed, `badge`
-/// on the right of each.
+/// on the right of each, and an accent bar on the selected one while the keys move in this list.
+#[allow(clippy::too_many_arguments)]
 fn project_list<'a>(
     theme: &T,
     id: &'static str,
     projects: impl Iterator<Item = (&'a ProjectRow, bool, Option<String>)>,
     current: usize,
-    pick: fn(&mut TimeChimpApp, usize, &mut Context<TimeChimpApp>),
+    active: bool,
+    nav: &ListNav,
+    pick: fn(&mut SettingsForm, usize),
     cx: &mut Context<TimeChimpApp>,
 ) -> gpui::Div {
     let rows = projects.enumerate().map(|(i, (project, hidden, badge))| {
@@ -286,6 +290,7 @@ fn project_list<'a>(
             .join(" · ");
         h_stack()
             .id(ElementId::NamedInteger(format!("{id}-row").into(), i as u64))
+            .relative()
             .flex_none()
             .px(px(10.))
             .py(px(6.))
@@ -296,7 +301,8 @@ fn project_list<'a>(
             .cursor_pointer()
             .when(selected, |d| d.bg(theme.accent_bg()))
             .when(!selected, |d| d.hover(|s| s.bg(theme.surface_secondary())))
-            .on_click(cx.listener(move |this, _, _, cx| pick(this, i, cx)))
+            .when(selected && active, |d| d.child(div().absolute().left_0().top_0().bottom_0().w(px(3.)).bg(theme.accent())))
+            .on_click(cx.listener(move |this, _, w, cx| this.edit_settings(w, cx, |f| pick(f, i))))
             .child(
                 v_stack()
                     .flex_1()
@@ -312,7 +318,8 @@ fn project_list<'a>(
             )
             .when_some(badge, |d, badge| d.child(muted(theme, badge).flex_none()))
     });
-    settings_column(theme, h_stack().child(muted(theme, "Projects")), list_box(theme, id).children(rows)).w(px(240.)).flex_none()
+    let list = list_box(theme, id, &nav.projects_scroll).children(rows);
+    settings_column(theme, h_stack().child(muted(theme, "Projects")), list).w(px(240.)).flex_none()
 }
 
 /// Its header row as tall as a button, so columns side by side line up.
@@ -320,8 +327,9 @@ fn settings_column(theme: &T, header: gpui::Div, list: gpui::Stateful<gpui::Div>
     v_stack().min_h_0().gap(px(8.)).child(header.h(theme.control(ControlSize::Medium).height).items_center()).child(list)
 }
 
-/// A clickable row with a drawn checkbox; the caller adds the click handler and the label.
-fn check_row(theme: &T, id: ElementId, checked: bool) -> gpui::Stateful<gpui::Div> {
+/// A clickable row with a drawn checkbox, outlined under the keyboard cursor; the caller adds the
+/// click handler and the label.
+fn check_row(theme: &T, id: ElementId, checked: bool, cursor: bool) -> gpui::Stateful<gpui::Div> {
     h_stack()
         .id(id)
         .flex_none()
@@ -330,15 +338,18 @@ fn check_row(theme: &T, id: ElementId, checked: bool) -> gpui::Stateful<gpui::Di
         .gap(px(10.))
         .items_center()
         .rounded(px(4.))
+        .border_1()
+        .border_color(if cursor { theme.accent() } else { gpui::transparent_black() })
         .cursor_pointer()
         .hover(|s| s.bg(theme.surface_secondary()))
         .child(checkbox_box(if checked { CheckState::Checked } else { CheckState::Unchecked }))
 }
 
 /// A bordered list that fills the rest of its page and scrolls.
-fn list_box(theme: &T, id: &'static str) -> gpui::Stateful<gpui::Div> {
+fn list_box(theme: &T, id: &'static str, scroll: &ScrollHandle) -> gpui::Stateful<gpui::Div> {
     v_stack()
         .id(id)
+        .track_scroll(scroll)
         .flex_1()
         .min_h_0()
         .overflow_y_scroll()
@@ -346,6 +357,15 @@ fn list_box(theme: &T, id: &'static str) -> gpui::Stateful<gpui::Div> {
         .border_color(theme.border())
         .rounded(px(6.))
         .bg(theme.surface())
+}
+
+/// The keys of the page, under it while there is no error to show.
+fn key_hints(page: SettingsPage) -> &'static str {
+    match page {
+        SettingsPage::General => "Ctrl+Tab next page · Enter save · Esc cancel",
+        SettingsPage::Projects => "↑↓ move · Space toggle · Ctrl+Tab next page · Enter save",
+        SettingsPage::Tasks | SettingsPage::ProjectTags => "↑↓ move · ←→ switch list · Space toggle · Ctrl+Tab next page · Enter save",
+    }
 }
 
 fn number_field(field: TextField, unit: gpui::Div) -> gpui::AnyElement {

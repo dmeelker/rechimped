@@ -18,7 +18,7 @@ use crate::{domain, session};
 use super::widgets::*;
 
 impl TimeChimpApp {
-    pub(super) fn render_main(&mut self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn render_main(&mut self, window: &Window, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         let title = self.session.me().map_or_else(String::new, |me| format!("{} @ {}", me.display_name, me.company_name));
         let header = h_stack()
             .w_full()
@@ -88,7 +88,7 @@ impl TimeChimpApp {
             .when(matches!(self.overlay, Overlay::About), |d| d.child(self.render_about(theme, cx)))
             .when_some(self.chart(), |d, chart| d.child(self.render_chart(chart, theme, cx)))
             .when_some(self.form(), |d, form| d.child(self.render_form(form, theme, cx)))
-            .when_some(self.settings_form(), |d, form| d.child(self.render_settings(form, theme, cx)))
+            .when_some(self.settings_form(), |d, form| d.child(self.render_settings(form, window, theme, cx)))
     }
 
     fn render_tabs(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
@@ -367,6 +367,7 @@ impl TimeChimpApp {
                     .children(hints)
                     .child(hint(theme, "1–3", "tabs"))
                     .child(hint(theme, "R", "reload"))
+                    .child(hint(theme, "Ctrl+,", "settings"))
                     .into_any_element()
             }
         };

@@ -41,7 +41,7 @@ impl Render for TimeChimpApp {
             });
         let root = match &self.screen {
             Screen::Login(_) => root.child(self.render_login(&theme, t, cx)),
-            Screen::Main => root.child(self.render_main(&theme, cx)),
+            Screen::Main => root.child(self.render_main(window, &theme, cx)),
         };
         root.when(self.fx.showcase, |d| {
             d.child(self.fx.hud(theme.fg(), theme.fg_muted(), theme.accent(), theme.surface()))
