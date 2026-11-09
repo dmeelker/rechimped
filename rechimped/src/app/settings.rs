@@ -22,14 +22,15 @@ impl TimeChimpApp {
             })
             .collect();
         let billable_goal = forms::text_input(cx, plain_number(current.billable_goal * 100.0));
+        let projects = ProjectVisibility::new(&self.session);
         let form = SettingsForm {
             page,
             focus: cx.focus_handle(),
             work_days,
             billable_goal,
-            projects: ProjectVisibility::new(&self.session),
-            tasks: TaskVisibility::new(&self.session),
-            tags: ProjectTagsForm::new(&self.session),
+            tasks: TaskVisibility::new(&self.session, &projects.hidden),
+            tags: ProjectTagsForm::new(&self.session, &projects.hidden),
+            projects,
             error: None,
         };
         self.open_overlay(Overlay::Settings(Box::new(form)), cx);
@@ -40,6 +41,8 @@ impl TimeChimpApp {
     pub fn show_settings_page(&mut self, page: SettingsPage, window: &mut Window, cx: &mut Context<Self>) {
         let Some(form) = self.settings_form_mut() else { return };
         form.page = page;
+        form.tasks.order(&form.projects.hidden);
+        form.tags.order(&form.projects.hidden);
         let focus = match page {
             SettingsPage::General => form.billable_goal.read(cx).focus_handle(cx),
             SettingsPage::Projects | SettingsPage::Tasks | SettingsPage::ProjectTags => form.focus.clone(),
