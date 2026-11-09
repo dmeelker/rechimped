@@ -162,6 +162,13 @@ pub fn contract_summary(contract_hours: f64, work_days: usize) -> String {
     }
 }
 
+/// What a billable goal comes to in hours, for a full week without leave.
+pub fn goal_summary(contract_hours: f64, goal: f64) -> Option<String> {
+    (contract_hours > 0.0).then(|| {
+        format!("= {}h/{}h", super::plain_number(contract_hours * goal), super::plain_number(contract_hours))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,6 +265,13 @@ mod tests {
         assert!(matches_words(haystack, "REV tourn"));
         assert!(matches_words(haystack, "  visual   wbso "));
         assert!(!matches_words(haystack, "code daily"));
+    }
+
+    #[test]
+    fn goal_in_hours() {
+        assert_eq!(goal_summary(32.0, 0.75).as_deref(), Some("= 24h/32h"));
+        assert_eq!(goal_summary(32.0, 0.7).as_deref(), Some("= 22.4h/32h"));
+        assert_eq!(goal_summary(0.0, 0.8), None);
     }
 
     #[test]

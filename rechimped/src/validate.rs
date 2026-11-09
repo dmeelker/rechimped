@@ -214,16 +214,20 @@ pub struct SettingsValues {
     pub hidden_tasks: BTreeMap<String, Vec<String>>,
 }
 
+/// The typed percentage as a fraction, or None unless it is a number from 0 to 100.
+pub fn billable_goal(text: &str) -> Option<f64> {
+    parse_decimal(text.trim_end_matches('%')).filter(|p| (0.0..=100.0).contains(p)).map(|p| p / 100.0)
+}
+
 pub fn settings(v: &SettingsValues) -> Result<Settings, String> {
     if !v.work_days.contains(&true) {
         return Err("Pick at least one work day".into());
     }
-    let billable_goal = parse_decimal(v.billable_goal.trim_end_matches('%'))
-        .filter(|p| (0.0..=100.0).contains(p))
-        .ok_or("Billable target must be a percentage between 0 and 100")?;
+    let billable_goal =
+        billable_goal(&v.billable_goal).ok_or("Billable target must be a percentage between 0 and 100")?;
     Ok(Settings {
         work_days: v.work_days,
-        billable_goal: billable_goal / 100.0,
+        billable_goal,
         hidden_projects: v.hidden_projects.clone(),
         hidden_tasks: v.hidden_tasks.clone(),
     })

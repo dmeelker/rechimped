@@ -111,8 +111,13 @@ impl TimeChimpApp {
     }
 
     fn render_general(&self, form: &SettingsForm, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let work_days = form.values(cx).work_days.iter().filter(|on| **on).count();
-        let contract = crate::domain::week::contract_summary(self.session.contract_hours(), work_days);
+        let values = form.values(cx);
+        let work_days = values.work_days.iter().filter(|on| **on).count();
+        let contract_hours = self.session.contract_hours();
+        let contract = crate::domain::week::contract_summary(contract_hours, work_days);
+        let goal = crate::validate::billable_goal(&values.billable_goal)
+            .and_then(|goal| crate::domain::week::goal_summary(contract_hours, goal))
+            .unwrap_or_default();
         let row = |label: &'static str, control: gpui::AnyElement| {
             h_stack()
                 .gap(px(16.))
@@ -126,7 +131,10 @@ impl TimeChimpApp {
             .child(row("Contract", muted(theme, contract).into_any_element()))
             .child(row(
                 "Billable target",
-                number_field(text_field(&form.billable_goal, cx).placeholder("80"), muted(theme, "%")),
+                number_field(
+                    text_field(&form.billable_goal, cx).placeholder("80"),
+                    h_stack().gap(px(12.)).child("%").child(muted(theme, goal)).text_color(theme.fg_muted()),
+                ),
             ))
             .into_any_element()
     }
