@@ -7,7 +7,7 @@ use gpuikit::elements::dialog::DialogState;
 use gpuikit::input::InputState;
 use timechimp_api::Project;
 
-use super::text;
+use super::{TypeAhead, text};
 use crate::domain::same_name;
 use crate::session::Session;
 use crate::validate::SettingsValues;
@@ -124,6 +124,7 @@ pub struct ListNav {
     pub item: usize,
     pub projects_scroll: ScrollHandle,
     pub items_scroll: ScrollHandle,
+    typed: TypeAhead,
 }
 
 fn step(index: usize, delta: isize, len: usize) -> usize {
@@ -150,6 +151,32 @@ impl ListNav {
                 self.items_scroll.scroll_to_item(self.item);
             }
             _ => {}
+        }
+    }
+
+    /// Moves the cursor of the active list to the first row starting with what was typed.
+    fn type_ahead<'a>(
+        &mut self,
+        typed: &str,
+        current: &mut usize,
+        projects: impl IntoIterator<Item = &'a str>,
+        items: impl IntoIterator<Item = &'a str>,
+    ) {
+        match self.column {
+            Column::Projects => {
+                if let Some(index) = self.typed.find(typed, projects) {
+                    *current = index;
+                    self.item = 0;
+                    self.projects_scroll.scroll_to_item(index);
+                    self.items_scroll.scroll_to_item(0);
+                }
+            }
+            Column::Items => {
+                if let Some(index) = self.typed.find(typed, items) {
+                    self.item = index;
+                    self.items_scroll.scroll_to_item(index);
+                }
+            }
         }
     }
 
@@ -197,6 +224,10 @@ impl ProjectVisibility {
 
     pub fn move_cursor(&mut self, delta: isize) {
         self.nav.move_by(delta, &mut 0, 0, self.projects.len());
+    }
+
+    pub fn type_ahead(&mut self, typed: &str) {
+        self.nav.type_ahead(typed, &mut 0, [], self.projects.iter().map(|p| p.name.as_str()));
     }
 
     /// Toggles the project under the cursor, after moving it to `index` if given.
@@ -296,6 +327,12 @@ impl TaskVisibility {
     pub fn move_cursor(&mut self, delta: isize) {
         let tasks = self.projects.get(self.current).map_or(0, |(_, tasks)| tasks.len());
         self.nav.move_by(delta, &mut self.current, self.projects.len(), tasks);
+    }
+
+    pub fn type_ahead(&mut self, typed: &str) {
+        let projects = self.projects.iter().map(|(p, _)| p.name.as_str());
+        let tasks = self.projects.get(self.current).into_iter().flat_map(|(_, tasks)| tasks.iter().map(|(_, t)| t.as_str()));
+        self.nav.type_ahead(typed, &mut self.current, projects, tasks);
     }
 
     pub fn pick_project(&mut self, index: usize) {
@@ -423,6 +460,11 @@ impl ProjectTagsForm {
 
     pub fn move_cursor(&mut self, delta: isize) {
         self.nav.move_by(delta, &mut self.current, self.projects.len(), self.tags.len());
+    }
+
+    pub fn type_ahead(&mut self, typed: &str) {
+        let projects = self.projects.iter().map(|p| p.name.as_str());
+        self.nav.type_ahead(typed, &mut self.current, projects, self.tags.iter().map(|(_, t)| t.as_str()));
     }
 
     pub fn pick_project(&mut self, index: usize) {
@@ -598,6 +640,16 @@ mod tests {
         assert_eq!(form.current, 0);
         form.toggle_at(Some(0));
         assert!(form.is_hidden(1, 10) && form.nav.column == Column::Items, "a click moves the cursor there");
+
+        form.nav.column = Column::Projects;
+        form.type_ahead("b");
+        assert_eq!((form.current_project(), form.nav.item), (Some(2), 0), "typing jumps to a project");
+        form.nav.column = Column::Items;
+        form.pick_project(0);
+        form.nav.column = Column::Items;
+        form.type_ahead("x");
+        form.type_ahead("b");
+        assert_eq!(form.nav.item, 1, "a prefix nothing matches starts over");
 
         let mut projects = ProjectVisibility::new(&s);
         projects.move_cursor(1);

@@ -74,8 +74,22 @@ impl TimeChimpApp {
             return;
         }
         let Some(form) = self.settings_form_mut() else { return };
-        let Some(command) = settings_key(&keystroke.key, m.control, m.shift) else { return };
         let on_window = form.focus.is_focused(window);
+        let Some(command) = settings_key(&keystroke.key, m.control, m.shift) else {
+            // Letters jump to the first row of the active list starting with what was typed.
+            let typed = keystroke.key_char.as_deref().filter(|c| c.chars().all(char::is_alphanumeric));
+            if let Some(typed) = typed.filter(|_| on_window && !m.control) {
+                match form.page {
+                    SettingsPage::General => return,
+                    SettingsPage::Projects => form.projects.type_ahead(typed),
+                    SettingsPage::Tasks => form.tasks.type_ahead(typed),
+                    SettingsPage::ProjectTags => form.tags.type_ahead(typed),
+                }
+                cx.stop_propagation();
+                cx.notify();
+            }
+            return;
+        };
         let page = |index: usize| SettingsPage::ALL[index % SettingsPage::ALL.len()];
         let current = SettingsPage::ALL.iter().position(|p| *p == form.page).unwrap_or(0);
         match command {
@@ -214,14 +228,14 @@ fn settings_key(key: &str, ctrl: bool, shift: bool) -> Option<SettingsKey> {
             Ok(n @ 1..=9) => PageTo(n - 1),
             _ => return None,
         },
-        ("up" | "k", _) => Move(-1),
-        ("down" | "j", _) => Move(1),
+        ("up", _) => Move(-1),
+        ("down", _) => Move(1),
         ("pageup", _) => Move(-10),
         ("pagedown", _) => Move(10),
         ("home", _) => Move(isize::MIN),
         ("end", _) => Move(isize::MAX),
-        ("left" | "h", _) => List(crate::forms::Column::Projects),
-        ("right" | "l", _) => List(crate::forms::Column::Items),
+        ("left", _) => List(crate::forms::Column::Projects),
+        ("right", _) => List(crate::forms::Column::Items),
         ("space", _) => Toggle,
         ("enter", _) if !shift => Save,
         _ => return None,
@@ -240,7 +254,8 @@ mod tests {
         assert_eq!(settings_key("3", true, false), Some(PageTo(2)));
         assert_eq!(settings_key("0", true, false), None);
         assert_eq!(settings_key("tab", false, false), None, "plain Tab moves the focus");
-        assert_eq!(settings_key("j", false, false), Some(Move(1)));
+        assert_eq!(settings_key("down", false, false), Some(Move(1)));
+        assert_eq!(settings_key("j", false, false), None, "letters are for type-ahead");
         assert_eq!(settings_key("right", false, false), Some(List(forms::Column::Items)));
         assert_eq!(settings_key("space", false, false), Some(Toggle));
         assert_eq!(settings_key("enter", false, false), Some(Save));

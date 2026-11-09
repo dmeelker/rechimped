@@ -363,8 +363,8 @@ fn list_box(theme: &T, id: &'static str, scroll: &ScrollHandle) -> gpui::Statefu
 fn key_hints(page: SettingsPage) -> &'static str {
     match page {
         SettingsPage::General => "Ctrl+Tab next page · Enter save · Esc cancel",
-        SettingsPage::Projects => "↑↓ move · Space toggle · Ctrl+Tab next page · Enter save",
-        SettingsPage::Tasks | SettingsPage::ProjectTags => "↑↓ move · ←→ switch list · Space toggle · Ctrl+Tab next page · Enter save",
+        SettingsPage::Projects => "↑↓ or type to move · Space toggle · Ctrl+Tab next page · Enter save",
+        SettingsPage::Tasks | SettingsPage::ProjectTags => "↑↓ or type to move · ←→ switch list · Space toggle · Ctrl+Tab next page",
     }
 }
 

@@ -253,7 +253,7 @@ pub fn choice<T: Clone + PartialEq + 'static>(
         }
         SelectState::new(builder)
     });
-    Choice { state, labels, typed: Rc::new(RefCell::new((String::new(), Instant::now()))) }
+    Choice { state, labels, typed: Rc::default() }
 }
 
 /// A dropdown plus what its keyboard type-ahead needs: the option labels (gpuikit keeps them
@@ -262,28 +262,46 @@ pub fn choice<T: Clone + PartialEq + 'static>(
 pub struct Choice<T: Clone + PartialEq + 'static> {
     pub state: Entity<SelectState<T>>,
     labels: Rc<Vec<(T, String)>>,
-    typed: Rc<RefCell<(String, Instant)>>,
+    typed: Rc<RefCell<TypeAhead>>,
+}
+
+impl<T: Clone + PartialEq + 'static> Choice<T> {
+    /// The first option starting with what was typed; see `TypeAhead::find`.
+    pub fn type_ahead(&self, typed: &str) -> Option<T> {
+        let index = self.typed.borrow_mut().find(typed, self.labels.iter().map(|(_, l)| l.as_str()))?;
+        Some(self.labels[index].0.clone())
+    }
 }
 
 /// Typing pauses longer than this start a new prefix.
 const TYPE_AHEAD_RESET: Duration = Duration::from_millis(1000);
 
-impl<T: Clone + PartialEq + 'static> Choice<T> {
-    /// Adds `typed` to the prefix typed so far and returns the first option starting with it,
-    /// ignoring case. A prefix nothing matches is dropped, so the next key starts over.
-    pub fn type_ahead(&self, typed: &str) -> Option<T> {
-        let mut state = self.typed.borrow_mut();
-        let (prefix, last) = &mut *state;
-        if last.elapsed() > TYPE_AHEAD_RESET {
-            prefix.clear();
+/// The characters typed so far for a keyboard type-ahead.
+pub struct TypeAhead {
+    prefix: String,
+    last: Instant,
+}
+
+impl Default for TypeAhead {
+    fn default() -> Self {
+        Self { prefix: String::new(), last: Instant::now() }
+    }
+}
+
+impl TypeAhead {
+    /// Adds `typed` to the prefix typed so far and returns the index of the first label starting
+    /// with it, ignoring case. A prefix nothing matches is dropped, so the next key starts over.
+    pub fn find<'a>(&mut self, typed: &str, labels: impl IntoIterator<Item = &'a str>) -> Option<usize> {
+        if self.last.elapsed() > TYPE_AHEAD_RESET {
+            self.prefix.clear();
         }
-        *last = Instant::now();
-        prefix.push_str(&typed.to_lowercase());
-        let found = self.labels.iter().find(|(_, l)| l.to_lowercase().starts_with(prefix.as_str()));
+        self.last = Instant::now();
+        self.prefix.push_str(&typed.to_lowercase());
+        let found = labels.into_iter().position(|l| l.to_lowercase().starts_with(self.prefix.as_str()));
         if found.is_none() {
-            prefix.clear();
+            self.prefix.clear();
         }
-        found.map(|(id, _)| id.clone())
+        found
     }
 }
 
