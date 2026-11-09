@@ -306,6 +306,7 @@ impl TimeChimpApp {
                 menu_item(theme, "user-menu-about", "About Rechimped")
                     .on_click(cx.listener(|this, _, w, cx| this.open_about(w, cx))),
             )
+            .child(menu_separator(theme))
             .child(menu_item(theme, "user-menu-logout", "Log out").on_click(cx.listener(|this, _, w, cx| this.logout(w, cx))));
         deferred(div().absolute().top_full().right_0().mt(px(4.)).child(menu)).with_priority(2)
     }
@@ -380,6 +381,10 @@ impl TimeChimpApp {
             .text_color(theme.fg_muted())
             .child(left)
     }
+}
+
+fn menu_separator(theme: &T) -> gpui::Div {
+    div().my(px(4.)).mx(px(4.)).h(px(1.)).bg(theme.border())
 }
 
 fn menu_item(theme: &T, id: impl Into<ElementId>, label: impl IntoElement) -> gpui::Stateful<gpui::Div> {
