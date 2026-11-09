@@ -4,13 +4,17 @@ use gpui::{
 };
 use gpuikit::a11y::FocusNavigation;
 use gpuikit::elements::button::button;
+use gpuikit::elements::icon_button::icon_button;
+use gpuikit::elements::tooltip::tooltip;
+use gpuikit::icons::Icons;
 use gpuikit::elements::checkbox::{CheckState, checkbox_box};
 use gpuikit::elements::text_field::{TextField, text_field};
 use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::{ControlSize, Themeable};
 
 use crate::app::{Cancel, Confirm, TimeChimpApp};
-use crate::forms::{Column, ListNav, ProjectRow, ProjectTagsForm, ProjectVisibility, SettingsForm, SettingsPage, TaskVisibility};
+use crate::session;
+use crate::forms::{Column, ListNav, PresetsForm, ProjectRow, shift, ProjectTagsForm, ProjectVisibility, SettingsForm, SettingsPage, TaskVisibility};
 
 use super::widgets::*;
 
@@ -58,6 +62,7 @@ impl TimeChimpApp {
             SettingsPage::Projects => self.render_project_visibility(&form.projects, focused, theme, cx),
             SettingsPage::Tasks => self.render_task_visibility(&form.tasks, focused, theme, cx),
             SettingsPage::ProjectTags => self.render_project_tags(&form.tags, focused, theme, cx),
+            SettingsPage::Presets => self.render_presets(&form.presets, theme, cx),
         };
         let footer = h_stack()
             .gap(px(8.))
@@ -271,6 +276,102 @@ impl TimeChimpApp {
     }
 }
 
+impl TimeChimpApp {
+    /// Trips on the left, time entries on the right, each row with ↑ ↓ and × buttons; trips also
+    /// have their name as a field.
+    fn render_presets(&self, form: &PresetsForm, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let trips = form.trips.iter().enumerate().map(|(i, (trip, name))| {
+            let details = format!("{} → {} · {}", trip.from, trip.to, trip.project);
+            preset_row(
+                theme,
+                ElementId::NamedInteger("preset-trip".into(), i as u64),
+                v_stack().gap(px(2.)).child(text_field(name, cx).full_width(true)).child(muted(theme, details).text_xs().truncate()),
+                (i, form.trips.len()),
+                |f, i, delta| shift(&mut f.presets.trips, i, delta),
+                |f, i| {
+                    f.presets.trips.remove(i);
+                },
+                cx,
+            )
+        });
+        let trips: Vec<_> = trips.collect();
+        let times = form.times.iter().enumerate().map(|(i, time)| {
+            let task = time.task.as_deref().map(|t| format!(" / {t}")).unwrap_or_default();
+            let label = v_stack()
+                .child(div().truncate().child(session::time_preset_label(time).to_owned()))
+                .child(muted(theme, format!("{}{task}", time.project)).text_xs().truncate());
+            preset_row(
+                theme,
+                ElementId::NamedInteger("preset-time".into(), i as u64),
+                label,
+                (i, form.times.len()),
+                |f, i, delta| shift(&mut f.presets.times, i, delta),
+                |f, i| {
+                    f.presets.times.remove(i);
+                },
+                cx,
+            )
+        });
+        let times: Vec<_> = times.collect();
+        let column = |title: &'static str, empty: &'static str, scroll: &ScrollHandle, rows: Vec<gpui::Stateful<gpui::Div>>| {
+            let list = list_box(theme, title, scroll).p(px(6.)).gap(px(4.)).when(rows.is_empty(), |d| d.child(muted(theme, empty).p(px(6.))));
+            settings_column(theme, h_stack().child(muted(theme, title)), list.children(rows)).flex_1().min_w_0()
+        };
+        h_stack()
+            .flex_1()
+            .min_h_0()
+            .items_stretch()
+            .gap(px(12.))
+            .child(column("Trips", "No trip presets. Use \"Save as preset\" in the trip form.", &form.trips_scroll, trips))
+            .child(column("Time entries", "No time presets. Use \"Save as preset\" in the time form.", &form.times_scroll, times))
+            .into_any_element()
+    }
+}
+
+/// A preset with its move and delete buttons; `at` is its index and the length of its list.
+#[allow(clippy::too_many_arguments)]
+fn preset_row(
+    theme: &T,
+    id: ElementId,
+    label: gpui::Div,
+    at: (usize, usize),
+    move_by: fn(&mut SettingsForm, usize, isize),
+    remove: fn(&mut SettingsForm, usize),
+    cx: &mut Context<TimeChimpApp>,
+) -> gpui::Stateful<gpui::Div> {
+    let (i, len) = at;
+    let action = |name: &'static str, icon: gpui::Svg, tip: &'static str, disabled: bool| {
+        icon_button(ElementId::Name(format!("{id}-{name}").into()), icon)
+            .box_size(gpui::rems(1.5))
+            .icon_size(gpui::rems(0.875))
+            .disabled(disabled)
+            .tooltip(tooltip(tip))
+    };
+    h_stack()
+        .id(id.clone())
+        .flex_none()
+        .w_full()
+        .px(px(6.))
+        .py(px(4.))
+        .gap(px(6.))
+        .items_center()
+        .rounded(px(4.))
+        .hover(|s| s.bg(theme.surface_secondary()))
+        .child(label.flex_1().min_w_0())
+        .child(
+            action("up", Icons::arrow_up(), "Move up", i == 0)
+                .on_click(cx.listener(move |this, _, w, cx| this.edit_settings(w, cx, |f| move_by(f, i, -1)))),
+        )
+        .child(
+            action("down", Icons::arrow_down(), "Move down", i + 1 == len)
+                .on_click(cx.listener(move |this, _, w, cx| this.edit_settings(w, cx, |f| move_by(f, i, 1)))),
+        )
+        .child(
+            action("delete", Icons::trash(), "Delete (on Save)", false)
+                .on_click(cx.listener(move |this, _, w, cx| this.edit_settings(w, cx, |f| remove(f, i)))),
+        )
+}
+
 /// The left column of the Tasks and Project tags pages: the projects, hidden ones dimmed, `badge`
 /// on the right of each, and an accent bar on the selected one while the keys move in this list.
 #[allow(clippy::too_many_arguments)]
@@ -368,6 +469,7 @@ fn key_hints(page: SettingsPage) -> &'static str {
         SettingsPage::General => "Ctrl+Tab next page · Enter save · Esc cancel",
         SettingsPage::Projects => "↑↓ or type to move · Space toggle · Ctrl+Tab next page · Enter save",
         SettingsPage::Tasks | SettingsPage::ProjectTags => "↑↓ or type to move · ←→ switch list · Space toggle · Ctrl+Tab next page",
+        SettingsPage::Presets => "Tab between names · Ctrl+Tab next page · Enter save · Esc cancel",
     }
 }
 

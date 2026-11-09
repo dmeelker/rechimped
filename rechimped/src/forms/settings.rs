@@ -10,6 +10,7 @@ use timechimp_api::Project;
 use super::{TypeAhead, text};
 use crate::domain::same_name;
 use crate::session::Session;
+use crate::store::config::{TimePreset, TripPreset};
 use crate::validate::SettingsValues;
 
 /// The categories of the Settings window, listed on its left.
@@ -19,10 +20,11 @@ pub enum SettingsPage {
     Projects,
     Tasks,
     ProjectTags,
+    Presets,
 }
 
 impl SettingsPage {
-    pub const ALL: [Self; 4] = [Self::General, Self::Projects, Self::Tasks, Self::ProjectTags];
+    pub const ALL: [Self; 5] = [Self::General, Self::Projects, Self::Tasks, Self::ProjectTags, Self::Presets];
 
     pub fn title(self) -> &'static str {
         match self {
@@ -30,6 +32,7 @@ impl SettingsPage {
             Self::Projects => "Projects",
             Self::Tasks => "Tasks",
             Self::ProjectTags => "Project tags",
+            Self::Presets => "Presets",
         }
     }
 
@@ -39,6 +42,7 @@ impl SettingsPage {
             Self::Projects => "The projects the forms offer. Entries of hidden projects still show everywhere.",
             Self::Tasks => "The tasks the time form offers, per project. Entries of hidden tasks still show everywhere.",
             Self::ProjectTags => "The tags the time form offers as checkboxes, per project.",
+            Self::Presets => "The presets in the dropdowns of \"+ Add trip\" and \"+ Add time\", in this order.",
         }
     }
 }
@@ -52,6 +56,7 @@ pub struct SettingsForm {
     pub projects: ProjectVisibility,
     pub tasks: TaskVisibility,
     pub tags: ProjectTagsForm,
+    pub presets: PresetsForm,
     pub error: Option<String>,
     /// What the window opened with, to tell whether anything changed.
     pub initial: SettingsValues,
@@ -74,7 +79,7 @@ impl SettingsForm {
     }
 
     pub fn is_dirty(&self, cx: &App) -> bool {
-        self.values(cx) != self.initial || !self.tags.changes().is_empty()
+        self.values(cx) != self.initial || !self.tags.changes().is_empty() || self.presets.is_changed(cx)
     }
 }
 
@@ -106,6 +111,42 @@ fn order_projects<T>(items: &mut [T], row: impl Fn(&T) -> &ProjectRow, hidden: &
         hidden.contains(&a.id).cmp(&hidden.contains(&b.id)).then_with(|| by_name(a, b))
     });
     *current = keep.and_then(|id| items.iter().position(|item| row(item).id == id)).unwrap_or(0);
+}
+
+/// The trip and time presets, reordered, renamed (trips) and removed here and written on Save.
+pub struct PresetsForm {
+    /// In their new order, each trip with its name field.
+    pub trips: Vec<(TripPreset, Entity<InputState>)>,
+    pub times: Vec<TimePreset>,
+    original: (Vec<TripPreset>, Vec<TimePreset>),
+    pub trips_scroll: ScrollHandle,
+    pub times_scroll: ScrollHandle,
+}
+
+impl PresetsForm {
+    pub fn new(trips: Vec<(TripPreset, Entity<InputState>)>, times: Vec<TimePreset>) -> Self {
+        let original = (trips.iter().map(|(t, _)| t.clone()).collect(), times.clone());
+        Self { trips, times, original, trips_scroll: ScrollHandle::default(), times_scroll: ScrollHandle::default() }
+    }
+
+    /// Each trip as it was, with the name it gets.
+    pub fn trip_names(&self, cx: &App) -> Vec<(TripPreset, String)> {
+        self.trips.iter().map(|(trip, name)| (trip.clone(), text(name, cx))).collect()
+    }
+
+    pub fn is_changed(&self, cx: &App) -> bool {
+        let trips: Vec<_> = self.trips.iter().map(|(t, _)| t.clone()).collect();
+        (trips, self.times.clone()) != self.original || self.trip_names(cx).iter().any(|(trip, name)| *name != trip.name)
+    }
+}
+
+/// Moves `items[index]` one place up (`delta` -1) or down (1), if there is room.
+pub fn shift<T>(items: &mut [T], index: usize, delta: isize) {
+    if let Some(other) = index.checked_add_signed(delta).filter(|&o| o < items.len())
+        && index < items.len()
+    {
+        items.swap(index, other);
+    }
 }
 
 /// Which list of a page the arrow keys move in.
@@ -655,5 +696,20 @@ mod tests {
         projects.move_cursor(1);
         projects.toggle_at(None);
         assert_eq!(projects.hidden, BTreeSet::from([2]));
+    }
+
+    #[test]
+    fn shift_moves_within_bounds() {
+        let mut v = vec![1, 2, 3];
+        shift(&mut v, 0, -1);
+        assert_eq!(v, [1, 2, 3]);
+        shift(&mut v, 0, 1);
+        assert_eq!(v, [2, 1, 3]);
+        shift(&mut v, 2, 1);
+        assert_eq!(v, [2, 1, 3]);
+        shift(&mut v, 2, -1);
+        assert_eq!(v, [2, 3, 1]);
+        shift(&mut v, 7, -1);
+        assert_eq!(v, [2, 3, 1]);
     }
 }

@@ -215,6 +215,18 @@ pub struct SettingsValues {
     pub hidden_tasks: BTreeMap<String, Vec<String>>,
 }
 
+/// Trip presets are found in the config by name, so each needs its own.
+pub fn trip_names(names: &[String]) -> Result<(), String> {
+    if names.iter().any(|n| n.trim().is_empty()) {
+        return Err("Every trip preset needs a name".into());
+    }
+    let duplicate = names.iter().enumerate().find(|(i, n)| names[..*i].iter().any(|m| same_name(m, n)));
+    if let Some((_, name)) = duplicate {
+        return Err(format!("Two trip presets are called \"{name}\""));
+    }
+    Ok(())
+}
+
 pub fn settings(v: &SettingsValues) -> Result<Settings, String> {
     if !v.work_days.contains(&true) {
         return Err("Pick at least one work day".into());
@@ -379,5 +391,13 @@ mod tests {
         assert!(settings(&v([false; 7], "80")).unwrap_err().contains("work day"));
         assert!(settings(&v(weekdays, "101")).unwrap_err().starts_with("Billable"));
         assert!(settings(&v(weekdays, "lots")).unwrap_err().starts_with("Billable"));
+    }
+
+    #[test]
+    fn trip_names_unique_and_filled() {
+        let names = |n: &[&str]| n.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert!(trip_names(&names(&["Commute", "Client"])).is_ok());
+        assert_eq!(trip_names(&names(&["Commute", " "])), Err("Every trip preset needs a name".into()));
+        assert_eq!(trip_names(&names(&["Commute", "commute"])), Err("Two trip presets are called \"commute\"".into()));
     }
 }

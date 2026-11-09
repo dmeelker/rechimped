@@ -370,6 +370,75 @@ fn without<P: Preset>(text: &str, preset: &P) -> Result<String, String> {
     Ok(doc.to_string())
 }
 
+/// Writes the presets as the Presets page left them: in this order, trips renamed to the names
+/// given, the ones left out removed. Each is found by `Preset::is`, so its block keeps its own
+/// comments; the section comment stays above whichever comes first.
+pub fn save_presets(path: &Path, trips: &[(TripPreset, String)], times: &[TimePreset]) -> Result<(), String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
+    let text = with_presets(&text, trips, times).map_err(|e| format!("{}: {e}", path.display()))?;
+    replace_file(path, &text)
+}
+
+fn with_presets(text: &str, trips: &[(TripPreset, String)], times: &[TimePreset]) -> Result<String, String> {
+    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| e.to_string())?;
+    let kept: Vec<_> = trips.iter().map(|(preset, _)| preset).collect();
+    rearrange(&mut doc, &kept, |i, table| {
+        let name = trips[i].1.as_str();
+        if let Some(value) = table.get_mut("name").and_then(|item| item.as_value_mut())
+            && value.as_str() != Some(name)
+        {
+            let decor = value.decor().clone();
+            *value = name.into();
+            *value.decor_mut() = decor;
+        }
+    })?;
+    rearrange(&mut doc, &times.iter().collect::<Vec<_>>(), |_, _| {})?;
+    let text = doc.to_string();
+    parse_config(&text)?;
+    Ok(text)
+}
+
+fn rearrange<P: Preset>(
+    doc: &mut toml_edit::DocumentMut,
+    kept: &[&P],
+    mut change: impl FnMut(usize, &mut toml_edit::Table),
+) -> Result<(), String> {
+    let not_found = || "preset not found (was it changed in the meantime?)".to_owned();
+    let Some(item) = doc.get_mut(P::KEY) else {
+        return if kept.is_empty() { Ok(()) } else { Err(not_found()) };
+    };
+    let old = item.as_array_of_tables().ok_or_else(not_found)?;
+    let section = old.get(0).and_then(|t| t.decor().prefix()).and_then(|p| p.as_str()).unwrap_or("").to_owned();
+    let mut positions: Vec<usize> = old.iter().filter_map(toml_edit::Table::position).collect();
+    positions.sort_unstable();
+    // Each table is used once, so identical presets stay apart.
+    let mut slots: Vec<Option<(usize, toml_edit::Table)>> = old.iter().cloned().enumerate().map(Some).collect();
+    let mut new = toml_edit::ArrayOfTables::new();
+    for (i, preset) in kept.iter().enumerate() {
+        let slot = slots.iter_mut().find(|s| s.as_ref().is_some_and(|(_, t)| preset.is(t))).ok_or_else(not_found)?;
+        let (was, mut table) = slot.take().expect("found a filled slot");
+        // The section comment goes to the new first preset; the old first one gets a blank line.
+        if was == 0 && i > 0 {
+            table.decor_mut().set_prefix("\n");
+        } else if i == 0 && was > 0 {
+            let own = table.decor().prefix().and_then(|p| p.as_str()).unwrap_or("").trim_start_matches('\n').to_owned();
+            table.decor_mut().set_prefix(format!("{section}{own}"));
+        }
+        // Tables print in position order, so the new order takes over the old positions.
+        if let Some(&position) = positions.get(i) {
+            table.set_position(position);
+        }
+        change(i, &mut table);
+        new.push(table);
+    }
+    if new.is_empty() {
+        doc.remove(P::KEY);
+    } else {
+        *item = toml_edit::Item::ArrayOfTables(new);
+    }
+    Ok(())
+}
+
 const TRIPS_COMMENT: &str = "# Preset trips, in the dropdown of \"+ Add trip\" on the Travel tab. Fields: name,\n\
      # project, from, to, distance (km, one way; optional), return_trip, type (\"business\" or\n\
      # \"home-work\"), billable, notes (optional).\n";
@@ -709,5 +778,34 @@ mod tests {
 
         assert!(without(&text, &preset_named("Nope")).is_err());
         assert!(without("billable_goal = 70\n", &preset_named("Commute")).is_err());
+    }
+
+    #[test]
+    fn rearrange_presets() {
+        let trip = |name: &str| format!("[[trips]]\nname = \"{name}\"\nproject = \"p\"\nfrom = \"a\"\nto = \"b\"\n");
+        let text = format!(
+            "billable_goal = 70\n\n# about trips\n{}\n# second\n{}\n{}\n[projects]\nIntern = []\n\n# about time\n[[time_entries]]\nproject = \"Intern\"\nnotes = \"a\"\n\n[[time_entries]]\nproject = \"Intern\"\nnotes = \"b\"\n",
+            trip("Commute"),
+            trip("Client"),
+            trip("Gym")
+        );
+        let config = parse_config(&text).unwrap();
+        let [commute, client, gym] = [0, 1, 2].map(|i| config.trips[i].clone());
+        let times = config.time_entries.clone();
+
+        let done = with_presets(&text, &[(gym, "Gym".into()), (commute, "Home".into())], &[times[1].clone(), times[0].clone()]).unwrap();
+        let config = parse_config(&done).unwrap();
+        assert_eq!(config.trips.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["Gym", "Home"], "reordered, renamed, Client gone");
+        assert_eq!(config.time_entries.iter().map(|t| t.notes.as_deref().unwrap()).collect::<Vec<_>>(), ["b", "a"]);
+        let at = |needle: &str| done.find(needle).unwrap_or_else(|| panic!("{needle} missing:\n{done}"));
+        assert!(at("# about trips") < at("name = \"Gym\"") && at("name = \"Gym\"") < at("name = \"Home\""), "section comment stays on top:\n{done}");
+        assert!(!done.contains("# second"), "Client's own comment went with it");
+        assert!(at("# about time") < at("notes = \"b\""));
+        assert!(done.contains("Intern = []"));
+
+        let none = with_presets(&text, &[], &[]).unwrap();
+        assert!(parse_config(&none).unwrap().trips.is_empty() && !none.contains("[[time_entries]]"));
+        assert!(with_presets(&text, &[(preset_named("Nope"), "Nope".into())], &[]).is_err());
+        assert_eq!(with_presets(&text, &[(client, "Client".into())], &times).unwrap().matches("[[trips]]").count(), 1);
     }
 }

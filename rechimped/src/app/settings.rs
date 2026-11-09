@@ -3,7 +3,7 @@ use gpuikit::elements::checkbox::checkbox;
 use gpuikit::elements::dialog::{DialogClosed, DialogState, dialog};
 
 use crate::domain::plain_number;
-use crate::forms::{self, Column, ProjectTagsForm, ProjectVisibility, SettingsForm, SettingsPage, TaskVisibility};
+use crate::forms::{self, Column, PresetsForm, ProjectTagsForm, ProjectVisibility, SettingsForm, SettingsPage, TaskVisibility};
 use crate::store::config;
 use crate::validate;
 
@@ -26,6 +26,8 @@ impl TimeChimpApp {
             .collect();
         let billable_goal = forms::text_input(cx, plain_number(current.billable_goal * 100.0));
         let projects = ProjectVisibility::new(&self.session);
+        let trips = self.session.trip_presets.iter().map(|t| (t.clone(), forms::text_input(cx, t.name.clone()))).collect();
+        let presets = PresetsForm::new(trips, self.session.time_presets.clone());
         let form = SettingsForm {
             page,
             focus: cx.focus_handle(),
@@ -34,6 +36,7 @@ impl TimeChimpApp {
             tasks: TaskVisibility::new(&self.session, &projects.hidden),
             tags: ProjectTagsForm::new(&self.session, &projects.hidden),
             projects,
+            presets,
             error: None,
             initial: Default::default(),
             discard: None,
@@ -52,6 +55,10 @@ impl TimeChimpApp {
         form.tags.order(&form.projects.hidden);
         let focus = match page {
             SettingsPage::General => form.billable_goal.read(cx).focus_handle(cx),
+            SettingsPage::Presets => match form.presets.trips.first() {
+                Some((_, name)) => name.read(cx).focus_handle(cx),
+                None => form.focus.clone(),
+            },
             SettingsPage::Projects | SettingsPage::Tasks | SettingsPage::ProjectTags => form.focus.clone(),
         };
         window.focus(&focus, cx);
@@ -83,7 +90,7 @@ impl TimeChimpApp {
             let typed = keystroke.key_char.as_deref().filter(|c| c.chars().all(char::is_alphanumeric));
             if let Some(typed) = typed.filter(|_| on_window && !m.control) {
                 match form.page {
-                    SettingsPage::General => return,
+                    SettingsPage::General | SettingsPage::Presets => return,
                     SettingsPage::Projects => form.projects.type_ahead(typed),
                     SettingsPage::Tasks => form.tasks.type_ahead(typed),
                     SettingsPage::ProjectTags => form.tags.type_ahead(typed),
@@ -105,7 +112,7 @@ impl TimeChimpApp {
             _ if !on_window => return,
             SettingsKey::Save => return self.save_settings(window, cx),
             SettingsKey::Move(delta) => match form.page {
-                SettingsPage::General => return,
+                SettingsPage::General | SettingsPage::Presets => return,
                 SettingsPage::Projects => form.projects.move_cursor(delta),
                 SettingsPage::Tasks => form.tasks.move_cursor(delta),
                 SettingsPage::ProjectTags => form.tags.move_cursor(delta),
@@ -113,10 +120,10 @@ impl TimeChimpApp {
             SettingsKey::List(column) => match form.page {
                 SettingsPage::Tasks => form.tasks.nav.column = column,
                 SettingsPage::ProjectTags => form.tags.nav.column = column,
-                SettingsPage::General | SettingsPage::Projects => return,
+                SettingsPage::General | SettingsPage::Projects | SettingsPage::Presets => return,
             },
             SettingsKey::Toggle => match form.page {
-                SettingsPage::General => return,
+                SettingsPage::General | SettingsPage::Presets => return,
                 SettingsPage::Projects => form.projects.toggle_at(None),
                 SettingsPage::Tasks => form.tasks.toggle_at(None),
                 SettingsPage::ProjectTags => form.tags.toggle_at(None),
@@ -159,7 +166,8 @@ impl TimeChimpApp {
         cx.notify();
     }
 
-    /// Saves every page at once; project tags only when changed, then rereads the config for them.
+    /// Saves every page at once; project tags and presets only when changed, then rereads the
+    /// config for them.
     pub fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(form) = self.settings_form() else { return };
         if !form.is_dirty(cx) {
@@ -167,14 +175,23 @@ impl TimeChimpApp {
         }
         let settings = match validate::settings(&form.values(cx)) {
             Ok(settings) => settings,
-            // Only the General page has fields that can be invalid.
             Err(e) => return self.settings_failed(e, Some(SettingsPage::General), window, cx),
         };
+        let trips = form.presets.trip_names(cx);
+        let names: Vec<String> = trips.iter().map(|(_, name)| name.clone()).collect();
+        if let Err(e) = validate::trip_names(&names) {
+            return self.settings_failed(e, Some(SettingsPage::Presets), window, cx);
+        }
+        let presets_changed = form.presets.is_changed(cx);
+        let times = form.presets.times.clone();
         let tag_changes = form.tags.changes();
         let saved = config::path().and_then(|path| {
             config::save_settings(&path, &settings)?;
             if !tag_changes.is_empty() {
                 config::save_project_tags(&path, &tag_changes)?;
+            }
+            if presets_changed {
+                config::save_presets(&path, &trips, &times)?;
             }
             Ok(())
         });
@@ -183,7 +200,7 @@ impl TimeChimpApp {
                 self.session.settings = settings;
                 self.close_overlay(window, cx);
                 self.set_info("Settings saved", window, cx);
-                if !tag_changes.is_empty() {
+                if !tag_changes.is_empty() || presets_changed {
                     self.load_config(window, cx);
                 }
             }
