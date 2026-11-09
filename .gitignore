@@ -10,3 +10,4 @@ Thumbs.db
 
 # Local secrets (e.g. a refresh token in a .env)
 .env
+/dist/
