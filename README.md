@@ -10,6 +10,28 @@ going through the web app.
 - **Report**: a monthly overview of your hours.
 - Keyboard shortcuts throughout; the footer lists them.
 
+## Goals
+
+- **A fast and responsive experience**: a native, GPU-rendered app instead of a web page. It
+  starts quickly, switches tabs and weeks without waiting on page loads, and stays idle when
+  nothing is happening.
+- **Extra usability features**: the things you do many times a week should take few keystrokes.
+  Where the web app makes you click through forms, Rechimped aims to remember, suggest and
+  prefill.
+
+## Improvements over the web version
+
+- Everything can be done from the keyboard, with shortcuts listed in the footer.
+- A "Recent" picker fills a new entry from what you booked in the last five weeks.
+- Preset time entries and trips, saved from a form and started from the "+ Add" dropdown.
+- Lenient time input: `9`, `930` or `12:30`, and an end time as a duration such as `+1h30`.
+- Gaps and overlaps between consecutive entries of a day are marked.
+- A weekly billable percentage against your own goal, with a chart of the last five weeks.
+- Hide projects you don't use, and limit which tags each project offers, so forms only show
+  what is relevant.
+- Choose your work days; the week view shows only those (plus today).
+- Your settings live in a plain `config.toml` you can read and edit.
+
 You log in with your normal TimeChimp account (MFA is supported). The app keeps a session token
 and a `config.toml` with your settings and presets in `%APPDATA%\rechimped\`. Delete that
 folder to remove everything it stored.
