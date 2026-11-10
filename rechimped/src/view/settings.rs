@@ -12,7 +12,7 @@ use gpuikit::elements::text_field::{TextField, text_field};
 use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::{ControlSize, Themeable};
 
-use crate::app::{Cancel, Confirm, TimeChimpApp};
+use crate::app::{Cancel, Confirm, TimeChimpApp, ToLists};
 use crate::session;
 use crate::forms::{Column, ListNav, PresetsForm, ProjectRow, shift, ProjectTagsForm, ProjectVisibility, SettingsForm, SettingsPage, TaskVisibility};
 
@@ -59,7 +59,8 @@ impl TimeChimpApp {
         let content = match form.page {
             SettingsPage::General => self.render_general(form, theme, cx),
             SettingsPage::Projects => self.render_project_visibility(&form.projects, focused, theme, cx),
-            SettingsPage::Tasks => self.render_task_visibility(&form.tasks, focused, theme, cx),
+            SettingsPage::Billability => self.render_billability(form, focused, theme, cx),
+            SettingsPage::Tasks => self.render_task_visibility(&form.tasks, &TASKS, focused, theme, cx).into_any_element(),
             SettingsPage::ProjectTags => self.render_project_tags(&form.tags, focused, theme, cx),
             SettingsPage::Presets => self.render_presets(&form.presets, theme, cx),
         };
@@ -111,31 +112,36 @@ impl TimeChimpApp {
     }
 
     fn render_general(&self, form: &SettingsForm, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let values = form.values(cx);
-        let work_days = values.work_days.iter().filter(|on| **on).count();
-        let contract_hours = self.session.contract_hours();
-        let contract = crate::domain::week::contract_summary(contract_hours, work_days);
-        let goal = crate::validate::billable_goal(&values.billable_goal)
-            .and_then(|goal| crate::domain::week::goal_summary(contract_hours, goal))
-            .unwrap_or_default();
-        let row = |label: &'static str, control: gpui::AnyElement| {
-            h_stack()
-                .gap(px(16.))
-                .items_center()
-                .child(div().w(px(130.)).flex_none().text_color(theme.fg_muted()).child(label))
-                .child(div().flex_1().min_w_0().child(control))
-        };
+        let work_days = form.values(cx).work_days.iter().filter(|on| **on).count();
+        let contract = crate::domain::week::contract_summary(self.session.contract_hours(), work_days);
+        let days = h_stack().gap(px(14.)).children(form.work_days.iter().cloned()).into_any_element();
         v_stack()
             .gap(px(14.))
-            .child(row("Work days", h_stack().gap(px(14.)).children(form.work_days.iter().cloned()).into_any_element()))
-            .child(row("Contract", muted(theme, contract).into_any_element()))
-            .child(row(
-                "Billable target",
-                number_field(
-                    text_field(&form.billable_goal, cx).placeholder("80"),
-                    h_stack().gap(px(12.)).child("%").child(muted(theme, goal)).text_color(theme.fg_muted()),
-                ),
-            ))
+            .child(setting_row(theme, "Work days", days))
+            .child(setting_row(theme, "Contract", muted(theme, contract).into_any_element()))
+            .into_any_element()
+    }
+
+    fn render_billability(&self, form: &SettingsForm, focused: bool, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let goal = crate::validate::billable_goal(&form.values(cx).billable_goal)
+            .and_then(|goal| crate::domain::week::goal_summary(self.session.contract_hours(), goal))
+            .unwrap_or_default();
+        let target = setting_row(
+            theme,
+            "Billable target",
+            number_field(
+                text_field(&form.billable_goal, cx).placeholder("80"),
+                h_stack().gap(px(12.)).child("%").child(muted(theme, goal)).text_color(theme.fg_muted()),
+            ),
+        )
+        .key_context("BillableTarget")
+        .on_action(cx.listener(|this, _: &ToLists, w, cx| this.settings_to_lists(w, cx)));
+        v_stack()
+            .flex_1()
+            .min_h_0()
+            .gap(px(14.))
+            .child(target)
+            .child(self.render_task_visibility(&form.billability, &BILLABILITY, focused, theme, cx))
             .into_any_element()
     }
 
@@ -183,23 +189,32 @@ impl TimeChimpApp {
             .into_any_element()
     }
 
-    fn render_task_visibility(&self, form: &TaskVisibility, focused: bool, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
+    fn render_task_visibility(
+        &self,
+        form: &TaskVisibility,
+        page: &'static TaskPage,
+        focused: bool,
+        theme: &T,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let list = page.list;
         let projects = form.projects.iter().map(|(project, tasks)| {
             let hidden = form.hidden_count(project.id);
             let badge = Some(format!("{} of {}", tasks.len() - hidden, tasks.len()));
             (project, form.hidden_projects.contains(&project.id), badge)
         });
         let in_projects = focused && form.nav.column == Column::Projects;
-        let projects = project_list(theme, "task-projects", projects, form.current, in_projects, &form.nav, |f, i| f.tasks.pick_project(i), cx);
+        let pick = move |f: &mut SettingsForm, i| list(f).pick_project(i);
+        let projects = project_list(theme, page.projects_id, projects, form.current, in_projects, &form.nav, pick, cx);
         let current = form.projects.get(form.current);
         let cursor = (focused && form.nav.column == Column::Items).then_some(form.nav.item);
         let tasks = match current {
-            None => list_box(theme, "task-choices", &form.nav.items_scroll).p(px(12.)).child(muted(theme, "No projects with tasks.")),
+            None => list_box(theme, page.items_id, &form.nav.items_scroll).p(px(12.)).child(muted(theme, "No projects with tasks.")),
             Some((project, tasks)) => {
-                list_box(theme, "task-choices", &form.nav.items_scroll).p(px(8.)).children(tasks.iter().enumerate().map(|(i, (task_id, name))| {
+                list_box(theme, page.items_id, &form.nav.items_scroll).p(px(8.)).children(tasks.iter().enumerate().map(|(i, (task_id, name))| {
                     let shown = !form.is_hidden(project.id, *task_id);
-                    check_row(theme, ElementId::NamedInteger("task-choice".into(), *task_id as u64), shown, cursor == Some(i))
-                        .on_click(cx.listener(move |this, _, w, cx| this.edit_settings(w, cx, |f| f.tasks.toggle_at(Some(i)))))
+                    check_row(theme, ElementId::NamedInteger(page.items_id.into(), *task_id as u64), shown, cursor == Some(i))
+                        .on_click(cx.listener(move |this, _, w, cx| this.edit_settings(w, cx, |f| list(f).toggle_at(Some(i)))))
                         .child(div().when(!shown, |d| d.text_color(theme.fg_muted())).child(name.clone()))
                 }))
             }
@@ -211,22 +226,22 @@ impl TimeChimpApp {
                 theme,
                 button(id, label)
                     .disabled(disabled)
-                    .on_click(cx.listener(move |this, _, w, cx| this.edit_settings(w, cx, |f| f.tasks.set_all(shown)))),
+                    .on_click(cx.listener(move |this, _, w, cx| this.edit_settings(w, cx, |f| list(f).set_all(shown)))),
             )
         };
-        let title = current.map_or_else(String::new, |(p, _)| format!("Tasks of {}", p.name));
+        let title = current.map_or_else(String::new, |(p, _)| format!("{} {}", page.title, p.name));
         let tasks = settings_column(
             theme,
             h_stack()
                 .gap(px(8.))
                 .child(muted(theme, title).flex_1().min_w_0().truncate())
-                .child(set_all("tasks-all", "Select all", true, current.is_none() || hidden == 0))
-                .child(set_all("tasks-none", "Clear all", false, current.is_none() || hidden == total)),
+                .child(set_all(page.all_id, "Select all", true, current.is_none() || hidden == 0))
+                .child(set_all(page.none_id, "Clear all", false, current.is_none() || hidden == total)),
             tasks,
         )
         .flex_1()
         .min_w_0();
-        h_stack().flex_1().min_h_0().items_stretch().gap(px(12.)).child(projects).child(tasks).into_any_element()
+        h_stack().flex_1().min_h_0().items_stretch().gap(px(12.)).child(projects).child(tasks)
     }
 
     fn render_project_tags(&self, form: &ProjectTagsForm, focused: bool, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
@@ -235,7 +250,8 @@ impl TimeChimpApp {
             (project, form.hidden_projects.contains(&project.id), Some(format!("{count} of {}", form.tags.len())))
         });
         let in_projects = focused && form.nav.column == Column::Projects;
-        let projects = project_list(theme, "tag-projects", projects, form.current, in_projects, &form.nav, |f, i| f.tags.pick_project(i), cx);
+        let pick = |f: &mut SettingsForm, i| f.tags.pick_project(i);
+        let projects = project_list(theme, "tag-projects", projects, form.current, in_projects, &form.nav, pick, cx);
         let cursor = (focused && form.nav.column == Column::Items).then_some(form.nav.item);
         let tags = match form.current_project() {
             None => list_box(theme, "tag-choices", &form.nav.items_scroll).p(px(12.)).child(muted(theme, "No projects.")),
@@ -379,7 +395,7 @@ fn project_list<'a>(
     current: usize,
     active: bool,
     nav: &ListNav,
-    pick: fn(&mut SettingsForm, usize),
+    pick: impl Fn(&mut SettingsForm, usize) + Copy + 'static,
     cx: &mut Context<TimeChimpApp>,
 ) -> gpui::Div {
     let mut in_hidden = false;
@@ -481,8 +497,45 @@ fn key_hints(page: SettingsPage) -> &'static str {
         SettingsPage::General => "Ctrl+Tab next page · Enter save · Esc cancel",
         SettingsPage::Projects => "↑↓ or type to move · Space toggle · Ctrl+Tab next page · Enter save",
         SettingsPage::Tasks | SettingsPage::ProjectTags => "↑↓ or type to move · ←→ switch list · Space toggle · Ctrl+Tab next page",
+        SettingsPage::Billability => "↓ to the lists · ↑↓ or type to move · ←→ switch list · Space toggle · Enter save",
         SettingsPage::Presets => "Ctrl+Tab next page · Enter save · Esc cancel",
     }
+}
+
+/// The Tasks and Billability pages: the same lists over a different `TaskVisibility`.
+struct TaskPage {
+    list: fn(&mut SettingsForm) -> &mut TaskVisibility,
+    projects_id: &'static str,
+    items_id: &'static str,
+    all_id: &'static str,
+    none_id: &'static str,
+    title: &'static str,
+}
+
+static TASKS: TaskPage = TaskPage {
+    list: |f| &mut f.tasks,
+    projects_id: "task-projects",
+    items_id: "task-choices",
+    all_id: "tasks-all",
+    none_id: "tasks-none",
+    title: "Tasks of",
+};
+
+static BILLABILITY: TaskPage = TaskPage {
+    list: |f| &mut f.billability,
+    projects_id: "billability-projects",
+    items_id: "billability-choices",
+    all_id: "billability-all",
+    none_id: "billability-none",
+    title: "Counting towards the target:",
+};
+
+fn setting_row(theme: &T, label: &'static str, control: gpui::AnyElement) -> gpui::Div {
+    h_stack()
+        .gap(px(16.))
+        .items_center()
+        .child(div().w(px(130.)).flex_none().text_color(theme.fg_muted()).child(label))
+        .child(div().flex_1().min_w_0().child(control))
 }
 
 fn number_field(field: TextField, unit: gpui::Div) -> gpui::AnyElement {

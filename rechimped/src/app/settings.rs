@@ -31,7 +31,8 @@ impl TimeChimpApp {
             focus: cx.focus_handle(),
             work_days,
             billable_goal,
-            tasks: TaskVisibility::new(&self.session, &projects.hidden),
+            tasks: TaskVisibility::new(&self.session, &projects.hidden, &current.hidden_tasks),
+            billability: TaskVisibility::new(&self.session, &projects.hidden, &current.excluded_tasks),
             tags: ProjectTagsForm::new(&self.session, &projects.hidden),
             projects,
             presets,
@@ -49,10 +50,11 @@ impl TimeChimpApp {
         let Some(form) = self.settings_form_mut() else { return };
         form.page = page;
         form.tasks.order(&form.projects.hidden);
+        form.billability.order(&form.projects.hidden);
         form.tags.order(&form.projects.hidden);
         let focus = match page {
-            SettingsPage::General => form.billable_goal.read(cx).focus_handle(cx),
-            SettingsPage::Projects | SettingsPage::Tasks | SettingsPage::ProjectTags | SettingsPage::Presets => form.focus.clone(),
+            SettingsPage::Billability => form.billable_goal.read(cx).focus_handle(cx),
+            SettingsPage::General | SettingsPage::Projects | SettingsPage::Tasks | SettingsPage::ProjectTags | SettingsPage::Presets => form.focus.clone(),
         };
         window.focus(&focus, cx);
         cx.notify();
@@ -83,6 +85,7 @@ impl TimeChimpApp {
                     SettingsPage::General | SettingsPage::Presets => return,
                     SettingsPage::Projects => form.projects.type_ahead(typed),
                     SettingsPage::Tasks => form.tasks.type_ahead(typed),
+                    SettingsPage::Billability => form.billability.type_ahead(typed),
                     SettingsPage::ProjectTags => form.tags.type_ahead(typed),
                 }
                 cx.stop_propagation();
@@ -105,10 +108,12 @@ impl TimeChimpApp {
                 SettingsPage::General | SettingsPage::Presets => return,
                 SettingsPage::Projects => form.projects.move_cursor(delta),
                 SettingsPage::Tasks => form.tasks.move_cursor(delta),
+                SettingsPage::Billability => form.billability.move_cursor(delta),
                 SettingsPage::ProjectTags => form.tags.move_cursor(delta),
             },
             SettingsKey::List(column) => match form.page {
                 SettingsPage::Tasks => form.tasks.nav.column = column,
+                SettingsPage::Billability => form.billability.nav.column = column,
                 SettingsPage::ProjectTags => form.tags.nav.column = column,
                 SettingsPage::General | SettingsPage::Projects | SettingsPage::Presets => return,
             },
@@ -116,11 +121,17 @@ impl TimeChimpApp {
                 SettingsPage::General | SettingsPage::Presets => return,
                 SettingsPage::Projects => form.projects.toggle_at(None),
                 SettingsPage::Tasks => form.tasks.toggle_at(None),
+                SettingsPage::Billability => form.billability.toggle_at(None),
                 SettingsPage::ProjectTags => form.tags.toggle_at(None),
             },
         }
         cx.stop_propagation();
         cx.notify();
+    }
+
+    /// From the Billability page's target field down into its lists.
+    pub fn settings_to_lists(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.edit_settings(window, cx, |_| {});
     }
 
     pub fn cancel_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -159,9 +170,16 @@ impl TimeChimpApp {
         if !form.is_dirty(cx) {
             return self.close_overlay(window, cx);
         }
-        let settings = match validate::settings(&form.values(cx)) {
+        let values = form.values(cx);
+        let settings = match validate::settings(&values) {
             Ok(settings) => settings,
-            Err(e) => return self.settings_failed(e, Some(SettingsPage::General), window, cx),
+            Err(e) => {
+                let page = match validate::billable_goal(&values.billable_goal) {
+                    None => SettingsPage::Billability,
+                    Some(_) => SettingsPage::General,
+                };
+                return self.settings_failed(e, Some(page), window, cx);
+            }
         };
         let presets_changed = form.presets.is_changed();
         let (trips, times) = (form.presets.trips.clone(), form.presets.times.clone());

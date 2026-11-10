@@ -20,6 +20,7 @@ actions!(
         RecentUp,
         RecentDown,
         PickRecent,
+        ToLists,
         ToggleShowcase,
     ]
 );

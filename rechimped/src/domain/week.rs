@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use chrono::{Datelike, NaiveDate, NaiveTime};
 use timechimp_api::TimeEntry;
@@ -51,11 +51,17 @@ pub fn billable_hours(entries: &[TimeEntry]) -> f64 {
     entries.iter().filter(|e| e.billable).fold(0.0, |total, e| total + e.hours)
 }
 
-pub fn is_leave(entry: &TimeEntry) -> bool {
-    super::same_name(&entry.project_name, "Intern") && super::same_name(&entry.task_name, "Verlof")
+/// Per project, by name, as the config holds them.
+pub type TaskNames = BTreeMap<String, Vec<String>>;
+
+pub fn is_excluded(entry: &TimeEntry, excluded: &TaskNames) -> bool {
+    excluded.iter().any(|(project, tasks)| {
+        super::same_name(project, &entry.project_name) && tasks.iter().any(|t| super::same_name(t, &entry.task_name))
+    })
 }
 
-/// Leave counts neither as hours worked nor towards the contract, so a week with a day off isn't short.
+/// Excluded tasks (leave) count neither as hours worked nor towards the contract, so a week with a
+/// day off isn't short.
 #[derive(Debug, PartialEq)]
 pub struct WeekCard {
     pub hours: f64,
@@ -64,11 +70,11 @@ pub struct WeekCard {
     pub share: Option<f64>,
 }
 
-pub fn week_card(entries: &[TimeEntry], contract_hours: f64) -> WeekCard {
-    let worked: Vec<TimeEntry> = entries.iter().filter(|e| !is_leave(e)).cloned().collect();
+pub fn week_card(entries: &[TimeEntry], contract_hours: f64, excluded: &TaskNames) -> WeekCard {
+    let worked: Vec<TimeEntry> = entries.iter().filter(|e| !is_excluded(e, excluded)).cloned().collect();
     // Folds from +0.0: `sum` of nothing is -0.0, which shows as "-0".
     let hours = worked.iter().fold(0.0, |total, e| total + e.hours);
-    let leave = entries.iter().filter(|e| is_leave(e)).fold(0.0, |total, e| total + e.hours);
+    let leave = entries.iter().filter(|e| is_excluded(e, excluded)).fold(0.0, |total, e| total + e.hours);
     let contract = (contract_hours - leave).max(0.0);
     let billable = billable_hours(&worked);
     let of = if contract > 0.0 { contract } else { hours };
@@ -81,13 +87,18 @@ pub fn weeks_up_to(monday: NaiveDate, count: i64) -> Vec<NaiveDate> {
     (0..count).rev().map(|k| monday - chrono::Duration::weeks(k)).collect()
 }
 
-pub fn week_cards(entries: &[TimeEntry], mondays: &[NaiveDate], contract_hours: f64) -> Vec<(NaiveDate, WeekCard)> {
+pub fn week_cards(
+    entries: &[TimeEntry],
+    mondays: &[NaiveDate],
+    contract_hours: f64,
+    excluded: &TaskNames,
+) -> Vec<(NaiveDate, WeekCard)> {
     mondays
         .iter()
         .map(|&monday| {
             let week = monday..monday + chrono::Duration::days(7);
             let in_week: Vec<TimeEntry> = entries.iter().filter(|e| week.contains(&e.date)).cloned().collect();
-            (monday, week_card(&in_week, contract_hours))
+            (monday, week_card(&in_week, contract_hours, excluded))
         })
         .collect()
 }
@@ -197,10 +208,10 @@ mod tests {
         let mut unbilled = entry(2, 3, "10:00-13:00");
         (unbilled.billable, unbilled.hours) = (false, 3.0);
         let entries = [entry(1, 2, "9:00-10:00"), unbilled];
-        assert_eq!(week_card(&entries, 40.0).share, Some(1.0 / 40.0));
-        assert_eq!(week_card(&entries, 0.0).share, Some(1.0 / 4.0), "of the hours logged");
-        assert_eq!(week_card(&[], 0.0).share, None);
-        assert!(week_card(&[], 40.0).share.unwrap().is_sign_positive(), "not -0");
+        assert_eq!(week_card(&entries, 40.0, &TaskNames::new()).share, Some(1.0 / 40.0));
+        assert_eq!(week_card(&entries, 0.0, &TaskNames::new()).share, Some(1.0 / 4.0), "of the hours logged");
+        assert_eq!(week_card(&[], 0.0, &TaskNames::new()).share, None);
+        assert!(week_card(&[], 40.0, &TaskNames::new()).share.unwrap().is_sign_positive(), "not -0");
     }
 
     #[test]
@@ -210,11 +221,16 @@ mod tests {
         (leave.project_name, leave.task_name, leave.billable, leave.hours) = ("intern".into(), "Verlof".into(), false, 8.0);
         let mut meeting = entry(3, 4, "");
         (meeting.project_name, meeting.task_name, meeting.billable, meeting.hours) = ("Intern".into(), "Meeting".into(), false, 2.0);
-        let entries = [entry(1, 2, "9:00-10:00"), leave.clone(), meeting];
-        assert!(is_leave(&leave));
-        assert_eq!(week_card(&entries, 40.0), WeekCard { hours: 3.0, billable: 1.0, contract: 32.0, share: Some(1.0 / 32.0) });
-        assert_eq!(week_card(&entries, 0.0).share, Some(1.0 / 3.0), "of the hours logged, leave excluded");
-        let card = week_card(&[leave], 8.0);
+        let entries = [entry(1, 2, "9:00-10:00"), leave.clone(), meeting.clone()];
+        let excluded = TaskNames::from([("Intern".into(), vec!["verlof".into()])]);
+        assert!(is_excluded(&leave, &excluded) && !is_excluded(&meeting, &excluded), "by name, case-insensitively");
+        assert_eq!(
+            week_card(&entries, 40.0, &excluded),
+            WeekCard { hours: 3.0, billable: 1.0, contract: 32.0, share: Some(1.0 / 32.0) }
+        );
+        assert_eq!(week_card(&entries, 0.0, &excluded).share, Some(1.0 / 3.0), "of the hours logged, leave excluded");
+        assert_eq!(week_card(&entries, 40.0, &TaskNames::new()).hours, 11.0, "nothing excluded");
+        let card = week_card(&[leave], 8.0, &excluded);
         assert_eq!((card.hours, card.contract, card.share), (0.0, 0.0, None));
         assert!(card.hours.is_sign_positive(), "not -0");
     }
@@ -227,7 +243,7 @@ mod tests {
         let mut unbilled = entry(3, 8, "");
         unbilled.billable = false;
         let entries = [entry(1, 2, ""), entry(2, 8, ""), unbilled, entry(4, 9, "")];
-        let shares: Vec<_> = week_cards(&entries, &mondays, 4.0).into_iter().map(|(m, c)| (m, c.hours, c.share)).collect();
+        let shares: Vec<_> = week_cards(&entries, &mondays, 4.0, &TaskNames::new()).into_iter().map(|(m, c)| (m, c.hours, c.share)).collect();
         assert_eq!(
             shares,
             [(mondays[0], 0.0, Some(0.0)), (date(2), 3.0, Some(2.0 / 4.0)), (date(9), 1.0, Some(1.0 / 4.0))],

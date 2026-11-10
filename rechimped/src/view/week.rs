@@ -101,7 +101,11 @@ impl TimeChimpApp {
         }));
 
         let crate::domain::week::WeekCard { hours: total, contract, share, .. } =
-            crate::domain::week::week_card(self.session.entries(), self.session.contract_hours());
+            crate::domain::week::week_card(
+                self.session.entries(),
+                self.session.contract_hours(),
+                &self.session.settings.excluded_tasks,
+            );
         let ratio = share.unwrap_or(0.0);
         let ratio_colour = goal_colour(theme, share, self.session.settings.billable_goal);
         let week_card = v_stack()

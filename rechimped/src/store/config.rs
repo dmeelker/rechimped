@@ -20,6 +20,13 @@ pub struct Settings {
     pub billable_goal: f64,
     pub hidden_projects: Vec<String>,
     pub hidden_tasks: BTreeMap<String, Vec<String>>,
+    /// Per project, the tasks whose hours count neither as worked nor towards the contract (leave).
+    pub excluded_tasks: BTreeMap<String, Vec<String>>,
+}
+
+/// Stored as exclusions, so a task added in TimeChimp later counts towards the target by itself.
+pub fn default_excluded_tasks() -> BTreeMap<String, Vec<String>> {
+    BTreeMap::from([("Intern".to_owned(), vec!["Verlof".to_owned(), "Ziek".to_owned()])])
 }
 
 impl Default for Settings {
@@ -29,6 +36,7 @@ impl Default for Settings {
             billable_goal: DEFAULT_BILLABLE_GOAL,
             hidden_projects: Vec::new(),
             hidden_tasks: BTreeMap::new(),
+            excluded_tasks: default_excluded_tasks(),
         }
     }
 }
@@ -45,6 +53,7 @@ struct ConfigFile {
     hidden_projects: Vec<String>,
     #[serde(default)]
     hidden_tasks: BTreeMap<String, Vec<String>>,
+    excluded_tasks: Option<BTreeMap<String, Vec<String>>>,
     #[serde(default)]
     projects: HashMap<String, Vec<String>>,
     #[serde(default)]
@@ -166,7 +175,13 @@ fn parse_config(text: &str) -> Result<Config, String> {
             days
         }
     };
-    let settings = Settings { work_days, billable_goal, hidden_projects: file.hidden_projects, hidden_tasks: file.hidden_tasks };
+    let settings = Settings {
+        work_days,
+        billable_goal,
+        hidden_projects: file.hidden_projects,
+        hidden_tasks: file.hidden_tasks,
+        excluded_tasks: file.excluded_tasks.unwrap_or_else(default_excluded_tasks),
+    };
     for trip in &file.trips {
         if trip.trip_type().is_none() {
             let known: Vec<&str> = TRIP_TYPE_KEYS.iter().map(|(_, key)| *key).collect();
@@ -242,32 +257,50 @@ fn with_settings(text: &str, settings: &Settings) -> Result<String, String> {
         set(&mut doc, "hidden_projects", toml_edit::value(hidden), comment);
     }
     if !settings.hidden_tasks.is_empty() || doc.contains_key("hidden_tasks") {
-        let tasks = doc
-            .entry("hidden_tasks")
-            .or_insert_with(|| {
-                let mut table = toml_edit::Table::new();
-                table.decor_mut().set_prefix("
-# Per project, the tasks the time form doesn't offer (Settings, in the menu under your name).
-");
-                toml_edit::Item::Table(table)
-            })
-            .as_table_like_mut()
-            .ok_or("hidden_tasks is not a table")?;
-        let stale: Vec<String> = tasks
-            .iter()
-            .map(|(key, _)| key.to_owned())
-            .filter(|key| !settings.hidden_tasks.iter().any(|(p, names)| same_name(p, key) && !names.is_empty()))
-            .collect();
-        for key in stale {
-            tasks.remove(&key);
-        }
-        for (project, names) in &settings.hidden_tasks {
-            set_names(tasks, project, names);
-        }
+        let comment = "# Per project, the tasks the time form doesn't offer (Settings, in the menu under your name).";
+        set_task_table(&mut doc, "hidden_tasks", &settings.hidden_tasks, comment)?;
+    }
+    // Once written, even empty, so clearing the default doesn't bring it back.
+    if settings.excluded_tasks != default_excluded_tasks() || doc.contains_key("excluded_tasks") {
+        let comment = "# Per project, the tasks that don't count towards the billable target, like leave: their hours are\n\
+                       # left out of both your hours and your contract hours (Settings, in the menu under your name).";
+        set_task_table(&mut doc, "excluded_tasks", &settings.excluded_tasks, comment)?;
     }
     let text = doc.to_string();
     parse_config(&text)?;
     Ok(text)
+}
+
+/// Keys are changed in place and emptied ones dropped.
+fn set_task_table(
+    doc: &mut toml_edit::DocumentMut,
+    key: &str,
+    names: &BTreeMap<String, Vec<String>>,
+    comment: &str,
+) -> Result<(), String> {
+    let table = doc
+        .entry(key)
+        .or_insert_with(|| {
+            let mut table = toml_edit::Table::new();
+            table.decor_mut().set_prefix(format!("
+{comment}
+"));
+            toml_edit::Item::Table(table)
+        })
+        .as_table_like_mut()
+        .ok_or_else(|| format!("{key} is not a table"))?;
+    let stale: Vec<String> = table
+        .iter()
+        .map(|(key, _)| key.to_owned())
+        .filter(|key| !names.iter().any(|(p, tasks)| same_name(p, key) && !tasks.is_empty()))
+        .collect();
+    for key in stale {
+        table.remove(&key);
+    }
+    for (project, tasks) in names {
+        set_names(table, project, tasks);
+    }
+    Ok(())
 }
 
 pub fn save_project_tags(path: &Path, changes: &[(String, Vec<String>)]) -> Result<(), String> {
@@ -657,6 +690,7 @@ mod tests {
             billable_goal: 0.7,
             hidden_projects: vec!["Old \"one\"".into()],
             hidden_tasks: BTreeMap::from([("Intern".into(), vec!["Verlof".into()])]),
+            excluded_tasks: BTreeMap::from([("Intern".into(), vec!["Verlof".into()])]),
         };
         let text = "# top\n# goal\nbillable_goal = 75 # inline\n\n[projects]\n# keep me\nIntern = []\n";
         let saved = with_settings(text, &settings).unwrap();
@@ -701,6 +735,21 @@ mod tests {
         let fresh = with_settings("billable_goal = 80\n", &hidden(&[("P", &["T"])])).unwrap();
         assert!(fresh.contains("# Per project, the tasks") && fresh.contains("[hidden_tasks]\nP = [\"T\"]"), "{fresh}");
         assert!(with_settings("hidden_tasks = { P = [\"A\"] }", &hidden(&[("P", &["B"])])).unwrap().contains("P = [\"B\"]"));
+    }
+
+    #[test]
+    fn excluded_tasks() {
+        assert_eq!(parse_config("").unwrap().settings.excluded_tasks, default_excluded_tasks(), "leave by default");
+        assert!(parse_config("[excluded_tasks]
+").unwrap().settings.excluded_tasks.is_empty(), "an empty table excludes nothing");
+        assert!(!with_settings("", &Settings::default()).unwrap().contains("excluded_tasks"), "not written while the default");
+        let none = Settings { excluded_tasks: BTreeMap::new(), ..Settings::default() };
+        let saved = with_settings("billable_goal = 80
+", &none).unwrap();
+        assert!(saved.contains("# Per project, the tasks that don't count towards the billable target, like leave: their hours are\n# left out"), "{saved}");
+        assert!(saved.contains("[excluded_tasks]"), "{saved}");
+        assert_eq!(parse_config(&saved).unwrap().settings, none, "cleared stays cleared");
+        assert_eq!(parse_config(&with_settings(&saved, &Settings::default()).unwrap()).unwrap().settings, Settings::default());
     }
 
     #[test]

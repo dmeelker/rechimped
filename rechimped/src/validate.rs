@@ -212,6 +212,7 @@ pub struct SettingsValues {
     pub billable_goal: String,
     pub hidden_projects: Vec<String>,
     pub hidden_tasks: BTreeMap<String, Vec<String>>,
+    pub excluded_tasks: BTreeMap<String, Vec<String>>,
 }
 
 /// The typed percentage as a fraction, or None unless it is a number from 0 to 100.
@@ -230,6 +231,7 @@ pub fn settings(v: &SettingsValues) -> Result<Settings, String> {
         billable_goal,
         hidden_projects: v.hidden_projects.clone(),
         hidden_tasks: v.hidden_tasks.clone(),
+        excluded_tasks: v.excluded_tasks.clone(),
     })
 }
 
@@ -367,6 +369,7 @@ mod tests {
             billable_goal: goal.into(),
             hidden_projects: vec!["Old".into()],
             hidden_tasks: BTreeMap::from([("P".into(), vec!["T".into()])]),
+            excluded_tasks: BTreeMap::from([("Q".into(), vec!["Leave".into()])]),
         };
         let weekdays = [true, true, true, true, true, false, false];
         assert_eq!(
@@ -376,6 +379,7 @@ mod tests {
                 billable_goal: 0.75,
                 hidden_projects: vec!["Old".into()],
                 hidden_tasks: BTreeMap::from([("P".into(), vec!["T".into()])]),
+                excluded_tasks: BTreeMap::from([("Q".into(), vec!["Leave".into()])]),
             })
         );
         assert_eq!(settings(&v(weekdays, "82,5")).unwrap().billable_goal, 0.825);

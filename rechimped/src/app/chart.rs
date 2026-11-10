@@ -32,7 +32,8 @@ impl TimeChimpApp {
                     if let Overlay::Chart(chart) = &mut this.overlay
                         && chart.mondays == wanted
                     {
-                        chart.weeks = Some(week::week_cards(&entries, &wanted, contract));
+                        chart.weeks =
+                            Some(week::week_cards(&entries, &wanted, contract, &this.session.settings.excluded_tasks));
                     }
                 }
                 Err(e) => this.api_error(e, window, cx),

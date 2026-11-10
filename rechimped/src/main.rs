@@ -26,7 +26,7 @@ use gpuikit::theme::{ControlMetrics, GlobalTheme, Theme, parse_hex};
 
 use app::{
     AddressDown, AddressUp, CalculateDistance, Cancel, CloseAddresses, CloseCalendar, Confirm, NextDay, NextMonth, NextWeek, PickAddress, PickRecent, PreviousDay, PreviousMonth,
-    PreviousWeek, RecentDown, RecentUp, TimeChimpApp, ToggleShowcase,
+    PreviousWeek, RecentDown, RecentUp, TimeChimpApp, ToLists, ToggleShowcase,
 };
 
 fn main() {
@@ -118,6 +118,7 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("pagedown", NextMonth, Some("DateField > Input")),
         KeyBinding::new("enter", CloseCalendar, Some("DateField > Input")),
         KeyBinding::new("escape", CloseCalendar, Some("DateField > Input")),
+        KeyBinding::new("down", ToLists, Some("BillableTarget > Input")),
         KeyBinding::new("f12", ToggleShowcase, None),
     ]);
 }

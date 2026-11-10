@@ -16,6 +16,7 @@ use crate::validate::SettingsValues;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SettingsPage {
     General,
+    Billability,
     Projects,
     Tasks,
     ProjectTags,
@@ -23,11 +24,12 @@ pub enum SettingsPage {
 }
 
 impl SettingsPage {
-    pub const ALL: [Self; 5] = [Self::General, Self::Projects, Self::Tasks, Self::ProjectTags, Self::Presets];
+    pub const ALL: [Self; 6] = [Self::General, Self::Billability, Self::Projects, Self::Tasks, Self::ProjectTags, Self::Presets];
 
     pub fn title(self) -> &'static str {
         match self {
             Self::General => "General",
+            Self::Billability => "Billability",
             Self::Projects => "Projects",
             Self::Tasks => "Tasks",
             Self::ProjectTags => "Project tags",
@@ -37,7 +39,10 @@ impl SettingsPage {
 
     pub fn description(self) -> &'static str {
         match self {
-            Self::General => "Your work week and billable target.",
+            Self::General => "Your work week.",
+            Self::Billability => {
+                "Your billable target, and the tasks that count towards it. Hours of the other tasks (like leave) are left out of both your hours and your contract hours."
+            }
             Self::Projects => "The projects the forms offer. Entries of hidden projects still show everywhere.",
             Self::Tasks => "The tasks the time form offers, per project. Entries of hidden tasks still show everywhere.",
             Self::ProjectTags => "The tags the time form offers as checkboxes, per project.",
@@ -54,6 +59,8 @@ pub struct SettingsForm {
     pub billable_goal: Entity<InputState>,
     pub projects: ProjectVisibility,
     pub tasks: TaskVisibility,
+    /// Checked = counts towards the billable target; the unchecked ones are stored.
+    pub billability: TaskVisibility,
     pub tags: ProjectTagsForm,
     pub presets: PresetsForm,
     pub error: Option<String>,
@@ -72,6 +79,7 @@ impl SettingsForm {
             billable_goal: text(&self.billable_goal, cx),
             hidden_projects: self.projects.hidden_names(),
             hidden_tasks: self.tasks.hidden_names(),
+            excluded_tasks: self.billability.hidden_names(),
         }
     }
 
@@ -279,8 +287,10 @@ pub struct TaskVisibility {
     pub nav: ListNav,
 }
 
+/// One checkbox per active task of each active project, checked unless `names` (the unchecked
+/// ones, by name per project) lists it. Used for the Tasks page and for Billability.
 impl TaskVisibility {
-    pub fn new(session: &Session, hidden_projects: &BTreeSet<i64>) -> Self {
+    pub fn new(session: &Session, hidden_projects: &BTreeSet<i64>, names: &BTreeMap<String, Vec<String>>) -> Self {
         let projects: Vec<_> = session
             .projects()
             .iter()
@@ -292,12 +302,15 @@ impl TaskVisibility {
                 (!tasks.is_empty()).then(|| (ProjectRow::of(p), tasks))
             })
             .collect();
+        let listed = |project: &str, task: &str| {
+            names.iter().any(|(p, tasks)| same_name(p, project) && tasks.iter().any(|t| same_name(t, task)))
+        };
         let hidden = projects
             .iter()
-            .map(|(p, tasks)| (p.id, tasks.iter().filter(|(_, t)| session.is_task_hidden(p.id, t)).map(|(t, _)| *t).collect()))
+            .map(|(p, tasks)| (p.id, tasks.iter().filter(|(_, t)| listed(&p.name, t)).map(|(t, _)| *t).collect()))
             .collect();
         let mut others = BTreeMap::new();
-        for (project, names) in &session.settings.hidden_tasks {
+        for (project, names) in names {
             let listed = projects.iter().find(|(p, _)| same_name(&p.name, project)).map(|(_, tasks)| tasks);
             let unlisted: Vec<String> = names
                 .iter()
@@ -554,7 +567,7 @@ mod tests {
         s.settings.hidden_tasks =
             BTreeMap::from([("p".into(), vec!["B".into(), "Gone".into()]), ("Old".into(), vec!["X".into()])]);
 
-        let mut form = TaskVisibility::new(&s, &BTreeSet::new());
+        let mut form = TaskVisibility::new(&s, &BTreeSet::new(), &s.settings.hidden_tasks);
         assert_eq!(form.projects.iter().map(|(p, _)| p.id).collect::<Vec<_>>(), [3], "only projects with active tasks");
         assert_eq!(form.projects[0].1.iter().map(|t| t.0).collect::<Vec<_>>(), [20, 10], "tasks by name");
         assert!(form.is_hidden(3, 10) && !form.is_hidden(3, 20));
@@ -616,7 +629,7 @@ mod tests {
         s.apply_base(base(vec![project(1, "A"), project(2, "B"), project(3, "C")], tasks, Vec::new()), None, &[]);
         let ids = |f: &TaskVisibility| f.projects.iter().map(|(p, _)| p.id).collect::<Vec<_>>();
 
-        let mut form = TaskVisibility::new(&s, &BTreeSet::from([1]));
+        let mut form = TaskVisibility::new(&s, &BTreeSet::from([1]), &BTreeMap::new());
         assert_eq!(ids(&form), [2, 3, 1]);
         assert_eq!(form.current_project(), Some(2), "a shown project selected on open");
         form.current = 1;
@@ -633,7 +646,7 @@ mod tests {
         let mut s = Session::new(None, date(4));
         let tasks = HashMap::from([(1, vec![task(10, 1, "a"), task(11, 1, "b")]), (2, vec![task(20, 2, "c")])]);
         s.apply_base(base(vec![project(1, "A"), project(2, "B")], tasks, Vec::new()), None, &[]);
-        let mut form = TaskVisibility::new(&s, &BTreeSet::new());
+        let mut form = TaskVisibility::new(&s, &BTreeSet::new(), &s.settings.hidden_tasks);
 
         form.toggle_at(None);
         assert_eq!(form.hidden_count(1), 0, "Space does nothing in the project list");
