@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Toolchain
 
-The GUI needs Rust ≥ 1.93 (gpui uses `slice::as_array`; `rust-version` in `rechimped/Cargo.toml` enforces it).
+The GUI needs Rust ≥ 1.95 (gpui uses `std::hint::cold_path`; `rust-version` in `rechimped/Cargo.toml` enforces it).
 
 ```sh
 cargo build                                   # whole workspace

@@ -2,8 +2,8 @@
 name = "rechimped"
 version = "0.1.0"
 edition = "2024"
-# gpui needs a recent compiler (it uses `slice::as_array`, stable since 1.93).
-rust-version = "1.93"
+# gpui needs a recent compiler (it uses `std::hint::cold_path`, stable since 1.95).
+rust-version = "1.95"
 description = "Rechimped: desktop GUI (gpui + gpuikit) for viewing and editing your TimeChimp time entries"
 
 [[bin]]
