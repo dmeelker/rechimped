@@ -201,7 +201,7 @@ pub(super) fn hint(theme: &T, key: &'static str, label: &'static str) -> gpui::D
         .child(label)
 }
 
-pub(super) fn junction_row(theme: &T, junction: &crate::domain::week::Junction) -> impl IntoElement {
+pub(super) fn junction_row(theme: &T, junction: &crate::domain::week::Junction) -> gpui::Div {
     use crate::domain::week::Junction;
     let (colour, from, to, what) = match *junction {
         Junction::Gap { from, to } => (theme.warning(), from, to, "gap"),

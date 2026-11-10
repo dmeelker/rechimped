@@ -1,3 +1,4 @@
+use chrono::{NaiveDate, NaiveTime};
 use gpui::{Context, Focusable, Subscription, Window};
 use gpuikit::elements::select::SelectChanged;
 use gpuikit::input::InputStateEvent;
@@ -39,11 +40,22 @@ impl TimeChimpApp {
         }
     }
 
+    /// A double-clicked gap between two entries: a new entry for that slot.
+    pub fn fill_gap(&mut self, date: NaiveDate, from: NaiveTime, to: NaiveTime, window: &mut Window, cx: &mut Context<Self>) {
+        if self.session.me().is_none() || self.overlay_open() {
+            return;
+        }
+        self.open_seeded_time_form(seed::gap_form(&self.session, date, from, to), window, cx);
+    }
+
     fn open_time_form(&mut self, entry: Option<&TimeEntry>, copy: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.overlay_open() {
             return;
         }
-        let seed = seed::time_form(&self.session, entry, copy);
+        self.open_seeded_time_form(seed::time_form(&self.session, entry, copy), window, cx);
+    }
+
+    fn open_seeded_time_form(&mut self, seed: seed::TimeSeed, window: &mut Window, cx: &mut Context<Self>) {
         let editing = matches!(seed.kind, TimeKind::Edit { .. });
         let project = forms::choice(cx, "form-project", "Project", seed.projects, seed.project_id);
         let project_sub = self.subscribe_project(&project, window, cx);

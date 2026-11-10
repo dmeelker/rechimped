@@ -1,5 +1,5 @@
 
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveTime};
 use timechimp_api::{Mileage, MileageType, TimeEntry};
 
 use crate::session::Session;
@@ -109,6 +109,16 @@ pub fn time_form(session: &Session, entry: Option<&TimeEntry>, copy: bool) -> Ti
         hours: editing.map(|e| format!("{}", e.hours)).unwrap_or_default(),
         notes: entry.and_then(|e| e.notes.clone()).unwrap_or_default(),
         recent: entry.is_none() && !session.recent.is_empty(),
+    }
+}
+
+/// A new entry filling the gap `from`–`to` on `date`.
+pub fn gap_form(session: &Session, date: NaiveDate, from: NaiveTime, to: NaiveTime) -> TimeSeed {
+    TimeSeed {
+        date,
+        start: from.format("%H:%M").to_string(),
+        end: to.format("%H:%M").to_string(),
+        ..time_form(session, None, false)
     }
 }
 
@@ -239,6 +249,16 @@ mod tests {
         assert_eq!(copy.kind, TimeKind::New);
         assert_eq!((copy.start.as_str(), copy.hours.as_str()), ("11:30", ""));
         assert_eq!(copy.project.kept_tag_ids, [20, 99]);
+    }
+
+    #[test]
+    fn a_gap_seeds_its_slot() {
+        let s = session();
+        let (from, to) = (NaiveTime::from_hms_opt(12, 0, 0).unwrap(), NaiveTime::from_hms_opt(13, 15, 0).unwrap());
+        let seed = gap_form(&s, date(4), from, to);
+        assert_eq!(seed.kind, TimeKind::New);
+        assert_eq!((seed.date, seed.start.as_str(), seed.end.as_str(), seed.hours.as_str()), (date(4), "12:00", "13:15", ""));
+        assert_eq!((seed.project_id, seed.project.task_id), (Some(3), Some(4)), "the usual default project");
     }
 
     #[test]

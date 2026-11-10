@@ -10,7 +10,7 @@ use gpuikit::theme::Themeable;
 use timechimp_api::TimeEntry;
 
 use crate::app::TimeChimpApp;
-use crate::domain::week::CHART_WEEKS;
+use crate::domain::week::{CHART_WEEKS, Junction};
 
 use super::widgets::*;
 
@@ -58,7 +58,23 @@ impl TimeChimpApp {
         for (n, &i) in indices.iter().enumerate() {
             if let Some(&prev) = n.checked_sub(1).and_then(|p| indices.get(p))
                 && let Some(junction) = crate::domain::week::junction(&self.session.entries()[prev], &self.session.entries()[i]) {
-                    rows.push(junction_row(theme, &junction).into_any_element());
+                    let row = junction_row(theme, &junction);
+                    rows.push(match junction {
+                        Junction::Gap { from, to } => {
+                            let date = self.session.entries()[i].date;
+                            row.id(ElementId::NamedInteger("gap".into(), i as u64))
+                                .cursor_pointer()
+                                .hover(|s| s.bg(theme.warning().opacity(0.18)))
+                                .tooltip(tooltip("Double-click to add an entry for this gap"))
+                                .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
+                                    if ev.click_count() >= 2 {
+                                        this.fill_gap(date, from, to, window, cx);
+                                    }
+                                }))
+                                .into_any_element()
+                        }
+                        Junction::Overlap { .. } => row.into_any_element(),
+                    });
                 }
             rows.push(self.entry_row(theme, i, &self.session.entries()[i], cx).into_any_element());
         }
