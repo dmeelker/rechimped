@@ -46,8 +46,26 @@ Written in Rust, as a Cargo workspace of two crates:
   the GPU-accelerated UI framework from the Zed editor, and the
   [gpuikit](https://crates.io/crates/gpuikit) component library.
 
-Build with `cargo build --release -p rechimped` (Rust 1.93 or newer). It has been built and
-used on Windows only.
+## Building
+
+Build with `cargo build --release -p rechimped` (Rust 1.95 or newer).
+
+On Windows nothing else is needed beyond the Windows SDK (its `rc.exe` embeds the icon).
+
+On Linux, the build needs `pkg-config` and the development packages of OpenSSL and of the
+libraries gpui links against (fontconfig, freetype, X11/xcb, xkbcommon, Wayland, Vulkan):
+
+```sh
+# Fedora
+sudo dnf install pkgconf-pkg-config openssl-devel fontconfig-devel freetype-devel \
+    libxcb-devel libxkbcommon-devel libxkbcommon-x11-devel wayland-devel \
+    vulkan-loader-devel libX11-devel libXcursor-devel
+
+# Debian / Ubuntu
+sudo apt install pkg-config libssl-dev libfontconfig-dev libfreetype-dev \
+    libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libx11-xcb-dev \
+    libxcb1-dev libvulkan-dev libasound2-dev libzstd-dev
+```
 
 ## Written by Claude Code
 
