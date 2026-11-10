@@ -57,7 +57,7 @@ impl TimeChimpApp {
             .children(categories);
 
         let content = match form.page {
-            SettingsPage::General => self.render_general(form, theme, cx),
+            SettingsPage::General => self.render_general(form, theme),
             SettingsPage::Projects => self.render_project_visibility(&form.projects, focused, theme, cx),
             SettingsPage::Billability => self.render_billability(form, focused, theme, cx),
             SettingsPage::Tasks => self.render_task_visibility(&form.tasks, &TASKS, focused, theme, cx).into_any_element(),
@@ -111,9 +111,8 @@ impl TimeChimpApp {
         Self::modal(theme, "settings", 880., card, None)
     }
 
-    fn render_general(&self, form: &SettingsForm, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let work_days = form.values(cx).work_days.iter().filter(|on| **on).count();
-        let contract = crate::domain::week::contract_summary(self.session.contract_hours(), work_days);
+    fn render_general(&self, form: &SettingsForm, theme: &T) -> gpui::AnyElement {
+        let contract = crate::domain::week::contract_summary(self.session.contract_hours());
         let days = h_stack().gap(px(14.)).children(form.work_days.iter().cloned()).into_any_element();
         v_stack()
             .gap(px(14.))
