@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Rechimped
+GenericName=Time Tracking
+Comment=View and edit your TimeChimp time entries and trips
+Exec=rechimped
+Icon=rechimped
+Terminal=false
+Categories=Office;ProjectManagement;
+Keywords=timechimp;time;hours;timesheet;mileage;
+StartupWMClass=rechimped

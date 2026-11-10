@@ -44,6 +44,8 @@ fn main() {
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     titlebar: Some(TitlebarOptions { title: Some(SharedString::from("Rechimped")), ..Default::default() }),
+                    // Linux desktops match this to linux/rechimped.desktop for the window's icon.
+                    app_id: Some("rechimped".into()),
                     ..Default::default()
                 },
                 |window, cx| cx.new(|cx| TimeChimpApp::new(window, cx)),

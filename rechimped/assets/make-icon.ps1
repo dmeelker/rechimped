@@ -92,3 +92,7 @@ foreach ($f in $frames) { $bw.Write($f) }
 $bw.Flush()
 [System.IO.File]::WriteAllBytes((Join-Path $PSScriptRoot 'rechimped.ico'), $out.ToArray())
 "Wrote rechimped.ico ($($sizes -join ', ') px)"
+
+# Linux desktop icon (hicolor 256x256), installed by linux/install.sh.
+[System.IO.File]::WriteAllBytes((Join-Path $PSScriptRoot 'rechimped.png'), (Draw-Icon 256))
+"Wrote rechimped.png (256 px)"
