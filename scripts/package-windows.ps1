@@ -12,8 +12,8 @@ $dist = Join-Path $root 'dist'
 $stage = Join-Path $dist $name
 Remove-Item -Recurse -Force $stage, "$stage.zip" -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $stage | Out-Null
-# The icon is embedded in the exe, so the exe is all there is.
-Copy-Item (Join-Path $root 'target\release\rechimped.exe') $stage
+# The icon is embedded in the exe, so the exe and the README are all there is.
+Copy-Item (Join-Path $root 'target\release\rechimped.exe'), (Join-Path $root 'README.md') $stage
 Compress-Archive -Path $stage -DestinationPath "$stage.zip"
 Remove-Item -Recurse -Force $stage
 "Wrote $stage.zip"
