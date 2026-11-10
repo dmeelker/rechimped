@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Builds the release binary for the current OS and zips it with README.md as
+# Builds the release binary for the current OS and zips it with README.txt and UNLICENSE as
 # dist/rechimped-<version>-<os>-<arch>.zip. Run on each OS (CI does both).
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -18,7 +18,8 @@ $stage = Join-Path $dist $name
 Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $stage | Out-Null
 Copy-Item "$root/target/release/$exe" $stage
-Copy-Item "$root/README.md" $stage
+Copy-Item "$root/UNLICENSE" $stage
+Copy-Item "$root/docs/release-readme.txt" (Join-Path $stage 'README.txt')
 
 $zip = Join-Path $dist "$name.zip"
 Remove-Item $zip -Force -ErrorAction SilentlyContinue
