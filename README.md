@@ -12,7 +12,7 @@ going through the web app.
 
 ## Goals
 
-- **A fast and responsive experience**: a native, GPU-rendered app instead of a web page. It
+- **A fast and responsive experience**: a native, GPU-rendered app instead of a heavy web page. It
   starts quickly, switches tabs and weeks without waiting on page loads, and stays idle when
   nothing is happening.
 - **Extra usability features**: the things you do many times a week should take few keystrokes.
