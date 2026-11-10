@@ -1,5 +1,5 @@
 # Builds the Linux (x86_64, glibc) release binary in Docker and packages it with the icon, desktop file,
-# README and install.sh as dist\rechimped-<version>-linux-x86_64.tar.gz (unpack, then run ./install.sh).
+# README, UNLICENSE and install.sh as dist\rechimped-<version>-linux-x86_64.tar.gz (unpack, then run ./install.sh).
 # Needs Docker Desktop running. The cargo registry and the Linux target dir live in Docker volumes,
 # so rebuilds are incremental and the Windows target dir is left alone.
 $ErrorActionPreference = 'Stop'
@@ -24,7 +24,7 @@ docker run --rm `
         stage=/tmp/$NAME
         rm -rf "$stage" && mkdir -p "$stage"
         install -m755 /target/release/rechimped /src/linux/install.sh "$stage"
-        install -m644 /src/rechimped/assets/rechimped.png /src/linux/rechimped.desktop /src/README.md "$stage"
+        install -m644 /src/rechimped/assets/rechimped.png /src/linux/rechimped.desktop /src/README.md /src/UNLICENSE "$stage"
         tar -czf "/src/dist/$NAME.tar.gz" --owner=0 --group=0 -C /tmp "$NAME"
     '
 if ($LASTEXITCODE) { exit $LASTEXITCODE }

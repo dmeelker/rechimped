@@ -5,6 +5,7 @@ edition = "2024"
 # gpui needs a recent compiler (it uses `std::hint::cold_path`, stable since 1.95).
 rust-version = "1.95"
 description = "Rechimped: desktop GUI (gpui + gpuikit) for viewing and editing your TimeChimp time entries"
+license = "Unlicense"
 
 [[bin]]
 name = "rechimped"

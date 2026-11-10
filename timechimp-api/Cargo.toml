@@ -3,6 +3,7 @@ name = "timechimp-api"
 version = "0.1.0"
 edition = "2024"
 description = "Client for TimeChimp's internal web API, with Cognito SRP login"
+license = "Unlicense"
 
 [dependencies]
 base64 = "0.22"

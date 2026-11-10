@@ -33,8 +33,21 @@ going through the web app.
 - Your settings live in a plain `config.toml` you can read and edit.
 
 You log in with your normal TimeChimp account (MFA is supported). The app keeps a session token
-and a `config.toml` with your settings and presets in `%APPDATA%\rechimped\`. Delete that
+and a `config.toml` with your settings and presets in a `rechimped` folder: `%APPDATA%\rechimped\`
+on Windows, `$XDG_CONFIG_HOME/rechimped/` (usually `~/.config/rechimped/`) on Linux. Delete that
 folder to remove everything it stored.
+
+## Installing
+
+Release builds come as an archive per platform.
+
+- **Windows** (`rechimped-<version>-windows-x86_64.zip`): unzip it anywhere and run
+  `rechimped.exe`. Nothing is installed.
+- **Linux** (`rechimped-<version>-linux-x86_64.tar.gz`): unpack it and run `./install.sh`. It
+  installs for the current user only: the binary to `~/.local/bin`, plus a menu entry and an
+  icon under `~/.local/share`. `./install.sh --uninstall` removes them again. The binary needs
+  glibc 2.35 or newer, libxcb, libxkbcommon (with its X11 part), OpenSSL 3 and a Vulkan driver.
+  Recent Fedora, Ubuntu 22.04 and Debian 12 have these.
 
 ## Tech
 
@@ -60,12 +73,17 @@ libraries gpui links against (fontconfig, freetype, X11/xcb, xkbcommon, Wayland,
 sudo dnf install pkgconf-pkg-config openssl-devel fontconfig-devel freetype-devel \
     libxcb-devel libxkbcommon-devel libxkbcommon-x11-devel wayland-devel \
     vulkan-loader-devel libX11-devel libXcursor-devel
-
-# Debian / Ubuntu
-sudo apt install pkg-config libssl-dev libfontconfig-dev libfreetype-dev \
-    libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libx11-xcb-dev \
-    libxcb1-dev libvulkan-dev libasound2-dev libzstd-dev
 ```
+
+Two environment variables help during development:
+
+- `TIMECHIMP_REFRESH_TOKEN`: log in with this refresh token instead of the stored one.
+- `TIMECHIMP_EMAIL`: pre-fill the email on the login screen.
+
+## License
+
+Rechimped is released into the public domain under the [Unlicense](UNLICENSE): do whatever you
+like with it.
 
 ## Written by Claude Code
 
