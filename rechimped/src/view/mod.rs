@@ -1,5 +1,6 @@
 mod chart;
 mod chrome;
+mod frame;
 mod login;
 mod travel;
 mod popups;
@@ -43,7 +44,7 @@ impl Render for TimeChimpApp {
             Screen::Login(_) => root.child(self.render_login(&theme, t, cx)),
             Screen::Main => root.child(self.render_main(window, &theme, cx)),
         };
-        root.when(self.fx.showcase, |d| {
+        let root = root.when(self.fx.showcase, |d| {
             d.child(self.fx.hud(theme.fg(), theme.fg_muted(), theme.accent(), theme.surface()))
         })
         .children(match &self.overlay {
@@ -52,6 +53,7 @@ impl Render for TimeChimpApp {
             _ => None,
         })
         .child(cx.toast_manager().clone())
-        .child(self.fx.end_frame(started))
+        .child(self.fx.end_frame(started));
+        self.frame(root.into_any_element(), window, &theme, cx)
     }
 }

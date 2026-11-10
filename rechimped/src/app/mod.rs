@@ -107,6 +107,8 @@ pub struct TimeChimpApp {
     forms_opened: u64,
     settings_page: crate::forms::SettingsPage,
     pub fx: crate::fx::Fx,
+    /// The title bar was pressed; the next mouse move starts a window move (`view::frame`).
+    pub title_drag: bool,
 }
 
 impl TimeChimpApp {
@@ -124,6 +126,7 @@ impl TimeChimpApp {
             forms_opened: 0,
             settings_page: crate::forms::SettingsPage::General,
             fx: crate::fx::Fx::new(),
+            title_drag: false,
         };
 
         match token::load_token() {
