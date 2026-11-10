@@ -24,6 +24,11 @@ pub fn same_name(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b) || a.to_lowercase() == b.to_lowercase()
 }
 
+/// `Iterator::sum` of no floats is -0.0, which formats as "-0.00"; starting from 0.0 keeps it positive.
+pub fn total(values: impl IntoIterator<Item = f64>) -> f64 {
+    values.into_iter().fold(0.0, |sum, v| sum + v)
+}
+
 pub fn plain_number(value: f64) -> String {
     let s = format!("{value:.2}");
     s.trim_end_matches('0').trim_end_matches('.').to_owned()

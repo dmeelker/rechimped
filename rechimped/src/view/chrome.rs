@@ -114,7 +114,7 @@ impl TimeChimpApp {
                     (start <= today && today < start + chrono::Duration::days(7), "Previous week (←)", "Next week (→)")
                 };
                 let suffix = if self.tab == Tab::Travel && self.session.week_loaded() {
-                    let km: f64 = self.session.travel().iter().map(|m| m.distance).sum();
+                    let km = crate::domain::total(self.session.travel().iter().map(|m| m.distance));
                     format!("{week} · {} km", plain_number(km))
                 } else {
                     week

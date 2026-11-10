@@ -38,7 +38,7 @@ impl TimeChimpApp {
         let mut rows: Vec<AnyElement> = Vec::new();
         let mut start = 0;
         for (n, day) in self.session.travel().chunk_by(|a, b| a.date == b.date).enumerate() {
-            let km: f64 = day.iter().map(|m| m.distance).sum();
+            let km = crate::domain::total(day.iter().map(|m| m.distance));
             let trips = if day.len() == 1 { "1 trip".to_owned() } else { format!("{} trips", day.len()) };
             rows.push(
                 h_stack()

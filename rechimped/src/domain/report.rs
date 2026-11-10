@@ -48,13 +48,13 @@ impl Report {
         groups.sort_by(|a, b| b.hours.total_cmp(&a.hours));
         Summary {
             groups,
-            total: self.time.iter().map(|r| r.time).sum(),
-            billable: self.time.iter().filter(|r| r.billable).map(|r| r.time).sum(),
+            total: super::total(self.time.iter().map(|r| r.time)),
+            billable: super::total(self.time.iter().filter(|r| r.billable).map(|r| r.time)),
             entries: self.time.len(),
             days: self.time.iter().map(|r| r.date).collect::<BTreeSet<_>>().len(),
             trips: self.travel.len(),
-            km: self.travel.iter().map(|r| r.distance).sum(),
-            reimbursement: self.travel.iter().filter_map(|r| r.amount).sum(),
+            km: super::total(self.travel.iter().map(|r| r.distance)),
+            reimbursement: super::total(self.travel.iter().filter_map(|r| r.amount)),
         }
     }
 }
@@ -97,5 +97,14 @@ mod tests {
         assert_eq!(s.billable_share(), Some(6.0 / 7.0));
         assert_eq!(Report::default().summary().billable_share(), None);
         assert_eq!(Report::default().summary().share(1.0), 0.0);
+    }
+
+    #[test]
+    fn empty_sums_are_positive_zero() {
+        // An empty `Iterator::sum` of floats is -0.0, shown as "-0.00".
+        let s = Report::default().summary();
+        for value in [s.total, s.billable, s.km, s.reimbursement] {
+            assert_eq!(format!("{value:.2}"), "0.00");
+        }
     }
 }
