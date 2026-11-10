@@ -3,6 +3,8 @@
 A small desktop app for viewing and editing your own TimeChimp time entries and travel, without
 going through the web app.
 
+![The Time tab: a week of entries with day totals, the billable share, and a gap and an overlap marked](docs/screenshots/week.png)
+
 - **Time**: your week day by day, with add, edit, copy and delete, a "Recent" picker, preset
   entries, and gaps and overlaps between entries marked. It also shows a weekly billable
   percentage, with a chart of the last five weeks.
@@ -31,6 +33,18 @@ going through the web app.
   what is relevant.
 - Choose your work days; the week view shows only those (plus today).
 - Your settings live in a plain `config.toml` you can read and edit.
+
+## Screenshots
+
+A new time entry, with the "Recent" picker on top:
+
+![The new time entry form with the Recent picker](docs/screenshots/new-entry.png)
+
+Billability of the last five weeks against your goal:
+
+![The billability chart](docs/screenshots/billability.png)
+
+The screenshots show made-up data.
 
 You log in with your normal TimeChimp account (MFA is supported). The app keeps a session token
 and a `config.toml` with your settings and presets in a `rechimped` folder: `%APPDATA%\rechimped\`
