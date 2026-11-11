@@ -1,4 +1,4 @@
-use chrono::{DateTime, Datelike, Duration, FixedOffset, Local, Months, NaiveDate, NaiveTime};
+use chrono::{DateTime, Datelike, Duration, FixedOffset, Local, Months, NaiveDate, NaiveTime, Timelike};
 use chrono_tz::Tz;
 
 pub const FALLBACK_TIMEZONE: Tz = chrono_tz::Europe::Amsterdam;
@@ -99,6 +99,13 @@ pub fn parse_decimal(s: &str) -> Option<f64> {
     s.trim().replace(',', ".").parse().ok()
 }
 
+/// `t` rounded to the nearest multiple of `step` minutes, never past 23:59.
+pub fn round_minutes(t: NaiveTime, step: u32) -> NaiveTime {
+    let step = step.max(1) * 60;
+    let secs = (t.num_seconds_from_midnight() + step / 2) / step * step;
+    NaiveTime::from_num_seconds_from_midnight_opt(secs.min(86_340), 0).expect("within a day")
+}
+
 /// A duration in hours, as `h:mm` (`01:30`) or a decimal (`1.5`, `1,5`).
 pub fn parse_hours(s: &str) -> Option<f64> {
     match s.trim().split_once(':') {
@@ -113,6 +120,15 @@ pub fn parse_hours(s: &str) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rounding_minutes() {
+        let t = |h, m, s| NaiveTime::from_hms_opt(h, m, s).unwrap();
+        assert_eq!(round_minutes(t(14, 7, 0), 5), t(14, 5, 0));
+        assert_eq!(round_minutes(t(14, 7, 30), 5), t(14, 10, 0));
+        assert_eq!(round_minutes(t(14, 10, 0), 5), t(14, 10, 0));
+        assert_eq!(round_minutes(t(23, 58, 0), 5), t(23, 59, 0));
+    }
 
     #[test]
     fn hours_as_h_mm_or_decimal() {

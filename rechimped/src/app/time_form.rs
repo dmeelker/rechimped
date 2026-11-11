@@ -45,14 +45,14 @@ impl TimeChimpApp {
         if self.session.me().is_none() || self.overlay_open() {
             return;
         }
-        self.open_seeded_time_form(seed::gap_form(&self.session, date, from, to), window, cx);
+        self.open_seeded_time_form(seed::gap_form(&self.session, date, from, to, self.session.now()), window, cx);
     }
 
     fn open_time_form(&mut self, entry: Option<&TimeEntry>, copy: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.overlay_open() {
             return;
         }
-        self.open_seeded_time_form(seed::time_form(&self.session, entry, copy), window, cx);
+        self.open_seeded_time_form(seed::time_form(&self.session, entry, copy, self.session.now()), window, cx);
     }
 
     fn open_seeded_time_form(&mut self, seed: seed::TimeSeed, window: &mut Window, cx: &mut Context<Self>) {

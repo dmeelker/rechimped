@@ -400,6 +400,11 @@ impl Session {
         domain::time::timezone([own, account].into_iter().chain(entries))
     }
 
+    /// The wall-clock time in the user's timezone.
+    pub fn now(&self) -> chrono::NaiveDateTime {
+        chrono::Utc::now().with_timezone(&self.timezone(None)).naive_local()
+    }
+
     pub fn saved_addresses(&self) -> Vec<String> {
         let mut addresses: Vec<String> = self.me().map(|m| m.mileage_addresses.clone()).unwrap_or_default();
         for m in &self.travel {
