@@ -118,6 +118,7 @@ impl TimeChimpApp {
             .gap(px(14.))
             .child(setting_row(theme, "Work days", days))
             .child(setting_row(theme, "Contract", muted(theme, contract).into_any_element()))
+            .child(setting_row(theme, "Travel reminder", form.travel_reminder.clone().into_any_element()))
             .into_any_element()
     }
 

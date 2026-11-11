@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use chrono::{Datelike, NaiveDate, NaiveTime};
-use timechimp_api::TimeEntry;
+use timechimp_api::{Mileage, TimeEntry};
 
 use super::time::parse_time;
 
@@ -108,6 +108,14 @@ pub fn shows_day(day: NaiveDate, work_days: [bool; 7], today: NaiveDate, selecte
     work_days[day.weekday().num_days_from_monday() as usize] || day == today || day == selected
 }
 
+/// Whether to remind at startup to register today's trip: only on a work day without one, and
+/// not once dismissed for today.
+pub fn travel_reminder_due(trips: &[Mileage], today: NaiveDate, work_days: [bool; 7], dismissed: Option<NaiveDate>) -> bool {
+    work_days[today.weekday().num_days_from_monday() as usize]
+        && dismissed != Some(today)
+        && !trips.iter().any(|m| m.date == today)
+}
+
 pub fn step_day(day: NaiveDate, direction: i64, work_days: [bool; 7], today: NaiveDate) -> NaiveDate {
     let next = |d: NaiveDate| d + chrono::Duration::days(direction);
     let mut candidate = next(day);
@@ -178,6 +186,19 @@ pub fn goal_summary(contract_hours: f64, goal: f64) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{date, trip};
+
+    #[test]
+    fn travel_reminder() {
+        let weekdays = [true, true, true, true, true, false, false];
+        // 2026-11-11 is a Wednesday, the 14th a Saturday.
+        let (wed, sat) = (date(11), date(14));
+        assert!(travel_reminder_due(&[trip(1, 10)], wed, weekdays, None), "only another day's trip");
+        assert!(!travel_reminder_due(&[trip(1, 10), trip(2, 11)], wed, weekdays, None), "registered");
+        assert!(!travel_reminder_due(&[], wed, weekdays, Some(wed)), "dismissed today");
+        assert!(travel_reminder_due(&[], wed, weekdays, Some(date(10))), "dismissed yesterday");
+        assert!(!travel_reminder_due(&[], sat, weekdays, None), "not a work day");
+    }
 
     #[test]
     fn junctions() {

@@ -22,6 +22,8 @@ pub struct Settings {
     pub hidden_tasks: BTreeMap<String, Vec<String>>,
     /// Per project, the tasks whose hours count neither as worked nor towards the contract (leave).
     pub excluded_tasks: BTreeMap<String, Vec<String>>,
+    /// At startup, remind to register today's trip while none is (off by default).
+    pub travel_reminder: bool,
 }
 
 /// Stored as exclusions, so a task added in TimeChimp later counts towards the target by itself.
@@ -37,6 +39,7 @@ impl Default for Settings {
             hidden_projects: Vec::new(),
             hidden_tasks: BTreeMap::new(),
             excluded_tasks: default_excluded_tasks(),
+            travel_reminder: false,
         }
     }
 }
@@ -54,6 +57,8 @@ struct ConfigFile {
     #[serde(default)]
     hidden_tasks: BTreeMap<String, Vec<String>>,
     excluded_tasks: Option<BTreeMap<String, Vec<String>>>,
+    #[serde(default)]
+    travel_reminder: bool,
     #[serde(default)]
     projects: HashMap<String, Vec<String>>,
     #[serde(default)]
@@ -181,6 +186,7 @@ fn parse_config(text: &str) -> Result<Config, String> {
         hidden_projects: file.hidden_projects,
         hidden_tasks: file.hidden_tasks,
         excluded_tasks: file.excluded_tasks.unwrap_or_else(default_excluded_tasks),
+        travel_reminder: file.travel_reminder,
     };
     for trip in &file.trips {
         if trip.trip_type().is_none() {
@@ -250,6 +256,8 @@ fn with_settings(text: &str, settings: &Settings) -> Result<String, String> {
     // Rounded, so 0.8 * 100 doesn't come out as 80.00000000000001.
     let pct = (settings.billable_goal * 10000.0).round() / 100.0;
     set(&mut doc, "billable_goal", number(pct), "# Percentage of your hours that should be billable.\n");
+    let comment = "# At startup, remind you to register today's trip while none is (true or false).\n";
+    set(&mut doc, "travel_reminder", toml_edit::value(settings.travel_reminder), comment);
     // Only written once something is hidden, so a new file doesn't start with it.
     if !settings.hidden_projects.is_empty() || doc.contains_key("hidden_projects") {
         let hidden: toml_edit::Array = settings.hidden_projects.iter().map(String::as_str).collect();
@@ -691,6 +699,7 @@ mod tests {
             hidden_projects: vec!["Old \"one\"".into()],
             hidden_tasks: BTreeMap::from([("Intern".into(), vec!["Verlof".into()])]),
             excluded_tasks: BTreeMap::from([("Intern".into(), vec!["Verlof".into()])]),
+            travel_reminder: true,
         };
         let text = "# top\n# goal\nbillable_goal = 75 # inline\n\n[projects]\n# keep me\nIntern = []\n";
         let saved = with_settings(text, &settings).unwrap();
@@ -698,6 +707,7 @@ mod tests {
         assert!(saved.contains("# goal\nbillable_goal = 70 # inline\n"), "whole numbers without .0: {saved}");
         assert!(saved.contains("# keep me\nIntern = []") && saved.contains("# The days you work"), "{saved}");
         assert!(saved.contains("work_days = [\"tue\", \"wed\", \"fri\", \"sat\"]"), "{saved}");
+        assert!(saved.contains("\ntravel_reminder = true\n"), "{saved}");
         assert!(saved.find("work_days").unwrap() < saved.find("[projects]").unwrap(), "top-level keys before the tables");
         assert!(saved.find("hidden_projects").unwrap() < saved.find("[projects]").unwrap(), "{saved}");
         let none_hidden = Settings { hidden_projects: Vec::new(), ..settings.clone() };

@@ -53,6 +53,40 @@ impl TimeChimpApp {
         .with_priority(1)
     }
 
+    pub(super) fn render_travel_reminder(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
+        let card = v_stack()
+            .id("reminder-card")
+            .p(px(24.))
+            .gap(px(6.))
+            .child(div().text_lg().font_weight(FontWeight::BOLD).text_color(theme.accent()).child("Register your trip"))
+            .child("You haven't registered a trip for today yet.")
+            .child(
+                h_stack()
+                    .mt(px(16.))
+                    .gap(px(8.))
+                    .justify_end()
+                    .child(pop(
+                        theme,
+                        button("reminder-not-today", "I didn't travel today")
+                            .on_click(cx.listener(|this, _, w, cx| this.reminder_not_today(w, cx))),
+                    ))
+                    .child(pop(
+                        theme,
+                        button("reminder-later", "Remind me later")
+                            .on_click(cx.listener(|this, _, w, cx| this.reminder_later(w, cx))),
+                    ))
+                    .child(primary_button(
+                        theme,
+                        "reminder-go",
+                        "Go to Travel",
+                        false,
+                        cx.listener(|this, _, w, cx| this.reminder_go_to_travel(w, cx)),
+                    )),
+            )
+            .child(muted(theme, "Enter go to Travel · Esc remind me later").text_xs().mt(px(8.)));
+        Self::modal(theme, "travel-reminder", 520., card, None)
+    }
+
     pub(super) fn render_detail(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(e) = self.session.selected_entry() else { return div().into_any_element() };
         let field = |label: &'static str, value: String| {

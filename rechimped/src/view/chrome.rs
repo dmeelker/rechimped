@@ -75,6 +75,7 @@ impl TimeChimpApp {
             .when(self.menu.is_some(), |d| d.child(self.render_menu_backdrop(cx)))
             .when(matches!(self.overlay, Overlay::Detail), |d| d.child(self.render_detail(theme, cx)))
             .when(matches!(self.overlay, Overlay::About), |d| d.child(self.render_about(theme, cx)))
+            .when(matches!(self.overlay, Overlay::TravelReminder), |d| d.child(self.render_travel_reminder(theme, cx)))
             .when_some(self.chart(), |d, chart| d.child(self.render_chart(chart, theme, cx)))
             .when_some(self.form(), |d, form| d.child(self.render_form(form, theme, cx)))
             .when_some(self.settings_form(), |d, form| d.child(self.render_settings(form, window, theme, cx)))

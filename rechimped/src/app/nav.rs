@@ -105,6 +105,15 @@ impl TimeChimpApp {
                 cx.notify();
                 return;
             }
+            Overlay::TravelReminder => {
+                match event.keystroke.key.as_str() {
+                    "enter" => self.reminder_go_to_travel(window, cx),
+                    "escape" => self.reminder_later(window, cx),
+                    _ => {}
+                }
+                cx.stop_propagation();
+                return;
+            }
             Overlay::Form(_) | Overlay::Settings(_) | Overlay::Confirm { .. } => return,
         }
         let ks = &event.keystroke;

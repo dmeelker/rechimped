@@ -5,6 +5,7 @@ mod date_field;
 mod delete;
 mod loading;
 mod nav;
+mod reminder;
 mod save;
 mod settings;
 mod time_form;
@@ -92,6 +93,8 @@ pub enum Overlay {
     Form(Box<Form>),
     Settings(Box<SettingsForm>),
     Confirm { dialog: Entity<DialogState>, _closed: Subscription },
+    /// No trip registered today yet (`app/reminder.rs`).
+    TravelReminder,
 }
 
 pub struct TimeChimpApp {
@@ -106,6 +109,8 @@ pub struct TimeChimpApp {
     tasks_started: u64,
     forms_opened: u64,
     settings_page: crate::forms::SettingsPage,
+    /// The session epoch the travel reminder was last considered for: once per session.
+    travel_reminder_checked: Option<u64>,
     pub fx: crate::fx::Fx,
     /// The title bar was pressed; the next mouse move starts a window move (`view::frame`).
     pub title_drag: bool,
@@ -125,6 +130,7 @@ impl TimeChimpApp {
             tasks_started: 0,
             forms_opened: 0,
             settings_page: crate::forms::SettingsPage::General,
+            travel_reminder_checked: None,
             fx: crate::fx::Fx::new(),
             title_drag: false,
         };

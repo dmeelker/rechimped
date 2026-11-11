@@ -32,6 +32,8 @@ going through the web app.
 - Hide projects and tasks you don't use, and limit which tags each project offers, so forms only show
   what is relevant.
 - Choose your work days; the week view shows only those (plus today).
+- An optional reminder at startup when you haven't registered today's trip yet: go to Travel, be
+  reminded at the next start, or say you didn't travel today (off by default; Settings, General).
 - Your settings live in a plain `config.toml` you can read and edit.
 
 ## Screenshots

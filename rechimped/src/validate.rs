@@ -213,6 +213,7 @@ pub struct SettingsValues {
     pub hidden_projects: Vec<String>,
     pub hidden_tasks: BTreeMap<String, Vec<String>>,
     pub excluded_tasks: BTreeMap<String, Vec<String>>,
+    pub travel_reminder: bool,
 }
 
 /// The typed percentage as a fraction, or None unless it is a number from 0 to 100.
@@ -232,6 +233,7 @@ pub fn settings(v: &SettingsValues) -> Result<Settings, String> {
         hidden_projects: v.hidden_projects.clone(),
         hidden_tasks: v.hidden_tasks.clone(),
         excluded_tasks: v.excluded_tasks.clone(),
+        travel_reminder: v.travel_reminder,
     })
 }
 
@@ -370,6 +372,7 @@ mod tests {
             hidden_projects: vec!["Old".into()],
             hidden_tasks: BTreeMap::from([("P".into(), vec!["T".into()])]),
             excluded_tasks: BTreeMap::from([("Q".into(), vec!["Leave".into()])]),
+            travel_reminder: true,
         };
         let weekdays = [true, true, true, true, true, false, false];
         assert_eq!(
@@ -380,6 +383,7 @@ mod tests {
                 hidden_projects: vec!["Old".into()],
                 hidden_tasks: BTreeMap::from([("P".into(), vec!["T".into()])]),
                 excluded_tasks: BTreeMap::from([("Q".into(), vec!["Leave".into()])]),
+                travel_reminder: true,
             })
         );
         assert_eq!(settings(&v(weekdays, "82,5")).unwrap().billable_goal, 0.825);

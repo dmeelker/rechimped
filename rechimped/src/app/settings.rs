@@ -24,6 +24,10 @@ impl TimeChimpApp {
             })
             .collect();
         let billable_goal = forms::text_input(cx, plain_number(current.billable_goal * 100.0));
+        let travel_reminder = cx.new(|_| {
+            checkbox("settings-travel-reminder", current.travel_reminder)
+                .label("At startup, remind me to register today's trip while I haven't")
+        });
         let projects = ProjectVisibility::new(&self.session);
         let presets = PresetsForm::new(self.session.trip_presets.clone(), self.session.time_presets.clone());
         let form = SettingsForm {
@@ -31,6 +35,7 @@ impl TimeChimpApp {
             focus: cx.focus_handle(),
             work_days,
             billable_goal,
+            travel_reminder,
             tasks: TaskVisibility::new(&self.session, &projects.hidden, &current.hidden_tasks),
             billability: TaskVisibility::new(&self.session, &projects.hidden, &current.excluded_tasks),
             tags: ProjectTagsForm::new(&self.session, &projects.hidden),

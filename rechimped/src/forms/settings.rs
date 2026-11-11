@@ -39,7 +39,7 @@ impl SettingsPage {
 
     pub fn description(self) -> &'static str {
         match self {
-            Self::General => "Your work week.",
+            Self::General => "Your work week, and the reminder to register your trip.",
             Self::Billability => {
                 "Your billable target, and the tasks that count towards it. Hours of the other tasks (like leave) are left out of both your hours and your contract hours."
             }
@@ -57,6 +57,7 @@ pub struct SettingsForm {
     pub focus: FocusHandle,
     pub work_days: Vec<Entity<Checkbox>>,
     pub billable_goal: Entity<InputState>,
+    pub travel_reminder: Entity<Checkbox>,
     pub projects: ProjectVisibility,
     pub tasks: TaskVisibility,
     /// Checked = counts towards the billable target; the unchecked ones are stored.
@@ -80,6 +81,7 @@ impl SettingsForm {
             hidden_projects: self.projects.hidden_names(),
             hidden_tasks: self.tasks.hidden_names(),
             excluded_tasks: self.billability.hidden_names(),
+            travel_reminder: self.travel_reminder.read(cx).is_checked(),
         }
     }
 

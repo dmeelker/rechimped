@@ -46,6 +46,7 @@ impl TimeChimpApp {
                 }
                 if this.session.is_latest_week_load(generation) {
                     this.on_week_loaded(week, None);
+                    this.check_travel_reminder(cx);
                 }
             }
             Err(e) => this.api_error(e, window, cx),
