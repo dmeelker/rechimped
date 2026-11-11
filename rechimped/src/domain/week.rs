@@ -61,11 +61,15 @@ pub fn is_excluded(entry: &TimeEntry, excluded: &TaskNames) -> bool {
 }
 
 /// Excluded tasks (leave) count neither as hours worked nor towards the contract, so a week with a
-/// day off isn't short.
-#[derive(Debug, PartialEq)]
+/// day off isn't short. `hours` = `billable` + `non_billable`; `contract` is `full_contract` minus
+/// `leave`.
+#[derive(Clone, Debug, PartialEq)]
 pub struct WeekCard {
     pub hours: f64,
     pub billable: f64,
+    pub non_billable: f64,
+    pub leave: f64,
+    pub full_contract: f64,
     pub contract: f64,
     pub share: Option<f64>,
 }
@@ -77,8 +81,25 @@ pub fn week_card(entries: &[TimeEntry], contract_hours: f64, excluded: &TaskName
     let leave = entries.iter().filter(|e| is_excluded(e, excluded)).fold(0.0, |total, e| total + e.hours);
     let contract = (contract_hours - leave).max(0.0);
     let billable = billable_hours(&worked);
+    let non_billable = worked.iter().filter(|e| !e.billable).fold(0.0, |total, e| total + e.hours);
     let of = if contract > 0.0 { contract } else { hours };
-    WeekCard { hours, billable, contract, share: (of > 0.0).then(|| billable / of) }
+    WeekCard {
+        hours,
+        billable,
+        non_billable,
+        leave,
+        full_contract: contract_hours.max(0.0),
+        contract,
+        share: (of > 0.0).then(|| billable / of),
+    }
+}
+
+impl WeekCard {
+    /// Billable hours still needed to reach `goal` (0 once reached). None without contract hours:
+    /// the share is then of the hours worked, which grow with every hour added.
+    pub fn billable_to_go(&self, goal: f64) -> Option<f64> {
+        (self.contract > 0.0).then(|| (goal * self.contract - self.billable).max(0.0))
+    }
 }
 
 pub const CHART_WEEKS: i64 = 5;
@@ -242,13 +263,25 @@ mod tests {
         assert!(is_excluded(&leave, &excluded) && !is_excluded(&meeting, &excluded), "by name, case-insensitively");
         assert_eq!(
             week_card(&entries, 40.0, &excluded),
-            WeekCard { hours: 3.0, billable: 1.0, contract: 32.0, share: Some(1.0 / 32.0) }
+            WeekCard {
+                hours: 3.0,
+                billable: 1.0,
+                non_billable: 2.0,
+                leave: 8.0,
+                full_contract: 40.0,
+                contract: 32.0,
+                share: Some(1.0 / 32.0)
+            }
         );
+        let card = week_card(&entries, 40.0, &excluded);
+        assert_eq!(card.billable_to_go(0.75), Some(0.75 * 32.0 - 1.0), "of the contract minus leave");
+        assert_eq!(card.billable_to_go(0.0), Some(0.0), "reached");
+        assert_eq!(week_card(&entries, 0.0, &excluded).billable_to_go(0.75), None, "no contract");
         assert_eq!(week_card(&entries, 0.0, &excluded).share, Some(1.0 / 3.0), "of the hours logged, leave excluded");
         assert_eq!(week_card(&entries, 40.0, &TaskNames::new()).hours, 11.0, "nothing excluded");
         let card = week_card(&[leave], 8.0, &excluded);
         assert_eq!((card.hours, card.contract, card.share), (0.0, 0.0, None));
-        assert!(card.hours.is_sign_positive(), "not -0");
+        assert!(card.hours.is_sign_positive() && card.non_billable.is_sign_positive(), "not -0");
     }
 
     #[test]

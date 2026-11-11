@@ -1,16 +1,16 @@
 use chrono::Duration;
 use gpui::{
-    AnyElement, ClickEvent, Context, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
+    AnyElement, AppContext as _, ClickEvent, Context, ElementId, FontWeight, InteractiveElement, IntoElement,
+    ParentElement, Render, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
 };
 use gpuikit::elements::tooltip::tooltip;
 use gpuikit::icons::Icons;
 use gpuikit::layout::{h_stack, v_stack};
-use gpuikit::theme::Themeable;
+use gpuikit::theme::{ActiveTheme, Themeable};
 use timechimp_api::TimeEntry;
 
 use crate::app::TimeChimpApp;
-use crate::domain::week::{CHART_WEEKS, Junction};
+use crate::domain::week::{CHART_WEEKS, Junction, WeekCard};
 
 use super::widgets::*;
 
@@ -116,14 +116,15 @@ impl TimeChimpApp {
                 .child(meter(theme, fraction, hours_colour(theme, hours, target)))
         }));
 
-        let crate::domain::week::WeekCard { hours: total, contract, share, .. } =
-            crate::domain::week::week_card(
-                self.session.entries(),
-                self.session.contract_hours(),
-                &self.session.settings.excluded_tasks,
-            );
+        let card = crate::domain::week::week_card(
+            self.session.entries(),
+            self.session.contract_hours(),
+            &self.session.settings.excluded_tasks,
+        );
+        let (total, contract, share) = (card.hours, card.contract, card.share);
+        let goal = self.session.settings.billable_goal;
         let ratio = share.unwrap_or(0.0);
-        let ratio_colour = goal_colour(theme, share, self.session.settings.billable_goal);
+        let ratio_colour = goal_colour(theme, share, goal);
         let week_card = v_stack()
             .flex_1()
             .gap(px(4.))
@@ -152,13 +153,30 @@ impl TimeChimpApp {
                     ),
             )
             .child(
-                h_stack()
+                // The hover target for the breakdown; the "% billable" link above has its own tooltip.
+                v_stack()
+                    .id("week-breakdown")
                     .gap(px(4.))
-                    .items_baseline()
-                    .child(div().text_lg().text_color(hours_colour(theme, total, contract)).child(hh_mm(total)))
-                    .child(muted(theme, format!("/ {}", hh_mm(contract)))),
-            )
-            .child(meter(theme, ratio as f32, ratio_colour));
+                    .tooltip(move |_, cx| cx.new(|_| WeekBreakdown { card: card.clone(), goal }).into())
+                    .child(
+                        // The times share a baseline; the icon (an svg has none) is centred on the
+                        // row, and its top margin moves it from the line box's centre onto the
+                        // digits' centre (measured).
+                        h_stack()
+                            .gap(px(6.))
+                            .items_center()
+                            .child(
+                                h_stack()
+                                    .gap(px(4.))
+                                    .items_baseline()
+                                    .child(div().text_lg().text_color(hours_colour(theme, total, contract)).child(hh_mm(total)))
+                                    // Baseline alignment leaves it a pixel low (measured).
+                                    .child(muted(theme, format!("/ {}", hh_mm(contract))).relative().top(px(-1.))),
+                            )
+                            .child(Icons::info_circled().size(px(12.)).mt(px(3.)).text_color(theme.fg_muted())),
+                    )
+                    .child(meter(theme, ratio as f32, ratio_colour)),
+            );
         let strip = strip.child(week_card);
 
         let visible = self.session.visible_entries();
@@ -181,4 +199,106 @@ impl TimeChimpApp {
                 ),
             )
     }
+}
+
+/// The Week card's hover popover: where the week's hours went and how the billable share follows
+/// from them (`domain::week::week_card`).
+struct WeekBreakdown {
+    card: WeekCard,
+    goal: f64,
+}
+
+impl Render for WeekBreakdown {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme().clone();
+        let theme = &theme;
+        let c = &self.card;
+        let (billable_colour, non_billable_colour, leave_colour) =
+            (theme.success(), gpuikit::theme::parse_hex("#7287fd"), theme.fg_muted().opacity(0.5));
+
+        // Out of the contract, or of everything logged when that is more.
+        let scale = c.full_contract.max(c.hours + c.leave);
+        let segment = |hours: f64, colour| {
+            let fraction = if scale > 0.0 { (hours / scale) as f32 } else { 0.0 };
+            div().h_full().w(gpui::relative(fraction)).bg(colour)
+        };
+        let bar = h_stack()
+            .w_full()
+            .h(px(8.))
+            .rounded(px(4.))
+            .overflow_hidden()
+            .bg(theme.surface_secondary())
+            .child(segment(c.billable, billable_colour))
+            .child(segment(c.non_billable, non_billable_colour))
+            .child(segment(c.leave, leave_colour));
+
+        let category = |colour, label: &str, hours: f64| {
+            breakdown_row(
+                h_stack().gap(px(6.)).items_center().child(div().size(px(8.)).rounded(px(2.)).bg(colour)).child(label.to_owned()),
+                hh_mm(hours),
+            )
+        };
+        let divider = || div().h(px(1.)).my(px(2.)).bg(theme.border());
+
+        let share = match c.share {
+            Some(s) => {
+                let of = if c.contract > 0.0 { c.contract } else { c.hours };
+                format!("{} / {} = {:.0}%", hh_mm(c.billable), hh_mm(of), s * 100.0)
+            }
+            None => "–".into(),
+        };
+        let basis = if c.full_contract > 0.0 {
+            v_stack()
+                .child(breakdown_row(div().child("Contract"), hh_mm(c.full_contract)))
+                .child(breakdown_row(muted(theme, "minus leave"), format!("− {}", hh_mm(c.leave))))
+                .child(breakdown_row(div().child("Counts against"), hh_mm(c.contract)).font_weight(FontWeight::SEMIBOLD))
+        } else {
+            v_stack().child(muted(theme, "No contract hours in TimeChimp, so the share is of the hours worked."))
+        };
+
+        div().pl(px(8.)).pt(px(10.)).child(
+            v_stack()
+                .w(px(260.))
+                .gap(px(4.))
+                .p(px(10.))
+                .bg(theme.surface())
+                .border_1()
+                .border_color(theme.border())
+                .rounded(px(6.))
+                .shadow_md()
+                .text_sm()
+                .text_color(theme.fg())
+                .child(div().font_weight(FontWeight::SEMIBOLD).child("This week"))
+                .child(bar)
+                .child(category(billable_colour, "Billable", c.billable))
+                .child(category(non_billable_colour, "Non-billable", c.non_billable))
+                .child(category(leave_colour, "Leave", c.leave))
+                .child(divider())
+                .child(breakdown_row(div().child("Worked"), hh_mm(c.hours)))
+                .child(basis)
+                .child(divider())
+                .child(
+                    breakdown_row(div().child("Billable share"), share)
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(goal_colour(theme, c.share, self.goal)),
+                )
+                .when_some(c.billable_to_go(self.goal), |d, to_go| {
+                    let goal = format!("To reach {:.0}%", self.goal * 100.0);
+                    d.child(if to_go > 0.0 {
+                        breakdown_row(div().child(goal), format!("{} billable to go", hh_mm(to_go)))
+                    } else {
+                        breakdown_row(div().child(goal), "reached").text_color(theme.success())
+                    })
+                })
+                .child(div().text_xs().text_color(theme.fg_muted()).child(format!(
+                    "{}Leave is the tasks left unchecked on Settings › Billability.",
+                    // The "To reach" row names the goal already.
+                    if c.billable_to_go(self.goal).is_some() { String::new() } else { format!("Goal {:.0}%. ", self.goal * 100.0) }
+                ))),
+        )
+    }
+}
+
+fn breakdown_row(label: gpui::Div, value: impl Into<gpui::SharedString>) -> gpui::Div {
+    h_stack().justify_between().gap(px(16.)).child(label).child(div().child(value.into()))
 }
