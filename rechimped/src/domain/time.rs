@@ -99,9 +99,31 @@ pub fn parse_decimal(s: &str) -> Option<f64> {
     s.trim().replace(',', ".").parse().ok()
 }
 
+/// A duration in hours, as `h:mm` (`01:30`) or a decimal (`1.5`, `1,5`).
+pub fn parse_hours(s: &str) -> Option<f64> {
+    match s.trim().split_once(':') {
+        Some((h, m)) => {
+            let (h, m): (u32, u32) = (h.trim().parse().ok()?, m.trim().parse().ok()?);
+            (m < 60).then(|| f64::from(h) + f64::from(m) / 60.0)
+        }
+        None => parse_decimal(s),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hours_as_h_mm_or_decimal() {
+        assert_eq!(parse_hours("01:30"), Some(1.5));
+        assert_eq!(parse_hours(" 2:15 "), Some(2.25));
+        assert_eq!(parse_hours("1.5"), Some(1.5));
+        assert_eq!(parse_hours("2,5"), Some(2.5));
+        assert_eq!(parse_hours("1:60"), None);
+        assert_eq!(parse_hours("1:"), None);
+        assert_eq!(parse_hours("x"), None);
+    }
 
     #[test]
     fn shifting_dates() {

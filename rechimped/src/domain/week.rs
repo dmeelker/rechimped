@@ -165,13 +165,13 @@ pub fn contract_summary(contract_hours: f64) -> String {
     if contract_hours <= 0.0 {
         return "No contract hours in TimeChimp".into();
     }
-    format!("{}h a week", super::plain_number(contract_hours))
+    format!("{} a week", super::hh_mm(contract_hours))
 }
 
 /// What a billable goal comes to in hours, for a full week without leave.
 pub fn goal_summary(contract_hours: f64, goal: f64) -> Option<String> {
     (contract_hours > 0.0).then(|| {
-        format!("= {}h/{}h", super::plain_number(contract_hours * goal), super::plain_number(contract_hours))
+        format!("= {} / {}", super::hh_mm(contract_hours * goal), super::hh_mm(contract_hours))
     })
 }
 
@@ -280,15 +280,15 @@ mod tests {
 
     #[test]
     fn goal_in_hours() {
-        assert_eq!(goal_summary(32.0, 0.75).as_deref(), Some("= 24h/32h"));
-        assert_eq!(goal_summary(32.0, 0.7).as_deref(), Some("= 22.4h/32h"));
+        assert_eq!(goal_summary(32.0, 0.75).as_deref(), Some("= 24:00 / 32:00"));
+        assert_eq!(goal_summary(32.0, 0.7).as_deref(), Some("= 22:24 / 32:00"));
         assert_eq!(goal_summary(0.0, 0.8), None);
     }
 
     #[test]
     fn contract_summary_per_week() {
-        assert_eq!(contract_summary(32.0), "32h a week");
-        assert_eq!(contract_summary(36.5), "36.5h a week");
+        assert_eq!(contract_summary(32.0), "32:00 a week");
+        assert_eq!(contract_summary(36.5), "36:30 a week");
         assert_eq!(contract_summary(0.0), "No contract hours in TimeChimp");
     }
 }

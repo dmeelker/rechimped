@@ -65,7 +65,7 @@ impl TimeChimpApp {
             .child(div().text_lg().font_weight(FontWeight::BOLD).text_color(theme.accent()).mb(px(8.)).child("Entry"))
             .child(field("Date", e.date.format("%A %Y-%m-%d").to_string()))
             .child(field("Time", e.start_end.clone().unwrap_or_else(|| "-".into())))
-            .child(field("Hours", format!("{:.2} (pause {:.2})", e.hours, e.pause)))
+            .child(field("Hours", format!("{} (pause {})", hh_mm(e.hours), hh_mm(e.pause))))
             .child(field("Customer", e.customer_name.clone()))
             .child(field("Project", e.project_name.clone()))
             .child(field("Task", e.task_name.clone()))
@@ -125,7 +125,7 @@ impl TimeChimpApp {
                 row("Start", field(&f.start, "HH:MM", cx)),
                 row("End", field(&f.end, "HH:MM, +15 or +1h30", cx)),
                 row("Notes", field(&f.notes, "What did you work on?", cx)),
-                row("Hours", field(&f.hours, "used without start/end, e.g. 1.5", cx)),
+                row("Hours", field(&f.hours, "used without start/end, e.g. 01:30", cx)),
                 row(
                     "Tags",
                     h_stack()

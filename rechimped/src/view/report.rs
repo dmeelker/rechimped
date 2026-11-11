@@ -28,7 +28,7 @@ impl TimeChimpApp {
                 .when(!g.billable, |d| d.text_color(theme.fg_muted()).bg(non_billable_bg(false)))
                 .child(cell(None, g.project.clone()))
                 .child(cell(None, g.task.clone()))
-                .child(right_cell(70., format!("{:.2}", g.hours)))
+                .child(right_cell(70., hh_mm(g.hours)))
                 .child(right_cell(50., format!("{:.0}%", pct(g.hours))))
                 .child(div().w(px(100.)).flex_none().px(px(6.)).child(meter(
                     theme,
@@ -56,13 +56,13 @@ impl TimeChimpApp {
         let totals = panel(theme, "Summary").w(px(300.)).flex_none().child(
             v_stack()
                 .p(px(12.))
-                .child(stat("Total hours", format!("{:.2}", s.total)))
-                .child(stat("Billable", format!("{:.2} ({:.0}%)", s.billable, pct(s.billable))).when_some(
+                .child(stat("Total hours", hh_mm(s.total)))
+                .child(stat("Billable", format!("{} ({:.0}%)", hh_mm(s.billable), pct(s.billable))).when_some(
                     s.billable_share(),
                     |d, share| d.text_color(goal_colour(theme, Some(share), self.session.settings.billable_goal)),
                 ))
                 .child(stat("Billable goal", format!("{:.0}%", self.session.settings.billable_goal * 100.0)))
-                .child(stat("Non-billable", format!("{:.2}", s.total - s.billable)))
+                .child(stat("Non-billable", hh_mm(s.total - s.billable)))
                 .child(stat("Days registered", s.days.to_string()))
                 .child(stat("Entries", s.entries.to_string()))
                 .child(div().h(px(1.)).my(px(8.)).bg(theme.border()))

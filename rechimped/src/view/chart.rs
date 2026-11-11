@@ -72,13 +72,13 @@ fn plot(theme: &T, weeks: &[(chrono::NaiveDate, WeekCard)], goal: f64) -> impl I
         let label = card.share.map_or("–".into(), |s| format!("{:.0}%", s * 100.0));
         let sunday = *monday + Duration::days(6);
         let tip = format!(
-            "Week {} ({} – {}): {}h billable of {}h contract, {}h logged (leave left out)",
+            "Week {} ({} – {}): {} billable of {} contract, {} logged (leave left out)",
             monday.iso_week().week(),
             monday.format("%-d %b"),
             sunday.format("%-d %b"),
-            plain_number(card.billable),
-            plain_number(card.contract),
-            plain_number(card.hours),
+            hh_mm(card.billable),
+            hh_mm(card.contract),
+            hh_mm(card.hours),
         );
         let is_selected = Some(*monday) == selected;
         // The column is the hover target, larger than the bar itself.
@@ -106,9 +106,9 @@ fn plot(theme: &T, weeks: &[(chrono::NaiveDate, WeekCard)], goal: f64) -> impl I
                     .child(format!("Week {}", monday.iso_week().week())),
             )
             .child(div().text_xs().text_color(theme.fg_muted()).child(format!(
-                "{}h / {}h",
-                plain_number(card.hours),
-                plain_number(card.contract)
+                "{} / {}",
+                hh_mm(card.hours),
+                hh_mm(card.contract)
             )))
     });
 

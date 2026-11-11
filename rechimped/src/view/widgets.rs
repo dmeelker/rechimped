@@ -13,7 +13,7 @@ use gpuikit::traits::control_sized::ControlSized;
 
 use crate::app::TimeChimpApp;
 use crate::forms::Choice;
-pub(super) use crate::domain::plain_number;
+pub(super) use crate::domain::{hh_mm, plain_number};
 
 pub(super) type T = Arc<Theme>;
 

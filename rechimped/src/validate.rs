@@ -5,7 +5,7 @@ use chrono::NaiveDate;
 use timechimp_api::{Mileage, MileageType, NewMileage, NewTimeEntry};
 
 use crate::domain::same_name;
-use crate::domain::time::{local, parse_decimal, parse_end, parse_time};
+use crate::domain::time::{local, parse_decimal, parse_end, parse_hours, parse_time};
 use crate::session::Session;
 use crate::store::config::{self, Settings, TimePreset, TripPreset};
 
@@ -116,7 +116,7 @@ pub fn time_entry(v: &TimeValues, session: &Session) -> Result<(NaiveDate, SaveR
             entry.with_times(local(date, start, tz)?, local(date, end, tz)?)
         }
         (None, None) => {
-            let hours = parse_decimal(&v.hours).ok_or("Enter start and end, or a number of hours")?;
+            let hours = parse_hours(&v.hours).ok_or("Enter start and end, or a number of hours")?;
             if hours <= 0.0 {
                 return Err("Hours must be positive".into());
             }

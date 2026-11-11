@@ -19,10 +19,10 @@ impl TimeChimpApp {
                     DeleteTarget::Time(e.id),
                     "Delete time entry?",
                     format!(
-                        "{} {} {:.2}h {} / {}{}",
+                        "{} {} {} {} / {}{}",
                         e.date.format("%a %d %b"),
                         e.start_end.as_deref().unwrap_or(""),
-                        e.hours,
+                        crate::domain::hh_mm(e.hours),
                         e.project_name,
                         e.task_name,
                         notes.map(|n| format!("\n\"{n}\"")).unwrap_or_default()

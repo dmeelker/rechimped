@@ -106,7 +106,7 @@ pub fn time_form(session: &Session, entry: Option<&TimeEntry>, copy: bool) -> Ti
         project,
         start,
         end,
-        hours: editing.map(|e| format!("{}", e.hours)).unwrap_or_default(),
+        hours: editing.map(|e| crate::domain::hh_mm(e.hours)).unwrap_or_default(),
         notes: entry.and_then(|e| e.notes.clone()).unwrap_or_default(),
         recent: entry.is_none() && !session.recent.is_empty(),
     }
@@ -240,7 +240,7 @@ mod tests {
         let first = s.entries()[0].clone();
         let seed = time_form(&s, Some(&first), false);
         assert!(matches!(seed.kind, TimeKind::Edit { id: 1, .. }));
-        assert_eq!((seed.start.as_str(), seed.end.as_str(), seed.hours.as_str()), ("09:00", "10:00", "1"));
+        assert_eq!((seed.start.as_str(), seed.end.as_str(), seed.hours.as_str()), ("09:00", "10:00", "01:00"));
         assert_eq!(checked(&seed.project.tags), [(10, true)]);
         assert_eq!(seed.project.kept_tag_ids, [20, 99]);
         assert!(!seed.recent);

@@ -45,7 +45,7 @@ impl TimeChimpApp {
             .when(!selected, |d| d.hover(|s| s.bg(row_hover_bg(theme, e.billable))))
             .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| this.click_entry(id, ev.click_count(), window, cx)))
             .child(cell(Some(110.), e.start_end.clone().unwrap_or_else(|| "–".into())))
-            .child(right_cell(60., format!("{:.2}", e.hours)))
+            .child(right_cell(60., hh_mm(e.hours)))
             .child(cell(Some(160.), e.customer_name.clone()))
             .child(cell(None, format!("{} / {}", e.project_name, e.task_name)))
             .child(cell(None, e.notes.clone().unwrap_or_default()))
@@ -112,7 +112,7 @@ impl TimeChimpApp {
                         .child(div().font_weight(FontWeight::SEMIBOLD).child(day.format("%a %d").to_string()))
                         .when(is_today, |d| d.child(div().text_xs().text_color(theme.accent()).child("today"))),
                 )
-                .child(div().text_lg().text_color(hours_colour(theme, hours, target)).child(format!("{}h", plain_number(hours))))
+                .child(div().text_lg().text_color(hours_colour(theme, hours, target)).child(hh_mm(hours)))
                 .child(meter(theme, fraction, hours_colour(theme, hours, target)))
         }));
 
@@ -155,8 +155,8 @@ impl TimeChimpApp {
                 h_stack()
                     .gap(px(4.))
                     .items_baseline()
-                    .child(div().text_lg().text_color(hours_colour(theme, total, contract)).child(format!("{}h", plain_number(total))))
-                    .child(muted(theme, format!("/ {}h", plain_number(contract)))),
+                    .child(div().text_lg().text_color(hours_colour(theme, total, contract)).child(hh_mm(total)))
+                    .child(muted(theme, format!("/ {}", hh_mm(contract)))),
             )
             .child(meter(theme, ratio as f32, ratio_colour));
         let strip = strip.child(week_card);

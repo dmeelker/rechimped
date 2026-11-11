@@ -34,6 +34,14 @@ pub fn plain_number(value: f64) -> String {
     s.trim_end_matches('0').trim_end_matches('.').to_owned()
 }
 
+/// Hours as `hh:mm`, rounded to the minute: 1.5 → "01:30", 40 → "40:00".
+pub fn hh_mm(hours: f64) -> String {
+    let minutes = (hours * 60.0).round() as i64;
+    let sign = if minutes < 0 { "-" } else { "" };
+    let minutes = minutes.abs();
+    format!("{sign}{:02}:{:02}", minutes / 60, minutes % 60)
+}
+
 pub fn matching_addresses<'a>(addresses: &'a [String], query: &str) -> Vec<&'a str> {
     let query = query.trim().to_lowercase();
     addresses.iter().filter(|a| a.to_lowercase().contains(&query)).map(String::as_str).collect()
@@ -56,6 +64,19 @@ mod tests {
         assert_eq!(plain_number(32.5), "32.5");
         assert_eq!(plain_number(24.75), "24.75");
         assert_eq!(plain_number(0.825 * 100.0), "82.5");
+    }
+
+    #[test]
+    fn hours_as_hh_mm() {
+        assert_eq!(hh_mm(1.5), "01:30");
+        assert_eq!(hh_mm(1.0), "01:00");
+        assert_eq!(hh_mm(0.0), "00:00");
+        assert_eq!(hh_mm(-0.0), "00:00");
+        assert_eq!(hh_mm(0.25), "00:15");
+        assert_eq!(hh_mm(7.99999), "08:00");
+        assert_eq!(hh_mm(40.0), "40:00");
+        assert_eq!(hh_mm(160.75), "160:45");
+        assert_eq!(hh_mm(-1.25), "-01:15");
     }
 
     #[test]
