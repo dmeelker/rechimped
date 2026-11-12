@@ -1,11 +1,10 @@
 use chrono::NaiveDate;
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use timechimp_api::Client;
-
 use gpui::{AppContext, Context, Window};
 use gpuikit::elements::dialog::{DialogClosed, DialogState, dialog};
 
+use crate::backend::Api;
 use crate::session;
 use crate::store::config;
 
@@ -106,7 +105,7 @@ impl TimeChimpApp {
         review_date: Option<NaiveDate>,
         window: &mut Window,
         cx: &mut Context<Self>,
-        request: impl FnOnce(Client) -> BoxFuture<'static, timechimp_api::Result<()>>,
+        request: impl FnOnce(Api) -> BoxFuture<'static, timechimp_api::Result<()>>,
     ) {
         let Some(client) = self.session.client().cloned() else { return };
         self.run(DELETING, request(client), window, cx, move |this, result, window, cx| match result {

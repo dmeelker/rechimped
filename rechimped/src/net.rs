@@ -3,8 +3,9 @@ use std::sync::OnceLock;
 
 use chrono::{Duration, NaiveDate};
 use futures::{StreamExt, TryStreamExt};
-use timechimp_api::{Client, MileageReportRow, ProjectTask, QueryResult, TagType, TimeEntry, TimeReportRow};
+use timechimp_api::{MileageReportRow, ProjectTask, QueryResult, TagType, TimeEntry, TimeReportRow};
 
+use crate::backend::Api;
 use crate::domain::report::Report;
 use crate::domain::time::{last_of_month, monday_of};
 use crate::session::{Base, Week};
@@ -15,7 +16,7 @@ pub fn runtime() -> &'static tokio::runtime::Runtime {
     RUNTIME.get_or_init(|| tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("tokio runtime"))
 }
 
-pub async fn load_base(client: &Client) -> timechimp_api::Result<Base> {
+pub async fn load_base(client: &Api) -> timechimp_api::Result<Base> {
     let me = client.current_user().await?;
     let (projects, tags) = tokio::try_join!(client.projects_for_user(me.id), client.tags(TagType::Time))?;
     // The stream owns everything it uses: borrowed ids or client trip up the Send check of the
@@ -38,7 +39,7 @@ pub async fn load_base(client: &Client) -> timechimp_api::Result<Base> {
     })
 }
 
-pub async fn load_week(client: &Client, user_id: i64, week_start: NaiveDate) -> timechimp_api::Result<Week> {
+pub async fn load_week(client: &Api, user_id: i64, week_start: NaiveDate) -> timechimp_api::Result<Week> {
     let (mut entries, mut travel) =
         tokio::try_join!(client.time_entries_for_week(user_id, week_start), client.mileage_for_week(user_id, week_start))?;
     entries.sort_by_key(|e| (e.date, e.start));
@@ -54,7 +55,7 @@ const MAX_CONCURRENT_REQUESTS: usize = 6;
 
 /// Skips the week starting on `loaded`: `load_week` fetches that one already.
 pub async fn load_history(
-    client: &Client,
+    client: &Api,
     user_id: i64,
     today: NaiveDate,
     loaded: NaiveDate,
@@ -65,7 +66,7 @@ pub async fn load_history(
     load_weeks(client, user_id, &mondays).await
 }
 
-pub async fn load_weeks(client: &Client, user_id: i64, mondays: &[NaiveDate]) -> timechimp_api::Result<Vec<TimeEntry>> {
+pub async fn load_weeks(client: &Api, user_id: i64, mondays: &[NaiveDate]) -> timechimp_api::Result<Vec<TimeEntry>> {
     let weeks = mondays.iter().map(|&monday| client.time_entries_for_week(user_id, monday));
     Ok(futures::future::try_join_all(weeks).await?.into_iter().flatten().collect())
 }
@@ -89,7 +90,7 @@ where
 const PAGE: u32 = 500;
 
 pub async fn load_time_rows(
-    client: &Client,
+    client: &Api,
     user_id: i64,
     from: NaiveDate,
     to: NaiveDate,
@@ -101,7 +102,7 @@ pub async fn load_time_rows(
     Ok(rows)
 }
 
-pub async fn load_report(client: &Client, user_id: i64, month: NaiveDate) -> timechimp_api::Result<Report> {
+pub async fn load_report(client: &Api, user_id: i64, month: NaiveDate) -> timechimp_api::Result<Report> {
     let to = last_of_month(month);
     let (time, mut travel) = tokio::try_join!(
         load_time_rows(client, user_id, month, to),

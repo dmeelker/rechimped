@@ -16,6 +16,7 @@ pub use actions::*;
 pub use chart::BillabilityChart;
 
 use std::future::Future;
+use std::sync::Arc;
 
 use gpui::{Context, Entity, FocusHandle, SharedString, Subscription, Window};
 use gpuikit::elements::dialog::DialogState;
@@ -24,6 +25,7 @@ use gpuikit::input::InputState;
 use timechimp_api::{Authenticator, Client, MfaChallenge};
 
 use crate::forms::{Form, TravelForm, SettingsForm, TimeForm};
+use crate::backend::Api;
 use crate::domain;
 use crate::net;
 use crate::session::Session;
@@ -102,6 +104,8 @@ pub enum Overlay {
 }
 
 pub struct TimeChimpApp {
+    /// `--mock`: the backend every session uses, so logging in needs no credentials.
+    fixed_api: Option<Api>,
     pub focus: FocusHandle,
     pub screen: Screen,
     pub session: Session,
@@ -127,8 +131,10 @@ pub struct TimeChimpApp {
 }
 
 impl TimeChimpApp {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    /// With `fixed_api`, every session runs against it and logging in needs no credentials.
+    pub fn new(fixed_api: Option<Api>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut app = Self {
+            fixed_api: fixed_api.clone(),
             focus: cx.focus_handle(),
             screen: Screen::Main,
             session: Session::new(None, domain::time::today()),
@@ -150,12 +156,9 @@ impl TimeChimpApp {
             menu_scroll: ScrollArea::default(),
         };
 
-        match token::load_token() {
-            Some(token) => {
-                app.session = Session::new(Some(Client::new(Authenticator::from_refresh_token(token))), domain::time::today());
-                app.reload(window, cx);
-                window.focus(&app.focus, cx);
-            }
+        let stored = || token::load_token().map(|t| Arc::new(Client::new(Authenticator::from_refresh_token(t))) as Api);
+        match fixed_api.or_else(stored) {
+            Some(api) => app.open_session(api, window, cx),
             None => app.show_login(None, window, cx),
         }
         app

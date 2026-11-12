@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
 use gpui::{AppContext, Context, Focusable, Window};
 use timechimp_api::{Authenticator, Client, LoginOutcome};
 
+use crate::backend::Api;
 use crate::forms::{self, text};
 use crate::domain;
 use crate::session::Session;
@@ -61,6 +64,10 @@ impl TimeChimpApp {
         if self.busy().is_some() || login.mfa.is_some() {
             return;
         }
+        if let Some(api) = self.fixed_api.clone() {
+            self.open_session(api, window, cx);
+            return;
+        }
         let email = text(&login.email, cx);
         let password = login.password.read(cx).value().to_owned();
         self.run("Logging in…", async move { Authenticator::login(&email, &password).await }, window, cx, |this, result, window, cx| {
@@ -113,13 +120,17 @@ impl TimeChimpApp {
 
     fn logged_in(&mut self, auth: Authenticator, window: &mut Window, cx: &mut Context<Self>) {
         let save_error = token::save_token(auth.refresh_token()).err();
-        self.session = Session::new(Some(Client::new(auth)), domain::time::today());
-        self.screen = Screen::Main;
-        window.focus(&self.focus, cx);
-        self.reload(window, cx);
+        self.open_session(Arc::new(Client::new(auth)), window, cx);
         if let Some(e) = save_error {
             self.set_error(format!("Could not save session: {e}"), window, cx);
         }
+    }
+
+    pub(super) fn open_session(&mut self, api: Api, window: &mut Window, cx: &mut Context<Self>) {
+        self.session = Session::new(Some(api), domain::time::today());
+        self.screen = Screen::Main;
+        window.focus(&self.focus, cx);
+        self.reload(window, cx);
     }
 
     pub fn logout(&mut self, window: &mut Window, cx: &mut Context<Self>) {

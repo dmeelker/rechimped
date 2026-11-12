@@ -1,9 +1,11 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod app;
+mod backend;
 mod domain;
 mod forms;
 mod fx;
+mod mock;
 mod net;
 mod password;
 mod seed;
@@ -31,6 +33,7 @@ use app::{
 };
 
 fn main() {
+    let mock = std::env::args().skip(1).any(|a| a == "--mock").then(start_mock);
     // Start the tokio runtime up front so the first request doesn't pay for it.
     let _ = net::runtime();
 
@@ -44,18 +47,34 @@ fn main() {
             cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    titlebar: Some(TitlebarOptions { title: Some(SharedString::from("Rechimped")), ..Default::default() }),
+                    titlebar: Some(TitlebarOptions {
+                        title: Some(SharedString::from(if mock.is_some() { "Rechimped (mock)" } else { "Rechimped" })),
+                        ..Default::default()
+                    }),
                     // Linux desktops match this to linux/rechimped.desktop for the window's icon.
                     app_id: Some("rechimped".into()),
                     ..Default::default()
                 },
-                |window, cx| cx.new(|cx| TimeChimpApp::new(window, cx)),
+                |window, cx| cx.new(|cx| TimeChimpApp::new(mock, window, cx)),
             )
             .expect("failed to open window");
             cx.on_window_closed(|cx, _| cx.quit()).detach();
             cx.activate(true);
         },
     );
+}
+
+/// `--mock`: a generated account held in memory, and the config, token and reminder files in a
+/// temporary folder emptied first, so nothing reaches the real account or `%APPDATA%/rechimped`.
+/// The folder starts with a config of its own (presets, the travel reminder on).
+fn start_mock() -> backend::Api {
+    let dir = std::env::temp_dir().join("rechimped-mock");
+    let _ = std::fs::remove_dir_all(&dir);
+    if let Err(e) = std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(dir.join("config.toml"), mock::config())) {
+        eprintln!("Could not write the mock config: {e}");
+    }
+    store::override_dir(dir);
+    Arc::new(mock::Mock::new(chrono::Utc::now()))
 }
 
 fn theme() -> Theme {

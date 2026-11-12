@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::{Duration, Months, NaiveDate};
-use timechimp_api::{Client, CurrentUser, Mileage, Project, ProjectTask, Tag, TimeEntry, TimeReportRow};
+use timechimp_api::{CurrentUser, Mileage, Project, ProjectTask, Tag, TimeEntry, TimeReportRow};
 
+use crate::backend::Api;
 use crate::domain::report::Report;
 use crate::domain::{self, review, same_name, week::RecentItem};
 use crate::store::config::{self, Config, Settings, TimePreset, TripPreset};
@@ -12,7 +13,7 @@ use crate::store::config::{self, Config, Settings, TimePreset, TripPreset};
 pub struct Session {
     /// `TimeChimpApp::run` drops results that arrive for an older epoch.
     pub epoch: u64,
-    client: Option<Client>,
+    client: Option<Api>,
     base: Option<Base>,
 
     /// Read through `tags_for`, which offers all tags while none are configured.
@@ -75,7 +76,7 @@ pub struct Week {
 }
 
 impl Session {
-    pub fn new(client: Option<Client>, today: NaiveDate) -> Self {
+    pub fn new(client: Option<Api>, today: NaiveDate) -> Self {
         static NEXT_EPOCH: AtomicU64 = AtomicU64::new(1);
         Self {
             epoch: NEXT_EPOCH.fetch_add(1, Ordering::Relaxed),
@@ -110,7 +111,7 @@ impl Session {
         }
     }
 
-    pub fn client(&self) -> Option<&Client> {
+    pub fn client(&self) -> Option<&Api> {
         self.client.as_ref()
     }
 
