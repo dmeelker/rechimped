@@ -88,14 +88,26 @@ where
 
 const PAGE: u32 = 500;
 
+pub async fn load_time_rows(
+    client: &Client,
+    user_id: i64,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> timechimp_api::Result<Vec<TimeReportRow>> {
+    let mut rows = page_all(|rows| client.query_time(user_id, from, to, rows)).await?;
+    // The query filters on the user already; this guards against the server ignoring that.
+    rows.retain(|r| r.user_id == user_id);
+    rows.sort_by_key(|r| (r.date, r.start));
+    Ok(rows)
+}
+
 pub async fn load_report(client: &Client, user_id: i64, month: NaiveDate) -> timechimp_api::Result<Report> {
     let to = last_of_month(month);
-    let (mut time, mut travel) = tokio::try_join!(
-        page_all(|rows| client.query_time(month, to, rows)),
+    let (time, mut travel) = tokio::try_join!(
+        load_time_rows(client, user_id, month, to),
         page_all(|rows| client.query_mileage(month, to, rows)),
     )?;
-    // Reports include everyone the caller can see.
-    time.retain(|r: &TimeReportRow| r.user_id == user_id);
+    // The mileage report includes everyone the caller can see.
     travel.retain(|r: &MileageReportRow| r.user_id == user_id);
     Ok(Report { month: Some(month), time, travel })
 }

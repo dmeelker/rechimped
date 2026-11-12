@@ -221,11 +221,12 @@ impl Client {
 
     pub async fn query_time(
         &self,
+        user_id: i64,
         from: NaiveDate,
         to: NaiveDate,
         rows: std::ops::Range<u32>,
     ) -> Result<QueryResult<TimeReportRow>> {
-        let mut body = report_query(from, to, rows);
+        let mut body = report_query(from, to, Some(user_id), rows);
         body["valueCols"] = json!([{ "id": "time", "aggFunc": "sum", "displayName": "Hours", "field": "time" }]);
         self.post("time/query", &body).await
     }
@@ -258,7 +259,8 @@ impl Client {
         to: NaiveDate,
         rows: std::ops::Range<u32>,
     ) -> Result<QueryResult<MileageReportRow>> {
-        self.post("mileage/query", &report_query(from, to, rows)).await
+        // No user filter: its key on this grid is unverified.
+        self.post("mileage/query", &report_query(from, to, None, rows)).await
     }
 
     pub async fn customers_for_mileage(&self, user_id: i64) -> Result<Vec<Customer>> {
@@ -345,8 +347,8 @@ impl Client {
     }
 }
 
-fn report_query(from: NaiveDate, to: NaiveDate, rows: std::ops::Range<u32>) -> Value {
-    json!({
+fn report_query(from: NaiveDate, to: NaiveDate, user_id: Option<i64>, rows: std::ops::Range<u32>) -> Value {
+    let mut query = json!({
         "startRow": rows.start,
         "endRow": rows.end,
         "rowGroupCols": [],
@@ -363,10 +365,41 @@ fn report_query(from: NaiveDate, to: NaiveDate, rows: std::ops::Range<u32>) -> V
             }
         },
         "sortModel": [],
-    })
+    });
+    if let Some(id) = user_id {
+        query["filterModel"]["UserId"] = json!({ "values": [id], "filterType": "set" });
+    }
+    query
 }
 
 async fn decode<T: DeserializeOwned>(url: &str, response: Response) -> Result<T> {
     let bytes = response.bytes().await?;
     serde_json::from_slice(&bytes).map_err(|source| Error::Decode { url: url.to_owned(), source })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn report_query_filters_on_the_user_when_given() {
+        let day = |d| NaiveDate::from_ymd_opt(2026, 11, d).unwrap();
+        let query = report_query(day(1), day(30), Some(42), 0..500);
+        assert_eq!((&query["startRow"], &query["endRow"]), (&json!(0), &json!(500)));
+        assert_eq!(
+            query["filterModel"],
+            json!({
+                "Date": {
+                    "dateFrom": "2026-11-01 00:00:00",
+                    "dateTo": "2026-11-30 00:00:00",
+                    "filterType": "date",
+                    "type": "inRange",
+                },
+                "UserId": { "values": [42], "filterType": "set" },
+            })
+        );
+        let everyone = report_query(day(1), day(30), None, 0..500);
+        assert!(everyone["filterModel"].get("UserId").is_none());
+        assert!(everyone["filterModel"].get("Date").is_some());
+    }
 }

@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("mileage vehicles:     {}", client.mileage_vehicles(me.id).await?.len());
     println!("mileage this week:    {}", client.mileage_for_week(me.id, monday).await?.len());
 
-    let report = client.query_time(month_start, today, 0..1000).await?;
+    let report = client.query_time(me.id, month_start, today, 0..1000).await?;
     let hours: f64 = report.row_data.iter().map(|r| r.time).sum();
     println!("time report month:    {} rows ({} total), {hours:.2}h", report.row_data.len(), report.row_count);
     let mileage = client.query_mileage(month_start, today, 0..1000).await?;
