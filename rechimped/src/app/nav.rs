@@ -13,8 +13,10 @@ impl TimeChimpApp {
         }
         self.tab = tab;
         self.fx.sweep += 1;
-        if tab == Tab::Report && self.session.report().is_none() {
-            self.load_report(window, cx);
+        match tab {
+            Tab::Report if self.session.report().is_none() => self.load_report(window, cx),
+            Tab::Review if self.session.review_rows().is_none() => self.load_review(None, window, cx),
+            _ => {}
         }
         window.focus(&self.focus, cx);
         cx.notify();
@@ -35,7 +37,7 @@ impl TimeChimpApp {
     }
 
     pub fn step_period(&mut self, direction: i64, window: &mut Window, cx: &mut Context<Self>) {
-        if self.tab == Tab::Report {
+        if self.shown_month().is_some() {
             self.shift_month(direction as i32, window, cx);
         } else {
             self.shift_day(7 * direction, window, cx);
@@ -50,34 +52,67 @@ impl TimeChimpApp {
     }
 
     pub fn go_today(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.tab == Tab::Report {
-            self.session.set_report_month(domain::time::today());
-            self.load_report(window, cx);
+        if self.shown_month().is_some() {
+            self.set_shown_month(domain::time::today(), window, cx);
         } else {
             self.select_day(domain::time::today(), window, cx);
         }
     }
 
     pub fn shift_month(&mut self, months: i32, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(month) = self.shown_month() else { return };
         let delta = Months::new(months.unsigned_abs());
-        let month = self.session.report_month();
-        self.session.set_report_month(if months < 0 { month - delta } else { month + delta });
-        self.load_report(window, cx);
+        self.set_shown_month(if months < 0 { month - delta } else { month + delta }, window, cx);
         cx.notify();
     }
 
-    fn move_selection(&mut self, delta: isize) {
-        if self.tab == Tab::Travel {
-            self.session.move_travel_selection(delta);
-        } else {
-            self.session.move_entry_selection(delta);
+    /// The month the Report or Review tab shows.
+    pub fn shown_month(&self) -> Option<NaiveDate> {
+        match self.tab {
+            Tab::Report => Some(self.session.report_month()),
+            Tab::Review => Some(self.session.review_month()),
+            Tab::Week | Tab::Travel => None,
         }
     }
 
+    fn set_shown_month(&mut self, day: NaiveDate, window: &mut Window, cx: &mut Context<Self>) {
+        match self.tab {
+            Tab::Report => {
+                self.session.set_report_month(day);
+                self.load_report(window, cx);
+            }
+            Tab::Review => {
+                if domain::time::first_of_month(day) != self.session.review_month() {
+                    self.review_scroll.set_offset(gpui::Point::default());
+                }
+                self.session.set_review_month(day);
+                self.load_review(None, window, cx);
+            }
+            Tab::Week | Tab::Travel => {}
+        }
+    }
+
+    fn move_selection(&mut self, delta: isize) {
+        match self.tab {
+            Tab::Travel => self.session.move_travel_selection(delta),
+            Tab::Review => {
+                self.session.move_review_selection(delta);
+                self.scroll_to_review_selection();
+            }
+            Tab::Week | Tab::Report => self.session.move_entry_selection(delta),
+        }
+    }
+
+    /// Editing from the review comes later; until then a double-click there only selects.
     pub fn click_entry(&mut self, id: i64, clicks: usize, window: &mut Window, cx: &mut Context<Self>) {
-        self.session.select_entry(id);
+        let review = self.tab == Tab::Review;
+        if review {
+            self.session.select_review(id);
+        } else {
+            self.session.select_entry(id);
+        }
         window.focus(&self.focus, cx);
-        if clicks >= 2 {
+        if clicks >= 2 && !review {
             self.edit_selected(window, cx);
         }
         cx.notify();
@@ -170,12 +205,20 @@ fn browse_command(key: &str, shift: bool, ctrl: bool, tab: Tab, has_entry: bool)
         ("q", true) => Command::Quit,
         (",", true) => Command::Settings,
         (_, true) => return None,
-        ("1" | "2" | "3", _) => Command::SwitchTab(key.parse::<usize>().expect("digit") - 1),
+        ("1" | "2" | "3" | "4", _) => Command::SwitchTab(key.parse::<usize>().expect("digit") - 1),
         ("r", _) => Command::Reload,
         ("l", _) if shift => Command::Logout,
         ("left" | "h", _) if tab == Tab::Report => Command::ShiftMonth(-1),
         ("right" | "l", _) if tab == Tab::Report => Command::ShiftMonth(1),
         ("t", _) => Command::Today,
+        // Only what's listed: the week's keys below must not reach the Time tab from here.
+        (_, _) if tab == Tab::Review => match key {
+            "left" | "h" if !shift => Command::ShiftMonth(-1),
+            "right" | "l" if !shift => Command::ShiftMonth(1),
+            "down" | "j" => Command::MoveSelection(1),
+            "up" | "k" => Command::MoveSelection(-1),
+            _ => return None,
+        },
         (_, _) if !matches!(tab, Tab::Week | Tab::Travel) => return None,
         ("left" | "h", _) if week_tab && !shift => Command::Step(-1),
         ("right" | "l", _) if week_tab && !shift => Command::Step(1),
@@ -224,9 +267,27 @@ mod tests {
         assert_eq!(browse_command(",", false, true, Tab::Travel, false), Some(Settings));
         assert_eq!(browse_command("r", false, true, Tab::Week, true), None, "Ctrl+R isn't R");
         assert_eq!(browse_command("l", true, false, Tab::Report, false), Some(Logout), "Shift+L before the month keys");
-        assert_eq!(key("3", Tab::Week), Some(SwitchTab(2)));
-        assert_eq!(key("4", Tab::Week), None, "three tabs");
+        assert_eq!(key("4", Tab::Week), Some(SwitchTab(3)));
+        assert_eq!(key("5", Tab::Week), None, "four tabs");
         assert_eq!(key("c", Tab::Travel), None, "copy is for time entries");
         assert_eq!(key("d", Tab::Report), None);
+    }
+
+    #[test]
+    fn review_keys() {
+        let shifted = |k| browse_command(k, true, false, Tab::Review, true);
+        assert_eq!(key("left", Tab::Review), Some(ShiftMonth(-1)));
+        assert_eq!(key("l", Tab::Review), Some(ShiftMonth(1)));
+        assert_eq!(key("down", Tab::Review), Some(MoveSelection(1)));
+        assert_eq!(key("k", Tab::Review), Some(MoveSelection(-1)));
+        assert_eq!(key("t", Tab::Review), Some(Today));
+        assert_eq!(key("r", Tab::Review), Some(Reload));
+        assert_eq!(key("1", Tab::Review), Some(SwitchTab(0)));
+        assert_eq!(shifted("l"), Some(Logout));
+        for k in ["[", "]", "a", "n", "enter", "e", "c", "d", "delete"] {
+            assert_eq!(key(k, Tab::Review), None, "{k} doesn't reach the week");
+        }
+        assert_eq!(shifted("left"), None, "Shift+← steps no week");
+        assert_eq!(shifted("right"), None);
     }
 }

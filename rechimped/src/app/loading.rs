@@ -12,6 +12,7 @@ impl TimeChimpApp {
         let Some(client) = self.session.client().cloned() else { return };
         let (report_month, want_report) = (self.session.report_month(), self.tab == Tab::Report);
         self.session.invalidate_report();
+        self.session.invalidate_review();
         let (generation, week_start) = self.session.begin_week_load();
         let today = domain::time::today();
         let future = async move {
@@ -36,6 +37,10 @@ impl TimeChimpApp {
                 let history = history.map_err(|e| this.set_error(format!("Could not load recent entries: {e}"), window, cx));
                 this.session.apply_base(base, history.ok(), &week.entries);
                 this.load_config(window, cx);
+                // Also covers switching to the tab before the user was known.
+                if this.tab == Tab::Review && this.session.review_rows().is_none() {
+                    this.load_review(None, window, cx);
+                }
                 match report {
                     // Unless a report loaded meanwhile (tab switch, other month), which is newer.
                     Some(Ok(report)) if this.session.report().is_none() => {

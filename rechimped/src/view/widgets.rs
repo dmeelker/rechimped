@@ -28,7 +28,11 @@ pub(super) fn hours_colour(theme: &T, hours: f64, target: f64) -> Hsla {
 }
 
 pub(super) fn cell(width: Option<f32>, content: impl Into<SharedString>) -> gpui::Div {
-    let d = div().overflow_hidden().whitespace_nowrap().text_ellipsis().px(px(6.)).child(content.into());
+    wrap_cell(width, content).whitespace_nowrap().text_ellipsis()
+}
+
+pub(super) fn wrap_cell(width: Option<f32>, content: impl Into<SharedString>) -> gpui::Div {
+    let d = div().overflow_hidden().px(px(6.)).child(content.into());
     match width {
         Some(w) => d.w(px(w)).flex_none(),
         None => d.flex_1().min_w(px(40.)),

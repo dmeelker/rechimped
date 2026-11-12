@@ -14,7 +14,7 @@ use super::{Overlay, Tab, TimeChimpApp};
 
 impl TimeChimpApp {
     pub fn add(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.session.me().is_none() {
+        if self.session.me().is_none() || self.tab == Tab::Review {
             return;
         }
         if self.tab == Tab::Travel {

@@ -113,6 +113,7 @@ impl TimeChimpApp {
         self.run(DELETING, request(client), window, cx, |this, result, window, cx| match result {
             Ok(()) => {
                 this.session.invalidate_report();
+                this.session.invalidate_review();
                 this.load_week(None, window, cx);
                 this.set_info("Deleted.", window, cx);
             }

@@ -77,6 +77,11 @@ pub fn report_row(project: &str, task: &str, day: u32, hours: f64, billable: boo
     .unwrap()
 }
 
+/// A row of the review: one hour on `day`, its id set.
+pub fn time_row(id: i64, day: u32) -> TimeReportRow {
+    TimeReportRow { id, ..report_row("P", "T", day, 1.0, true) }
+}
+
 pub fn base(projects: Vec<Project>, project_tasks: HashMap<i64, Vec<ProjectTask>>, tags: Vec<Tag>) -> Base {
     Base { me: user(), projects, project_tasks, tags }
 }

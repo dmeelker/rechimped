@@ -39,6 +39,7 @@ impl TimeChimpApp {
             Tab::Week => self.render_day(theme, cx).into_any_element(),
             Tab::Travel => self.render_travel(theme, cx).into_any_element(),
             Tab::Report => self.render_report(theme).into_any_element(),
+            Tab::Review => self.render_review(theme, cx).into_any_element(),
         };
 
         let browse = v_stack()
@@ -105,8 +106,16 @@ impl TimeChimpApp {
 
     pub(super) fn render_toolbar(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         let today = domain::time::today();
-        let (today_label, at_today, prev_tip, next_tip, title, suffix) = match self.tab {
-            Tab::Week | Tab::Travel => {
+        let (today_label, at_today, prev_tip, next_tip, title, suffix) = match self.shown_month() {
+            Some(month) => (
+                "This month",
+                month == domain::time::first_of_month(today),
+                "Previous month (←)",
+                "Next month (→)",
+                month.format("%B %Y").to_string(),
+                None,
+            ),
+            None => {
                 let (range, week) = week_title(self);
                 let start = self.session.week_start();
                 let (at_today, prev_tip, next_tip) = if self.tab == Tab::Week {
@@ -122,14 +131,6 @@ impl TimeChimpApp {
                 };
                 ("Today", at_today, prev_tip, next_tip, range, Some(suffix))
             }
-            Tab::Report => (
-                "This month",
-                self.session.report_month() == domain::time::first_of_month(today),
-                "Previous month (←)",
-                "Next month (→)",
-                self.session.report_month().format("%B %Y").to_string(),
-                None,
-            ),
         };
         let today_button = button("period-today", today_label)
             .tooltip(tooltip(format!("{today_label} (T)")))
@@ -160,7 +161,7 @@ impl TimeChimpApp {
             .child(div().flex_1());
         match self.tab {
             Tab::Week | Tab::Travel => bar.child(self.render_add(theme, cx)),
-            Tab::Report => bar.child(pop(
+            Tab::Report | Tab::Review => bar.child(pop(
                 theme,
                 button("reload", "Reload").on_click(cx.listener(|this, _: &ClickEvent, w, cx| this.reload(w, cx))),
             )),
@@ -351,11 +352,16 @@ impl TimeChimpApp {
                         hint(theme, "D", "delete"),
                     ],
                     Tab::Report => vec![hint(theme, "←/→", "month"), hint(theme, "T", "this month")],
+                    Tab::Review => vec![
+                        hint(theme, "←/→", "month"),
+                        hint(theme, "T", "this month"),
+                        hint(theme, "↑/↓", "select"),
+                    ],
                 };
                 h_stack()
                     .gap(px(16.))
                     .children(hints)
-                    .child(hint(theme, "1–3", "tabs"))
+                    .child(hint(theme, "1–4", "tabs"))
                     .child(hint(theme, "R", "reload"))
                     .child(hint(theme, "Ctrl+,", "settings"))
                     .into_any_element()

@@ -2,8 +2,8 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use chrono::{Duration, NaiveDate};
-use timechimp_api::{Client, CurrentUser, Mileage, Project, ProjectTask, Tag, TimeEntry};
+use chrono::{Duration, Months, NaiveDate};
+use timechimp_api::{Client, CurrentUser, Mileage, Project, ProjectTask, Tag, TimeEntry, TimeReportRow};
 
 use crate::domain::report::Report;
 use crate::domain::{self, same_name, week::RecentItem};
@@ -41,6 +41,20 @@ pub struct Session {
     report_month: NaiveDate,
     /// May be for another month than `report_month` until the new one is in.
     report: Report,
+
+    review: Review,
+}
+
+/// The Review tab's month, kept apart from the report's.
+struct Review {
+    /// Always the first of the month.
+    month: NaiveDate,
+    /// The month `rows` are for; None while they are stale, as after `invalidate_review`.
+    loaded: Option<NaiveDate>,
+    /// Kept while stale, so a reload can keep the selection on the row nearest to it.
+    rows: Vec<TimeReportRow>,
+    selected: Option<i64>,
+    generation: u64,
 }
 
 pub struct Base {
@@ -79,6 +93,14 @@ impl Session {
             recent: Vec::new(),
             report_month: domain::time::first_of_month(today),
             report: Report::default(),
+            // The month usually handed in.
+            review: Review {
+                month: domain::time::first_of_month(today) - Months::new(1),
+                loaded: None,
+                rows: Vec::new(),
+                selected: None,
+                generation: 0,
+            },
         }
     }
 
@@ -229,6 +251,61 @@ impl Session {
 
     pub fn invalidate_report(&mut self) {
         self.report = Report::default();
+    }
+
+    pub fn review_month(&self) -> NaiveDate {
+        self.review.month
+    }
+
+    /// Another month's rows go at once, so they never show under its title.
+    pub fn set_review_month(&mut self, day: NaiveDate) {
+        let month = domain::time::first_of_month(day);
+        if month != self.review.month {
+            self.review = Review { month, loaded: None, rows: Vec::new(), selected: None, ..self.review };
+        }
+    }
+
+    pub fn begin_review_load(&mut self) -> (u64, NaiveDate) {
+        self.review.generation += 1;
+        (self.review.generation, self.review.month)
+    }
+
+    /// Drops what an older load or one for another month brings back.
+    pub fn apply_review(&mut self, generation: u64, month: NaiveDate, rows: Vec<TimeReportRow>, select_id: Option<i64>) -> bool {
+        if generation != self.review.generation || month != self.review.month {
+            return false;
+        }
+        let ids = |rows: &[TimeReportRow]| rows.iter().map(|r| r.id).collect::<Vec<_>>();
+        self.review.selected = reselect(self.review.selected, select_id, &ids(&self.review.rows), &ids(&rows));
+        self.review.rows = rows;
+        self.review.loaded = Some(month);
+        true
+    }
+
+    /// None unless loaded for the month shown and not invalidated since.
+    pub fn review_rows(&self) -> Option<&[TimeReportRow]> {
+        (self.review.loaded == Some(self.review.month)).then_some(self.review.rows.as_slice())
+    }
+
+    pub fn invalidate_review(&mut self) {
+        self.review.loaded = None;
+    }
+
+    pub fn selected_review_id(&self) -> Option<i64> {
+        self.review.selected
+    }
+
+    pub fn select_review(&mut self, id: i64) {
+        if self.review_rows().is_some_and(|rows| rows.iter().any(|r| r.id == id)) {
+            self.review.selected = Some(id);
+        }
+    }
+
+    pub fn move_review_selection(&mut self, delta: isize) {
+        let Some(rows) = self.review_rows() else { return };
+        let Some(last) = rows.len().checked_sub(1) else { return };
+        let pos = rows.iter().position(|r| Some(r.id) == self.review.selected);
+        self.review.selected = Some(rows[pos.map_or(0, |p| p.saturating_add_signed(delta).min(last))].id);
     }
 
     pub fn visible_entries(&self) -> Vec<usize> {
@@ -530,6 +607,64 @@ mod tests {
         assert!(s.report().is_some());
         s.invalidate_report();
         assert!(s.report().is_none());
+    }
+
+    #[test]
+    fn review_month_and_rows() {
+        let mut s = Session::new(None, date(4));
+        assert_eq!(s.review_month(), NaiveDate::from_ymd_opt(2026, 10, 1).unwrap(), "the previous month");
+        assert!(s.review_rows().is_none());
+
+        let november = date(1);
+        let (stale, _) = s.begin_review_load();
+        s.set_review_month(date(20));
+        let (generation, month) = s.begin_review_load();
+        assert_eq!(month, november);
+        assert!(!s.apply_review(stale, month, vec![time_row(1, 2)], None), "an older load");
+        assert!(!s.apply_review(generation, november - Months::new(1), vec![time_row(1, 2)], None), "another month");
+        assert!(s.review_rows().is_none());
+
+        assert!(s.apply_review(generation, month, vec![time_row(1, 2), time_row(2, 3)], None));
+        assert_eq!(s.review_rows().map(<[_]>::len), Some(2));
+        assert_eq!(s.selected_review_id(), Some(1), "the first row");
+
+        s.set_review_month(date(30));
+        assert!(s.review_rows().is_some(), "the same month keeps its rows");
+        s.invalidate_review();
+        assert!(s.review_rows().is_none());
+
+        s.set_review_month(november - Months::new(1));
+        assert!(s.review.rows.is_empty() && s.selected_review_id().is_none(), "stepping clears the rows");
+    }
+
+    #[test]
+    fn review_selection() {
+        let mut s = Session::new(None, date(4));
+        let load = |s: &mut Session, ids: &[i64], select_id| {
+            let (generation, month) = s.begin_review_load();
+            s.apply_review(generation, month, ids.iter().map(|&id| time_row(id, 2)).collect(), select_id)
+        };
+        s.select_review(1);
+        assert_eq!(s.selected_review_id(), None, "nothing loaded");
+        load(&mut s, &[1, 2, 3], None);
+        s.select_review(2);
+        s.select_review(9);
+        assert_eq!(s.selected_review_id(), Some(2), "not a row");
+        s.move_review_selection(5);
+        assert_eq!(s.selected_review_id(), Some(3), "stops at the last row");
+        s.move_review_selection(-1);
+        assert_eq!(s.selected_review_id(), Some(2));
+
+        s.invalidate_review();
+        s.move_review_selection(1);
+        assert_eq!(s.selected_review_id(), Some(2), "not while stale");
+        load(&mut s, &[3, 1, 2], None);
+        assert_eq!(s.selected_review_id(), Some(2), "kept after a reload");
+        s.invalidate_review();
+        load(&mut s, &[3, 1], None);
+        assert_eq!(s.selected_review_id(), Some(1), "deleted: the row now at its place");
+        load(&mut s, &[3, 1, 7], Some(7));
+        assert_eq!(s.selected_review_id(), Some(7), "the saved row");
     }
 
     #[test]

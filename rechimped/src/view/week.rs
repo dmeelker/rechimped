@@ -7,10 +7,10 @@ use gpuikit::elements::tooltip::tooltip;
 use gpuikit::icons::Icons;
 use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::{ActiveTheme, Themeable};
-use timechimp_api::TimeEntry;
+use timechimp_api::{TimeEntry, TimeReportRow};
 
 use crate::app::TimeChimpApp;
-use crate::domain::review::has_notes;
+use crate::domain::review::{has_notes, tag_names};
 use crate::domain::week::{CHART_WEEKS, Junction, WeekCard};
 
 use super::widgets::*;
@@ -44,9 +44,29 @@ impl From<&TimeEntry> for EntryLine {
     }
 }
 
+impl From<&TimeReportRow> for EntryLine {
+    fn from(r: &TimeReportRow) -> Self {
+        Self {
+            id: r.id,
+            start_end: r.start_end.clone(),
+            hours: r.time,
+            customer: r.customer.clone(),
+            project: r.project.clone(),
+            task: r.task.clone(),
+            notes: r.notes.clone(),
+            tags: tag_names(r.tags.as_deref()),
+            billable: r.billable,
+        }
+    }
+}
+
 /// How an entry row is drawn, apart from its content.
 pub(super) struct EntryRow {
     pub selected: bool,
+    /// The Edit / Copy / Delete buttons when selected; they act on the week's selection.
+    pub actions: bool,
+    /// Notes and tags in full rather than cut off.
+    pub wrap: bool,
 }
 
 impl TimeChimpApp {
@@ -75,8 +95,9 @@ impl TimeChimpApp {
     ) -> impl IntoElement {
         let (id, selected) = (line.id, row.selected);
         let has_notes = has_notes(line.notes.as_deref());
+        let text_cell = if row.wrap { wrap_cell } else { cell };
         let notes = if has_notes {
-            cell(None, line.notes.clone().unwrap_or_default())
+            text_cell(None, line.notes.clone().unwrap_or_default())
         } else {
             cell(None, "No notes").text_color(theme.warning())
         };
@@ -89,6 +110,7 @@ impl TimeChimpApp {
             .border_b_1()
             .border_color(theme.border_subtle())
             .cursor_pointer()
+            .when(row.wrap, |d| d.items_start())
             .when(!line.billable, |d| d.text_color(theme.fg_muted()).bg(non_billable_bg(false)))
             .when(selected, |d| d.bg(theme.accent_bg()))
             .when(!selected, |d| d.hover(|s| s.bg(row_hover_bg(theme, line.billable))))
@@ -100,8 +122,9 @@ impl TimeChimpApp {
             .child(cell(Some(160.), line.customer.clone()))
             .child(cell(None, format!("{} / {}", line.project, line.task)))
             .child(notes)
-            .child(cell(Some(140.), line.tags.join(", ")).text_color(theme.fg_muted()))
-            .child(self.row_actions(selected, cx))
+            .child(text_cell(Some(140.), line.tags.join(", ")).text_color(theme.fg_muted()))
+            // Drawn empty without actions, so the columns stay in line with the header.
+            .child(self.row_actions(selected && row.actions, cx))
     }
 
     pub(super) fn entry_rows_with_gaps(&self, theme: &T, indices: &[usize], cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -128,7 +151,7 @@ impl TimeChimpApp {
                     });
                 }
             let line = EntryLine::from(&self.session.entries()[i]);
-            let row = EntryRow { selected: self.session.selected_entry_id() == Some(line.id) };
+            let row = EntryRow { selected: self.session.selected_entry_id() == Some(line.id), actions: true, wrap: false };
             rows.push(self.entry_row(theme, i, &line, row, cx).into_any_element());
         }
         rows

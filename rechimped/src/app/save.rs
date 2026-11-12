@@ -87,6 +87,7 @@ impl TimeChimpApp {
             }
             this.session.select_day(date);
             this.session.invalidate_report();
+            this.session.invalidate_review();
             this.load_week(Some(id), window, cx);
             match outcome {
                 Ok(message) => this.set_info(message, window, cx),

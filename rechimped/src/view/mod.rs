@@ -5,6 +5,7 @@ mod login;
 mod travel;
 mod popups;
 mod report;
+mod review;
 mod settings;
 mod week;
 mod widgets;

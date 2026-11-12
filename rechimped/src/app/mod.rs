@@ -6,6 +6,7 @@ mod delete;
 mod loading;
 mod nav;
 mod reminder;
+mod review;
 mod save;
 mod settings;
 mod time_form;
@@ -16,7 +17,7 @@ pub use chart::BillabilityChart;
 
 use std::future::Future;
 
-use gpui::{Context, Entity, FocusHandle, SharedString, Subscription, Window};
+use gpui::{Context, Entity, FocusHandle, ScrollHandle, SharedString, Subscription, Window};
 use gpuikit::elements::dialog::DialogState;
 use gpuikit::elements::toast::ToastExt;
 use gpuikit::input::InputState;
@@ -44,16 +45,18 @@ pub enum Tab {
     Week,
     Travel,
     Report,
+    Review,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 3] = [Tab::Week, Tab::Travel, Tab::Report];
+    pub const ALL: [Tab; 4] = [Tab::Week, Tab::Travel, Tab::Report, Tab::Review];
 
     pub fn label(self) -> &'static str {
         match self {
             Tab::Week => "Time",
             Tab::Travel => "Travel",
             Tab::Report => "Report",
+            Tab::Review => "Review",
         }
     }
 
@@ -114,6 +117,7 @@ pub struct TimeChimpApp {
     pub fx: crate::fx::Fx,
     /// The title bar was pressed; the next mouse move starts a window move (`view::frame`).
     pub title_drag: bool,
+    pub review_scroll: ScrollHandle,
 }
 
 impl TimeChimpApp {
@@ -133,6 +137,7 @@ impl TimeChimpApp {
             travel_reminder_checked: None,
             fx: crate::fx::Fx::new(),
             title_drag: false,
+            review_scroll: ScrollHandle::default(),
         };
 
         match token::load_token() {
