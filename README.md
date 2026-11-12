@@ -3,7 +3,7 @@
 A small desktop app for viewing and editing your own TimeChimp time entries and travel, without
 going through the web app.
 
-![The Time tab: a week of entries with day totals, the billable share, and a gap and an overlap marked](docs/screenshots/week.png)
+![The Time tab: a week of entries with day totals, the billable share, gaps marked and a rejected entry flagged](docs/screenshots/week.png)
 
 - **Time**: your week day by day, with add, edit, copy and delete, a "Recent" picker, preset
   entries, and gaps and overlaps between entries marked. It also shows a weekly billable
