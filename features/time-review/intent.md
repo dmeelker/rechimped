@@ -1,6 +1,6 @@
 # Time review — intent
 
-> Status: agreed. Next: specs, then a plan, then implementation.
+> Status: agreed. Details in [spec.md](spec.md), steps in [plan.md](plan.md).
 
 ## Problem
 
@@ -60,4 +60,3 @@ Fix without leaving the tab: an entry opens its edit form over the review, and a
 - Anything stored between sessions: no dismissing findings, no "month reviewed" mark. Findings
   are recomputed from TimeChimp every time.
 
-Details are settled in [spec.md](spec.md).
