@@ -9,11 +9,11 @@ going through the web app.
   entries, and gaps and overlaps between entries marked. It also shows a weekly billable
   percentage, with a chart of the last five weeks.
 - **Travel**: your trips per week, with add, edit and delete, preset trips and address suggestions.
-- **Report**: a monthly overview of your hours.
 - **Review**: a month of time entries on one screen, to check before handing in. It marks entries
   that were rejected, entries without notes (leave excepted) and entries whose tags differ from
   matching entries, and you can edit, copy and delete from there; submitted, approved and billed
   entries are locked (copy only).
+- **Report**: a monthly overview of your hours.
 - Keyboard shortcuts throughout; the footer lists them.
 
 ## Goals

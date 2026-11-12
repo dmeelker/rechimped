@@ -47,12 +47,12 @@ struct Task {
 pub enum Tab {
     Week,
     Travel,
-    Report,
     Review,
+    Report,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 4] = [Tab::Week, Tab::Travel, Tab::Report, Tab::Review];
+    pub const ALL: [Tab; 4] = [Tab::Week, Tab::Travel, Tab::Review, Tab::Report];
 
     pub fn label(self) -> &'static str {
         match self {
