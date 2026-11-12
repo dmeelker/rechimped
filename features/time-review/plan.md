@@ -101,6 +101,11 @@ Visible change: the Time tab marks entries without notes.
 
 ## Step 4: tags differ, summary line, F / Shift+F
 
+- Leave is exempt from No notes: `domain::week::is_excluded` gets a name-based core
+  (`is_excluded_task(project, task, excluded)`) that both `TimeEntry` and report rows use;
+  `entry_row` only flags a row when its task isn't excluded (Time tab too), and the No-notes
+  count uses the same rule.
+
 - `domain/review.rs`: `note_key`, `TagMismatch` (`Majority { others, tags }` / `Tie(variants)`)
   with `label()`, `tag_mismatches(&[TimeReportRow]) -> HashMap<i64, TagMismatch>`,
   `Findings { no_notes, tags_differ }` with `of(rows, mismatches)` and `label()`,

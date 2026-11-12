@@ -104,6 +104,10 @@ Pure functions over the month's rows, in `domain`, unit-tested.
 ### No notes
 
 - An entry whose notes are missing or only whitespace: `No notes`.
+- Except leave: entries of the excluded tasks (`excluded_tasks` in the config, the Billability
+  page's unchecked tasks; Intern → Verlof and Ziek by default) usually have no notes and are
+  never flagged, on the Time tab either. Matched by project and task name as
+  `domain::week::is_excluded` does.
 
 ### Tags differ
 
@@ -180,7 +184,7 @@ picker until the next reload.
 ## Tests
 
 - `domain` unit tests:
-  - no notes: none, empty, whitespace only;
+  - no notes: none, empty, whitespace only; excluded (leave) tasks exempt;
   - note matching: case and whitespace ignored, punctuation not;
   - tag parsing: `null`, one, several, spaces, empty parts, case;
   - tags differ: grouping (same notes in another project or task is another group; rows without
