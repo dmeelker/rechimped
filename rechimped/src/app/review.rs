@@ -62,17 +62,39 @@ pub struct ReviewList {
     revision: Cell<Option<(u64, u64)>>,
     /// The selected row is to be scrolled into view.
     reveal: Cell<bool>,
+    /// While the scrollbar's thumb is dragged: where it was grabbed, below its top.
+    drag: Cell<Option<f32>>,
 }
 
 impl Default for ReviewList {
     fn default() -> Self {
         // Every line is measured once after a reset, so revealing a row far off is exact.
         let state = ListState::new(0, ListAlignment::Top, px(200.)).measure_all();
-        Self { state, revision: Cell::new(None), reveal: Cell::new(false) }
+        Self { state, revision: Cell::new(None), reveal: Cell::new(false), drag: Cell::new(None) }
     }
 }
 
 impl ReviewList {
+    /// Scrolls to `offset` pixels from the top, as the scrollbar does.
+    pub fn scroll_to_offset(&self, offset: f32) {
+        self.state.set_offset_from_scrollbar(gpui::point(px(0.), px(-offset)));
+    }
+
+    pub fn start_drag(&self, grab: f32) {
+        self.drag.set(Some(grab));
+        self.state.scrollbar_drag_started();
+    }
+
+    pub fn grab(&self) -> Option<f32> {
+        self.drag.get()
+    }
+
+    pub fn end_drag(&self) {
+        if self.drag.take().is_some() {
+            self.state.scrollbar_drag_ended();
+        }
+    }
+
     pub fn scroll_to_top(&self) {
         self.state.scroll_to(ListOffset::default());
     }

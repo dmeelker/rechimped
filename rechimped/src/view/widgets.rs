@@ -324,3 +324,150 @@ pub(super) fn keyboard_select<T: Clone + PartialEq + 'static>(choice: &Choice<T>
         .child(child)
         .into_any_element()
 }
+
+/// What a vertical scrollbar needs of a scrolled area, in window pixels: the viewport's top and
+/// height, how far it can scroll and how far it has (both ≥ 0).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(super) struct ScrollMetrics {
+    pub top: f32,
+    pub viewport: f32,
+    pub max_offset: f32,
+    pub offset: f32,
+}
+
+/// Narrow enough to stay within a row's right padding, clear of its action buttons.
+const SCROLLBAR_WIDTH: f32 = 8.;
+const SCROLLBAR_MIN_THUMB: f32 = 24.;
+
+/// Where a click on the bar landed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum BarHit {
+    /// On the thumb, this far below its top.
+    Thumb(f32),
+    /// On the track; the offset a page up or down from here.
+    Page(f32),
+}
+
+impl ScrollMetrics {
+    /// Of a `list`, as laid out last frame. gpui reports the offset negative.
+    pub fn of_list(state: &gpui::ListState) -> Self {
+        let bounds = state.viewport_bounds();
+        Self {
+            top: bounds.origin.y.as_f32(),
+            viewport: bounds.size.height.as_f32(),
+            max_offset: state.max_offset_for_scrollbar().y.as_f32(),
+            offset: -state.scroll_px_offset_for_scrollbar().y.as_f32(),
+        }
+    }
+
+    /// The thumb's top (from the viewport's) and height; None when everything fits.
+    pub fn thumb(&self) -> Option<(f32, f32)> {
+        if self.viewport <= 0. || self.max_offset < 0.5 {
+            return None;
+        }
+        let height = (self.viewport * self.viewport / (self.viewport + self.max_offset))
+            .max(SCROLLBAR_MIN_THUMB)
+            .min(self.viewport);
+        let fraction = (self.offset / self.max_offset).clamp(0., 1.);
+        Some(((self.viewport - height) * fraction, height))
+    }
+
+    /// The offset that puts the thumb's top `thumb_top` below the viewport's.
+    pub fn offset_for_thumb(&self, thumb_top: f32) -> f32 {
+        let Some((_, height)) = self.thumb() else { return 0. };
+        let travel = self.viewport - height;
+        if travel <= 0. {
+            return 0.;
+        }
+        thumb_top.clamp(0., travel) / travel * self.max_offset
+    }
+
+    /// What a press at window y `y` on the bar means.
+    pub fn hit(&self, y: f32) -> Option<BarHit> {
+        let (top, height) = self.thumb()?;
+        let y = y - self.top;
+        Some(if y < top {
+            BarHit::Page((self.offset - self.viewport).max(0.))
+        } else if y >= top + height {
+            BarHit::Page((self.offset + self.viewport).min(self.max_offset))
+        } else {
+            BarHit::Thumb(y - top)
+        })
+    }
+}
+
+/// A thin vertical scrollbar to lay over the right edge of a scrolled area (in a `relative`
+/// parent of the viewport's size), or None when everything fits. The caller handles presses
+/// (`ScrollMetrics::hit`) and drags; wheel events pass through to the area.
+pub(super) fn scrollbar(theme: &T, id: &'static str, metrics: ScrollMetrics, dragging: bool) -> Option<gpui::Stateful<gpui::Div>> {
+    let (top, height) = metrics.thumb()?;
+    let colour = theme.fg_muted();
+    Some(
+        div()
+            .id(id)
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .right_0()
+            .w(px(SCROLLBAR_WIDTH))
+            .block_mouse_except_scroll()
+            .child(
+                div()
+                    .absolute()
+                    .top(px(top))
+                    .h(px(height))
+                    .right(px(1.))
+                    .w(px(6.))
+                    .rounded(px(3.))
+                    .bg(colour.opacity(if dragging { 0.6 } else { 0.3 }))
+                    .hover(move |s| s.bg(colour.opacity(0.6))),
+            ),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn m(viewport: f32, max_offset: f32, offset: f32) -> ScrollMetrics {
+        ScrollMetrics { top: 100., viewport, max_offset, offset }
+    }
+
+    #[test]
+    fn no_thumb_when_it_fits() {
+        assert_eq!(m(400., 0., 0.).thumb(), None);
+        assert_eq!(m(0., 300., 0.).thumb(), None);
+    }
+
+    #[test]
+    fn thumb_follows_the_offset() {
+        assert_eq!(m(400., 400., 0.).thumb(), Some((0., 200.)));
+        assert_eq!(m(400., 400., 200.).thumb(), Some((100., 200.)));
+        assert_eq!(m(400., 400., 400.).thumb(), Some((200., 200.)));
+        // Past the end (before the list clamps) the thumb stays at the bottom.
+        assert_eq!(m(400., 400., 500.).thumb(), Some((200., 200.)));
+    }
+
+    #[test]
+    fn thumb_has_a_minimum_height() {
+        assert_eq!(m(400., 100_000., 100_000.).thumb(), Some((400. - SCROLLBAR_MIN_THUMB, SCROLLBAR_MIN_THUMB)));
+    }
+
+    #[test]
+    fn dragging_maps_back_to_the_offset() {
+        let metrics = m(400., 400., 0.);
+        assert_eq!(metrics.offset_for_thumb(100.), 200.);
+        assert_eq!(metrics.offset_for_thumb(-50.), 0.);
+        assert_eq!(metrics.offset_for_thumb(1000.), 400.);
+    }
+
+    #[test]
+    fn presses_hit_the_thumb_or_page() {
+        let metrics = m(400., 1000., 500.);
+        let (top, height) = metrics.thumb().unwrap();
+        assert_eq!(metrics.hit(100. + top + 5.), Some(BarHit::Thumb(5.)));
+        assert_eq!(metrics.hit(100. + top - 1.), Some(BarHit::Page(100.)));
+        assert_eq!(metrics.hit(100. + top + height + 1.), Some(BarHit::Page(900.)));
+        assert_eq!(m(400., 0., 0.).hit(150.), None);
+    }
+}
