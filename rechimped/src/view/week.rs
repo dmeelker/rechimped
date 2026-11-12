@@ -10,9 +10,44 @@ use gpuikit::theme::{ActiveTheme, Themeable};
 use timechimp_api::TimeEntry;
 
 use crate::app::TimeChimpApp;
+use crate::domain::review::has_notes;
 use crate::domain::week::{CHART_WEEKS, Junction, WeekCard};
 
 use super::widgets::*;
+
+/// What an entry row shows.
+pub(super) struct EntryLine {
+    pub id: i64,
+    pub start_end: Option<String>,
+    pub hours: f64,
+    pub customer: String,
+    pub project: String,
+    pub task: String,
+    pub notes: Option<String>,
+    pub tags: Vec<String>,
+    pub billable: bool,
+}
+
+impl From<&TimeEntry> for EntryLine {
+    fn from(e: &TimeEntry) -> Self {
+        Self {
+            id: e.id,
+            start_end: e.start_end.clone(),
+            hours: e.hours,
+            customer: e.customer_name.clone(),
+            project: e.project_name.clone(),
+            task: e.task_name.clone(),
+            notes: e.notes.clone(),
+            tags: e.tag_names.clone(),
+            billable: e.billable,
+        }
+    }
+}
+
+/// How an entry row is drawn, apart from its content.
+pub(super) struct EntryRow {
+    pub selected: bool,
+}
 
 impl TimeChimpApp {
     pub(super) fn entry_header(theme: &T) -> gpui::Div {
@@ -30,26 +65,42 @@ impl TimeChimpApp {
         )
     }
 
-    pub(super) fn entry_row(&self, theme: &T, index: usize, e: &TimeEntry, cx: &mut Context<Self>) -> impl IntoElement {
-        let (id, selected) = (e.id, self.session.selected_entry_id() == Some(e.id));
+    pub(super) fn entry_row(
+        &self,
+        theme: &T,
+        index: usize,
+        line: &EntryLine,
+        row: EntryRow,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let (id, selected) = (line.id, row.selected);
+        let has_notes = has_notes(line.notes.as_deref());
+        let notes = if has_notes {
+            cell(None, line.notes.clone().unwrap_or_default())
+        } else {
+            cell(None, "No notes").text_color(theme.warning())
+        };
         h_stack()
             .id(ElementId::NamedInteger("entry".into(), index as u64))
+            .relative()
             .w_full()
             .py(px(6.))
             .px(px(4.))
             .border_b_1()
             .border_color(theme.border_subtle())
             .cursor_pointer()
-            .when(!e.billable, |d| d.text_color(theme.fg_muted()).bg(non_billable_bg(false)))
+            .when(!line.billable, |d| d.text_color(theme.fg_muted()).bg(non_billable_bg(false)))
             .when(selected, |d| d.bg(theme.accent_bg()))
-            .when(!selected, |d| d.hover(|s| s.bg(row_hover_bg(theme, e.billable))))
+            .when(!selected, |d| d.hover(|s| s.bg(row_hover_bg(theme, line.billable))))
             .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| this.click_entry(id, ev.click_count(), window, cx)))
-            .child(cell(Some(110.), e.start_end.clone().unwrap_or_else(|| "–".into())))
-            .child(right_cell(60., hh_mm(e.hours)))
-            .child(cell(Some(160.), e.customer_name.clone()))
-            .child(cell(None, format!("{} / {}", e.project_name, e.task_name)))
-            .child(cell(None, e.notes.clone().unwrap_or_default()))
-            .child(cell(Some(140.), e.tag_names.join(", ")).text_color(theme.fg_muted()))
+            // Absolute, inside the row's padding, so the cells stay in line with the header.
+            .when(!has_notes, |d| d.child(div().absolute().left_0().top_0().bottom_0().w(px(3.)).bg(theme.warning())))
+            .child(cell(Some(110.), line.start_end.clone().unwrap_or_else(|| "–".into())))
+            .child(right_cell(60., hh_mm(line.hours)))
+            .child(cell(Some(160.), line.customer.clone()))
+            .child(cell(None, format!("{} / {}", line.project, line.task)))
+            .child(notes)
+            .child(cell(Some(140.), line.tags.join(", ")).text_color(theme.fg_muted()))
             .child(self.row_actions(selected, cx))
     }
 
@@ -76,7 +127,9 @@ impl TimeChimpApp {
                         Junction::Overlap { .. } => row.into_any_element(),
                     });
                 }
-            rows.push(self.entry_row(theme, i, &self.session.entries()[i], cx).into_any_element());
+            let line = EntryLine::from(&self.session.entries()[i]);
+            let row = EntryRow { selected: self.session.selected_entry_id() == Some(line.id) };
+            rows.push(self.entry_row(theme, i, &line, row, cx).into_any_element());
         }
         rows
     }

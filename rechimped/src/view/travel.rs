@@ -1,6 +1,6 @@
 use gpui::{
-    AnyElement, ClickEvent, Context, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
+    AnyElement, ClickEvent, Context, ElementId, InteractiveElement, IntoElement, ParentElement,
+    StatefulInteractiveElement, Styled, prelude::FluentBuilder, px,
 };
 use gpuikit::layout::h_stack;
 use gpuikit::theme::Themeable;
@@ -41,19 +41,13 @@ impl TimeChimpApp {
             let km = crate::domain::total(day.iter().map(|m| m.distance));
             let trips = if day.len() == 1 { "1 trip".to_owned() } else { format!("{} trips", day.len()) };
             rows.push(
-                h_stack()
-                    .id(ElementId::NamedInteger("trip-day".into(), n as u64))
-                    .w_full()
-                    .gap(px(8.))
-                    .px(px(10.))
-                    .pt(px(10.))
-                    .pb(px(4.))
-                    .items_baseline()
-                    .border_b_1()
-                    .border_color(theme.border_subtle())
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child(day[0].date.format("%A %-d %B").to_string()))
-                    .child(muted(theme, format!("{trips} · {} km", plain_number(km))))
-                    .into_any_element(),
+                day_header(
+                    theme,
+                    ElementId::NamedInteger("trip-day".into(), n as u64),
+                    day[0].date,
+                    format!("{trips} · {} km", plain_number(km)),
+                )
+                .into_any_element(),
             );
             for (k, m) in day.iter().enumerate() {
                 rows.push(self.trip_row(theme, start + k, m, cx).into_any_element());

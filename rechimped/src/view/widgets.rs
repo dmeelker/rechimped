@@ -201,6 +201,26 @@ pub(super) fn hint(theme: &T, key: &'static str, label: &'static str) -> gpui::D
         .child(label)
 }
 
+pub(super) fn day_header(
+    theme: &T,
+    id: impl Into<gpui::ElementId>,
+    date: chrono::NaiveDate,
+    summary: impl Into<SharedString>,
+) -> gpui::Stateful<gpui::Div> {
+    h_stack()
+        .id(id)
+        .w_full()
+        .gap(px(8.))
+        .px(px(10.))
+        .pt(px(10.))
+        .pb(px(4.))
+        .items_baseline()
+        .border_b_1()
+        .border_color(theme.border_subtle())
+        .child(div().font_weight(FontWeight::SEMIBOLD).child(date.format("%A %-d %B").to_string()))
+        .child(muted(theme, summary))
+}
+
 pub(super) fn junction_row(theme: &T, junction: &crate::domain::week::Junction) -> gpui::Div {
     use crate::domain::week::Junction;
     let (colour, from, to, what) = match *junction {
