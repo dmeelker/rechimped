@@ -69,9 +69,9 @@ pub fn tags(session: &Session, project_id: Option<i64>, checked: &[i64]) -> Vec<
     session.tags_for(project_id).into_iter().map(|t| TagSeed { id: t.id, name: t.name.clone(), checked: checked.contains(&t.id) }).collect()
 }
 
-/// `now` is the wall-clock time in the user's timezone: a new entry for today that follows an
-/// earlier one ends at now, filling the gap since.
-pub fn time_form(session: &Session, entry: Option<&TimeEntry>, copy: bool, now: NaiveDateTime) -> TimeSeed {
+/// A new or copied entry is dated on `date`. `now` is the wall-clock time in the user's timezone:
+/// a new entry for today that follows an earlier one ends at now, filling the gap since.
+pub fn time_form(session: &Session, entry: Option<&TimeEntry>, copy: bool, date: NaiveDate, now: NaiveDateTime) -> TimeSeed {
     let projects = session.project_options(entry.map(|e| (e.project_id, &*e.project_name, &*e.customer_name)));
     // Only an offered project (not hidden or inactive) may become the default.
     let template = entry.or_else(|| {
@@ -86,7 +86,7 @@ pub fn time_form(session: &Session, entry: Option<&TimeEntry>, copy: bool, now: 
     };
 
     let editing = entry.filter(|_| !copy);
-    let date = editing.map(|e| e.date).unwrap_or(session.day());
+    let date = editing.map(|e| e.date).unwrap_or(date);
     let (start, end) = editing
         .and_then(|e| e.start_end.as_deref())
         .and_then(|s| s.split_once('-'))
@@ -125,10 +125,9 @@ fn new_slot(session: &Session, date: NaiveDate, now: NaiveDateTime) -> (String, 
 /// A new entry filling the gap `from`–`to` on `date`.
 pub fn gap_form(session: &Session, date: NaiveDate, from: NaiveTime, to: NaiveTime, now: NaiveDateTime) -> TimeSeed {
     TimeSeed {
-        date,
         start: from.format("%H:%M").to_string(),
         end: to.format("%H:%M").to_string(),
-        ..time_form(session, None, false, now)
+        ..time_form(session, None, false, date, now)
     }
 }
 
@@ -240,16 +239,16 @@ mod tests {
     #[test]
     fn a_new_entry_today_fills_the_gap_to_now() {
         let s = session();
-        let seed = time_form(&s, None, false, at(4, 14, 7));
+        let seed = time_form(&s, None, false, date(4), at(4, 14, 7));
         assert_eq!((seed.start.as_str(), seed.end.as_str()), ("11:30", "14:00"), "now, to the quarter");
-        let copy = time_form(&s, Some(&s.entries()[0].clone()), true, at(4, 14, 8));
+        let copy = time_form(&s, Some(&s.entries()[0].clone()), true, date(4), at(4, 14, 8));
         assert_eq!((copy.start.as_str(), copy.end.as_str()), ("11:30", "14:15"), "a copy too");
-        let edit = time_form(&s, Some(&s.entries()[0].clone()), false, at(4, 14, 7));
+        let edit = time_form(&s, Some(&s.entries()[0].clone()), false, date(4), at(4, 14, 7));
         assert_eq!(edit.end, "10:00", "an edit keeps its times");
-        assert_eq!(time_form(&s, None, false, at(4, 11, 37)).end, "", "no gap left once rounded");
-        assert_eq!(time_form(&s, None, false, at(4, 11, 38)).end, "11:45");
-        assert_eq!(time_form(&s, None, false, at(4, 10, 0)).end, "", "the last entry ends later");
-        assert_eq!(time_form(&s, None, false, at(5, 14, 0)).end, "", "another day");
+        assert_eq!(time_form(&s, None, false, date(4), at(4, 11, 37)).end, "", "no gap left once rounded");
+        assert_eq!(time_form(&s, None, false, date(4), at(4, 11, 38)).end, "11:45");
+        assert_eq!(time_form(&s, None, false, date(4), at(4, 10, 0)).end, "", "the last entry ends later");
+        assert_eq!(time_form(&s, None, false, date(4), at(5, 14, 0)).end, "", "another day");
     }
 
     fn checked(tags: &[TagSeed]) -> Vec<(i64, bool)> {
@@ -259,7 +258,7 @@ mod tests {
     #[test]
     fn new_time_entry_follows_the_last_modified_one() {
         let s = session();
-        let seed = time_form(&s, None, false, earlier());
+        let seed = time_form(&s, None, false, date(4), earlier());
         assert_eq!(seed.kind, TimeKind::New);
         assert_eq!((seed.date, seed.project_id, seed.project.task_id), (date(4), Some(3), Some(4)));
         assert_eq!((seed.start.as_str(), seed.end.as_str(), seed.hours.as_str()), ("11:30", "", ""), "continues the day");
@@ -272,15 +271,18 @@ mod tests {
     fn edited_entry_keeps_tags_without_a_checkbox() {
         let s = session();
         let first = s.entries()[0].clone();
-        let seed = time_form(&s, Some(&first), false, earlier());
+        let seed = time_form(&s, Some(&first), false, date(4), earlier());
         assert!(matches!(seed.kind, TimeKind::Edit { id: 1, .. }));
         assert_eq!((seed.start.as_str(), seed.end.as_str(), seed.hours.as_str()), ("09:00", "10:00", "01:00"));
         assert_eq!(checked(&seed.project.tags), [(10, true)]);
         assert_eq!(seed.project.kept_tag_ids, [20, 99]);
         assert!(!seed.recent);
 
-        let copy = time_form(&s, Some(&first), true, earlier());
+        let copy = time_form(&s, Some(&first), true, date(4), earlier());
         assert_eq!(copy.kind, TimeKind::New);
+        assert_eq!(time_form(&s, Some(&first), false, date(9), earlier()).date, date(4), "an edit keeps its date");
+        let elsewhere = time_form(&s, Some(&first), true, date(3), earlier());
+        assert_eq!((elsewhere.date, elsewhere.start.as_str()), (date(3), ""), "a copy on the given day, which has no entries");
         assert_eq!((copy.start.as_str(), copy.hours.as_str()), ("11:30", ""));
         assert_eq!(copy.project.kept_tag_ids, [20, 99]);
     }

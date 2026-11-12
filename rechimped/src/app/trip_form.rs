@@ -2,7 +2,7 @@ use gpui::{Context, Focusable, Window};
 use gpuikit::input::InputStateEvent;
 use timechimp_api::Mileage;
 
-use crate::forms::{self, AddressField, AddressMenu, Form, FormBody, TravelForm, text};
+use crate::forms::{self, AddressField, AddressMenu, Form, FormBody, Origin, TravelForm, text};
 use crate::domain::TRAVEL_TYPES;
 use crate::seed;
 use crate::store::config;
@@ -57,8 +57,9 @@ impl TimeChimpApp {
         }
         window.focus(&form.from.read(cx).focus_handle(cx), cx);
         let id = self.new_form_id();
+        let body = FormBody::Travel(form);
         self.overlay =
-            Overlay::Form(Box::new(Form { id, body: FormBody::Travel(form), error: None, _subscriptions: subscriptions }));
+            Overlay::Form(Box::new(Form { id, body, origin: Origin::Week, error: None, _subscriptions: subscriptions }));
         cx.notify();
     }
 

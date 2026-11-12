@@ -1,3 +1,4 @@
+use chrono::NaiveDate;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use timechimp_api::Client;
@@ -14,20 +15,13 @@ impl TimeChimpApp {
     pub fn ask_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let target = if self.tab == Tab::Week {
             self.session.selected_entry().map(|e| {
-                let notes = e.notes.as_deref().map(str::trim).filter(|n| !n.is_empty());
-                (
-                    DeleteTarget::Time(e.id),
-                    "Delete time entry?",
-                    format!(
-                        "{} {} {} {} / {}{}",
-                        e.date.format("%a %d %b"),
-                        e.start_end.as_deref().unwrap_or(""),
-                        crate::domain::hh_mm(e.hours),
-                        e.project_name,
-                        e.task_name,
-                        notes.map(|n| format!("\n\"{n}\"")).unwrap_or_default()
-                    ),
-                )
+                let label = entry_label(e.date, e.start_end.as_deref(), e.hours, &e.project_name, &e.task_name, e.notes.as_deref());
+                (DeleteTarget::Time { id: e.id, review_date: None }, "Delete time entry?", label)
+            })
+        } else if self.tab == Tab::Review {
+            self.session.selected_review().map(|r| {
+                let label = entry_label(r.date, r.start_end.as_deref(), r.time, &r.project, &r.task, r.notes.as_deref());
+                (DeleteTarget::Time { id: r.id, review_date: Some(r.date) }, "Delete time entry?", label)
             })
         } else {
             self.session.selected_travel().map(|m| {
@@ -92,29 +86,34 @@ impl TimeChimpApp {
 
     fn delete(&mut self, target: DeleteTarget, window: &mut Window, cx: &mut Context<Self>) {
         match target {
-            DeleteTarget::Time(id) => {
-                self.delete_remote(window, cx, move |client| async move { client.delete_time_entry(id).await }.boxed())
-            }
+            DeleteTarget::Time { id, review_date } => self.delete_remote(review_date, window, cx, move |client| {
+                async move { client.delete_time_entry(id).await }.boxed()
+            }),
             DeleteTarget::Travel(id) => {
-                self.delete_remote(window, cx, move |client| async move { client.delete_mileage(id).await }.boxed())
+                self.delete_remote(None, window, cx, move |client| async move { client.delete_mileage(id).await }.boxed())
             }
             DeleteTarget::TripPreset(p) => self.delete_preset(&p, window, cx),
             DeleteTarget::TimePreset(p) => self.delete_preset(&p, window, cx),
         }
     }
 
+    /// `review_date` is the deleted entry's date when deleted on the Review tab.
     fn delete_remote(
         &mut self,
+        review_date: Option<NaiveDate>,
         window: &mut Window,
         cx: &mut Context<Self>,
         request: impl FnOnce(Client) -> BoxFuture<'static, timechimp_api::Result<()>>,
     ) {
         let Some(client) = self.session.client().cloned() else { return };
-        self.run(DELETING, request(client), window, cx, |this, result, window, cx| match result {
+        self.run(DELETING, request(client), window, cx, move |this, result, window, cx| match result {
             Ok(()) => {
                 this.session.invalidate_report();
                 this.session.invalidate_review();
-                this.load_week(None, window, cx);
+                match review_date {
+                    Some(date) => this.reload_after_review_change(&[date], None, window, cx),
+                    None => this.load_week(None, window, cx),
+                }
                 this.set_info("Deleted.", window, cx);
             }
             Err(e) => this.api_error(e, window, cx),
@@ -132,9 +131,22 @@ impl TimeChimpApp {
     }
 }
 
+/// A time entry as the delete dialog names it.
+fn entry_label(date: NaiveDate, start_end: Option<&str>, hours: f64, project: &str, task: &str, notes: Option<&str>) -> String {
+    let notes = notes.map(str::trim).filter(|n| !n.is_empty());
+    format!(
+        "{} {} {} {project} / {task}{}",
+        date.format("%a %d %b"),
+        start_end.unwrap_or(""),
+        crate::domain::hh_mm(hours),
+        notes.map(|n| format!("\n\"{n}\"")).unwrap_or_default()
+    )
+}
+
 #[derive(Clone)]
 enum DeleteTarget {
-    Time(i64),
+    /// `review_date` is the entry's date when deleted on the Review tab.
+    Time { id: i64, review_date: Option<NaiveDate> },
     Travel(i64),
     TripPreset(config::TripPreset),
     TimePreset(config::TimePreset),

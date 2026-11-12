@@ -63,12 +63,10 @@ impl From<&TimeReportRow> for EntryLine {
 /// How an entry row is drawn, apart from its content.
 pub(super) struct EntryRow {
     pub selected: bool,
-    /// The Edit / Copy / Delete buttons when selected; they act on the week's selection.
-    pub actions: bool,
     /// Notes and tags in full rather than cut off.
     pub wrap: bool,
-    /// The tags finding, drawn under the tags.
-    pub tag_note: Option<String>,
+    /// The review's tags finding; No notes the row works out itself.
+    pub tags_differ: Option<String>,
 }
 
 impl TimeChimpApp {
@@ -98,24 +96,20 @@ impl TimeChimpApp {
         let (id, selected) = (line.id, row.selected);
         let excluded = &self.session.settings.excluded_tasks;
         let lacks_notes = lacks_notes(line.notes.as_deref(), &line.project, &line.task, excluded);
-        let flagged = lacks_notes || row.tag_note.is_some();
+        let findings: Vec<String> = lacks_notes.then(|| "No notes".to_owned()).into_iter().chain(row.tags_differ).collect();
         let text_cell = if row.wrap { wrap_cell } else { cell };
-        let notes = if lacks_notes {
-            cell(None, "No notes").text_color(theme.warning())
-        } else {
-            text_cell(None, line.notes.clone().unwrap_or_default())
-        };
-        let tags = text_cell(Some(140.), line.tags.join(", ")).text_color(theme.fg_muted());
-        let tags = match row.tag_note {
-            Some(note) => v_stack()
-                .w(px(140.))
-                .flex_none()
-                .gap(px(2.))
-                .child(tags)
-                .child(text_cell(Some(140.), note).text_color(theme.warning())),
-            None => tags,
-        };
-        h_stack()
+        let cells = h_stack()
+            .w_full()
+            .when(row.wrap, |d| d.items_start())
+            .child(cell(Some(110.), line.start_end.clone().unwrap_or_else(|| "–".into())))
+            .child(right_cell(60., hh_mm(line.hours)))
+            .child(cell(Some(160.), line.customer.clone()))
+            .child(cell(None, format!("{} / {}", line.project, line.task)))
+            .child(text_cell(None, line.notes.clone().unwrap_or_default()))
+            .child(text_cell(Some(140.), line.tags.join(", ")).text_color(theme.fg_muted()))
+            // Drawn empty when not selected, so the columns stay in line with the header.
+            .child(self.row_actions(selected, cx));
+        v_stack()
             .id(ElementId::NamedInteger("entry".into(), index as u64))
             .relative()
             .w_full()
@@ -124,21 +118,17 @@ impl TimeChimpApp {
             .border_b_1()
             .border_color(theme.border_subtle())
             .cursor_pointer()
-            .when(row.wrap, |d| d.items_start())
             .when(!line.billable, |d| d.text_color(theme.fg_muted()).bg(non_billable_bg(false)))
             .when(selected, |d| d.bg(theme.accent_bg()))
             .when(!selected, |d| d.hover(|s| s.bg(row_hover_bg(theme, line.billable))))
             .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| this.click_entry(id, ev.click_count(), window, cx)))
             // Absolute, inside the row's padding, so the cells stay in line with the header.
-            .when(flagged, |d| d.child(div().absolute().left_0().top_0().bottom_0().w(px(3.)).bg(theme.warning())))
-            .child(cell(Some(110.), line.start_end.clone().unwrap_or_else(|| "–".into())))
-            .child(right_cell(60., hh_mm(line.hours)))
-            .child(cell(Some(160.), line.customer.clone()))
-            .child(cell(None, format!("{} / {}", line.project, line.task)))
-            .child(notes)
-            .child(tags)
-            // Drawn empty without actions, so the columns stay in line with the header.
-            .child(self.row_actions(selected && row.actions, cx))
+            .when(!findings.is_empty(), |d| d.child(div().absolute().left_0().top_0().bottom_0().w(px(3.)).bg(theme.warning())))
+            .child(cells)
+            // The cells' padding, so it lines up with the first cell's text.
+            .when(!findings.is_empty(), |d| {
+                d.child(div().px(px(6.)).pt(px(2.)).text_xs().text_color(theme.warning()).child(findings.join(" · ")))
+            })
     }
 
     pub(super) fn entry_rows_with_gaps(&self, theme: &T, indices: &[usize], cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -165,7 +155,7 @@ impl TimeChimpApp {
                     });
                 }
             let line = EntryLine::from(&self.session.entries()[i]);
-            let row = EntryRow { selected: self.session.selected_entry_id() == Some(line.id), actions: true, wrap: false, tag_note: None };
+            let row = EntryRow { selected: self.session.selected_entry_id() == Some(line.id), wrap: false, tags_differ: None };
             rows.push(self.entry_row(theme, i, &line, row, cx).into_any_element());
         }
         rows

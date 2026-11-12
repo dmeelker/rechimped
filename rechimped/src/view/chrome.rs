@@ -321,7 +321,7 @@ impl TimeChimpApp {
             .justify_end()
             .when(selected, |d| {
                 d.child(action("row-edit", Icons::pencil_1(), "Edit (E)", |this, w, cx| this.edit_selected(w, cx)))
-                    .when(self.tab == Tab::Week, |d| {
+                    .when(matches!(self.tab, Tab::Week | Tab::Review), |d| {
                         d.child(action("row-copy", Icons::copy(), "Copy (C)", |this, w, cx| this.copy_selected(w, cx)))
                     })
                     .child(action("row-delete", Icons::trash(), "Delete (D)", |this, w, cx| this.ask_delete(w, cx)))
@@ -357,6 +357,9 @@ impl TimeChimpApp {
                         hint(theme, "T", "this month"),
                         hint(theme, "↑/↓", "select"),
                         hint(theme, "F", "finding"),
+                        hint(theme, "E", "edit"),
+                        hint(theme, "C", "copy"),
+                        hint(theme, "D", "delete"),
                     ],
                 };
                 h_stack()

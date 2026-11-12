@@ -153,6 +153,12 @@ pub fn step_day(day: NaiveDate, direction: i64, work_days: [bool; 7], today: Nai
     next(day)
 }
 
+/// Whether any of `dates` falls in the week starting on `monday`.
+pub fn touches_week(monday: NaiveDate, dates: &[NaiveDate]) -> bool {
+    let week = monday..monday + chrono::Duration::days(7);
+    dates.iter().any(|d| week.contains(d))
+}
+
 pub fn hours_per_day(entries: &[TimeEntry], monday: NaiveDate) -> [f64; 7] {
     let mut totals = [0.0; 7];
     for e in entries {
@@ -223,6 +229,16 @@ mod tests {
         assert!(!travel_reminder_due(&[], wed, weekdays, Some(wed)), "dismissed today");
         assert!(travel_reminder_due(&[], wed, weekdays, Some(date(10))), "dismissed yesterday");
         assert!(!travel_reminder_due(&[], sat, weekdays, None), "not a work day");
+    }
+
+    #[test]
+    fn touching_a_week() {
+        // 2026-11-02 is a Monday.
+        assert!(touches_week(date(2), &[date(2)]));
+        assert!(touches_week(date(2), &[date(8)]), "its Sunday");
+        assert!(!touches_week(date(2), &[date(1), date(9)]), "the days around it");
+        assert!(touches_week(date(2), &[date(20), date(4)]), "the new date, the old one elsewhere");
+        assert!(!touches_week(date(2), &[]));
     }
 
     #[test]

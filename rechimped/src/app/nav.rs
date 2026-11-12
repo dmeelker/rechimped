@@ -103,16 +103,14 @@ impl TimeChimpApp {
         }
     }
 
-    /// Editing from the review comes later; until then a double-click there only selects.
     pub fn click_entry(&mut self, id: i64, clicks: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let review = self.tab == Tab::Review;
-        if review {
+        if self.tab == Tab::Review {
             self.session.select_review(id);
         } else {
             self.session.select_entry(id);
         }
         window.focus(&self.focus, cx);
-        if clicks >= 2 && !review {
+        if clicks >= 2 {
             self.edit_selected(window, cx);
         }
         cx.notify();
@@ -224,6 +222,9 @@ fn browse_command(key: &str, shift: bool, ctrl: bool, tab: Tab, has_entry: bool)
             "up" | "k" => Command::MoveSelection(-1),
             "f" if shift => Command::NextFinding(-1),
             "f" => Command::NextFinding(1),
+            "enter" | "e" => Command::Edit,
+            "c" => Command::Copy,
+            "d" | "delete" => Command::Delete,
             _ => return None,
         },
         (_, _) if !matches!(tab, Tab::Week | Tab::Travel) => return None,
@@ -294,7 +295,12 @@ mod tests {
         assert_eq!(key("r", Tab::Review), Some(Reload));
         assert_eq!(key("1", Tab::Review), Some(SwitchTab(0)));
         assert_eq!(shifted("l"), Some(Logout));
-        for k in ["[", "]", "a", "n", "enter", "e", "c", "d", "delete"] {
+        assert_eq!(key("enter", Tab::Review), Some(Edit), "no details popup here");
+        assert_eq!(key("e", Tab::Review), Some(Edit));
+        assert_eq!(key("c", Tab::Review), Some(Copy));
+        assert_eq!(key("d", Tab::Review), Some(Delete));
+        assert_eq!(key("delete", Tab::Review), Some(Delete));
+        for k in ["[", "]", "a", "n"] {
             assert_eq!(key(k, Tab::Review), None, "{k} doesn't reach the week");
         }
         assert_eq!(shifted("left"), None, "Shift+← steps no week");

@@ -4,7 +4,7 @@ use gpuikit::elements::select::SelectChanged;
 use gpuikit::input::InputStateEvent;
 use timechimp_api::TimeEntry;
 
-use crate::forms::{self, Form, FormBody, TimeForm, chosen, text};
+use crate::forms::{self, Form, FormBody, Origin, TimeForm, chosen, text};
 use crate::validate::TimeKind;
 use crate::domain;
 use crate::seed::{self, TagSeed, TimeFill};
@@ -25,7 +25,9 @@ impl TimeChimpApp {
     }
 
     pub fn edit_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.tab == Tab::Travel {
+        if self.tab == Tab::Review {
+            self.open_review_entry(false, window, cx);
+        } else if self.tab == Tab::Travel {
             if let Some(trip) = self.session.selected_travel().cloned() {
                 self.open_travel_form(Some(Box::new(trip)), None, window, cx);
             }
@@ -35,7 +37,9 @@ impl TimeChimpApp {
     }
 
     pub fn copy_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(entry) = self.session.selected_entry().cloned() {
+        if self.tab == Tab::Review {
+            self.open_review_entry(true, window, cx);
+        } else if let Some(entry) = self.session.selected_entry().cloned() {
             self.open_time_form(Some(&entry), true, window, cx);
         }
     }
@@ -45,17 +49,32 @@ impl TimeChimpApp {
         if self.session.me().is_none() || self.overlay_open() {
             return;
         }
-        self.open_seeded_time_form(seed::gap_form(&self.session, date, from, to, self.session.now()), window, cx);
+        let seed = seed::gap_form(&self.session, date, from, to, self.session.now());
+        self.open_seeded_time_form(seed, Origin::Week, window, cx);
     }
 
     fn open_time_form(&mut self, entry: Option<&TimeEntry>, copy: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_time_form_on(entry, copy, self.session.day(), Origin::Week, window, cx);
+    }
+
+    /// A new or copied entry is dated on `date`.
+    pub(super) fn open_time_form_on(
+        &mut self,
+        entry: Option<&TimeEntry>,
+        copy: bool,
+        date: NaiveDate,
+        origin: Origin,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.overlay_open() {
             return;
         }
-        self.open_seeded_time_form(seed::time_form(&self.session, entry, copy, self.session.now()), window, cx);
+        let seed = seed::time_form(&self.session, entry, copy, date, self.session.now());
+        self.open_seeded_time_form(seed, origin, window, cx);
     }
 
-    fn open_seeded_time_form(&mut self, seed: seed::TimeSeed, window: &mut Window, cx: &mut Context<Self>) {
+    fn open_seeded_time_form(&mut self, seed: seed::TimeSeed, origin: Origin, window: &mut Window, cx: &mut Context<Self>) {
         let editing = matches!(seed.kind, TimeKind::Edit { .. });
         let project = forms::choice(cx, "form-project", "Project", seed.projects, seed.project_id);
         let project_sub = self.subscribe_project(&project, window, cx);
@@ -102,7 +121,7 @@ impl TimeChimpApp {
             }));
         }
         let id = self.new_form_id();
-        self.overlay = Overlay::Form(Box::new(Form { id, body: FormBody::Time(form), error: None, _subscriptions: subscriptions }));
+        self.overlay = Overlay::Form(Box::new(Form { id, body: FormBody::Time(form), origin, error: None, _subscriptions: subscriptions }));
         cx.notify();
     }
 

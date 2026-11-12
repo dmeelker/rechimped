@@ -161,9 +161,18 @@ pub enum FormBody {
     Travel(TravelForm),
 }
 
+/// Where a form was opened, which decides what a save or delete reloads.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Origin {
+    Week,
+    /// `date` is the original's date when editing.
+    Review { date: Option<NaiveDate> },
+}
+
 pub struct Form {
     pub id: u64,
     pub body: FormBody,
+    pub origin: Origin,
     pub error: Option<String>,
     pub _subscriptions: Vec<Subscription>,
 }

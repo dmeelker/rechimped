@@ -2,7 +2,8 @@ use chrono::NaiveDate;
 use gpui::{Context, Window};
 use timechimp_api::NewMileage;
 
-use crate::forms::{Form, FormBody};
+use crate::domain::week::touches_week;
+use crate::forms::{Form, FormBody, Origin};
 use crate::validate::{self, SaveRequest};
 use crate::session;
 use crate::store::config;
@@ -44,7 +45,7 @@ impl TimeChimpApp {
         if self.saving() {
             return;
         }
-        let form_id = self.form().map(|f| f.id);
+        let (form_id, origin) = (self.form().map(|f| f.id), self.form().map(|f| f.origin));
         let Some(client) = self.session.client().cloned() else { return };
         let (date, request) = match self.build_save(cx) {
             Ok(r) => r,
@@ -85,16 +86,39 @@ impl TimeChimpApp {
             if this.form().map(|f| f.id) == form_id {
                 this.close_overlay(window, cx);
             }
-            this.session.select_day(date);
             this.session.invalidate_report();
             this.session.invalidate_review();
-            this.load_week(Some(id), window, cx);
+            match origin {
+                Some(Origin::Review { date: old }) => {
+                    let dates: Vec<NaiveDate> = [Some(date), old].into_iter().flatten().collect();
+                    this.reload_after_review_change(&dates, Some(id), window, cx);
+                }
+                _ => {
+                    this.session.select_day(date);
+                    this.load_week(Some(id), window, cx);
+                }
+            }
             match outcome {
                 Ok(message) => this.set_info(message, window, cx),
                 Err(e) if e.is_auth() => this.api_error(e, window, cx),
                 Err(e) => this.set_error(format!("Outbound trip saved, but the return trip failed: {e}"), window, cx),
             }
         });
+    }
+
+    /// After a save or delete made on the Review tab: the Time tab keeps its day, and its week
+    /// reloads only when it holds one of `dates`.
+    pub(super) fn reload_after_review_change(
+        &mut self,
+        dates: &[NaiveDate],
+        select_id: Option<i64>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if touches_week(self.session.week_start(), dates) {
+            self.load_week(None, window, cx);
+        }
+        self.load_review(select_id, window, cx);
     }
 
     fn build_save(&self, cx: &Context<Self>) -> Result<(NaiveDate, SaveRequest), String> {

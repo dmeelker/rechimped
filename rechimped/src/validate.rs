@@ -56,6 +56,7 @@ fn date_and_customer(date: &str, project_id: Option<i64>, session: &Session) -> 
         .project(project_id)
         .map(|p| p.customer_id)
         .or(session.entries().iter().find(|e| e.project_id == project_id).map(|e| e.customer_id))
+        .or_else(|| session.review_rows()?.iter().find(|r| r.project_id == project_id).map(|r| r.customer_id))
         .ok_or("Unknown project")?;
     Ok((date, project_id, customer_id))
 }
@@ -289,6 +290,17 @@ mod tests {
         assert_eq!(entry(&TimeValues { project_id: None, ..time("9", "10", "") }).unwrap_err(), "Pick a project");
         assert_eq!(entry(&TimeValues { project_id: Some(99), ..time("9", "10", "") }).unwrap_err(), "Unknown project");
         assert_eq!(entry(&TimeValues { project_task_id: Some(99), ..time("9", "10", "") }).unwrap_err(), "Unknown task");
+    }
+
+    #[test]
+    fn an_inactive_project_finds_its_customer_in_the_review() {
+        let mut s = session();
+        assert_eq!(date_and_customer("2026-11-04", Some(99), &s).unwrap_err(), "Unknown project");
+        s.set_review_month(date(20));
+        let (generation, month) = s.begin_review_load();
+        let row = timechimp_api::TimeReportRow { project_id: 99, customer_id: 42, ..crate::test_support::time_row(1, 3) };
+        s.apply_review(generation, month, vec![row], None);
+        assert_eq!(date_and_customer("2026-11-04", Some(99), &s), Ok((date(4), 99, 42)));
     }
 
     #[test]

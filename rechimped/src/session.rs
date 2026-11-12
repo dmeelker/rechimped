@@ -295,6 +295,10 @@ impl Session {
         self.review.selected
     }
 
+    pub fn selected_review(&self) -> Option<&TimeReportRow> {
+        self.review_rows()?.iter().find(|r| Some(r.id) == self.review.selected)
+    }
+
     pub fn select_review(&mut self, id: i64) {
         if self.review_rows().is_some_and(|rows| rows.iter().any(|r| r.id == id)) {
             self.review.selected = Some(id);
@@ -478,12 +482,17 @@ impl Session {
         Ok(ResolvedTimePreset { project_id: project.id, project_task_id, tag_ids, unknown_tags })
     }
 
+    /// Where `date`'s last entry ended: from the week's entries, or the review's rows for a day
+    /// outside the week.
     pub fn next_start_time(&self, date: NaiveDate) -> Option<String> {
-        self.entries
-            .iter()
-            .filter(|e| e.date == date)
-            .filter_map(|e| e.start_end.as_deref()?.split_once('-').map(|(_, end)| end.to_owned()))
-            .max()
+        let in_week = domain::week::touches_week(self.week_start, &[date]);
+        let times: Vec<Option<&str>> = if in_week {
+            self.entries.iter().filter(|e| e.date == date).map(|e| e.start_end.as_deref()).collect()
+        } else {
+            let rows = self.review_rows().unwrap_or_default();
+            rows.iter().filter(|r| r.date == date).map(|r| r.start_end.as_deref()).collect()
+        };
+        times.into_iter().filter_map(|t| t?.split_once('-').map(|(_, end)| end.to_owned())).max()
     }
 
     pub fn timezone(&self, own: Option<&str>) -> chrono_tz::Tz {
@@ -596,6 +605,21 @@ mod tests {
         // Its entries were cleared on leaving, and no load has come back since.
         assert!(s.select_day(date(4)));
         assert!(!s.week_loaded() && s.entries.is_empty());
+    }
+
+    #[test]
+    fn next_start_time_outside_the_week_comes_from_the_review() {
+        let mut s = Session::new(None, date(4));
+        s.apply_week(Week { start: date(2), entries: vec![entry(1, 4, "09:00-10:00")], travel: Vec::new() }, None);
+        assert_eq!(s.next_start_time(date(10)), None, "no review loaded");
+        s.set_review_month(date(20));
+        let (generation, month) = s.begin_review_load();
+        let row = |id, day, start_end: &str| TimeReportRow { start_end: Some(start_end.into()), ..time_row(id, day) };
+        let rows = vec![row(1, 4, "13:00-14:00"), row(2, 10, "08:00-12:15"), row(3, 10, "12:15-12:45")];
+        s.apply_review(generation, month, rows, None);
+        assert_eq!(s.next_start_time(date(4)).as_deref(), Some("10:00"), "a day of the week: its entries");
+        assert_eq!(s.next_start_time(date(10)).as_deref(), Some("12:45"));
+        assert_eq!(s.next_start_time(date(11)), None);
     }
 
     #[test]

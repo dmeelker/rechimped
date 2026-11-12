@@ -36,8 +36,8 @@ impl TimeChimpApp {
                 }
                 Line::Entry(i) => {
                     let line = EntryLine::from(&rows[i]);
-                    let tag_note = mismatches.get(&line.id).map(|m| m.label());
-                    let row = EntryRow { selected: selected == Some(line.id), actions: false, wrap: true, tag_note };
+                    let tags_differ = mismatches.get(&line.id).map(|m| m.label());
+                    let row = EntryRow { selected: selected == Some(line.id), wrap: true, tags_differ };
                     self.entry_row(theme, i, &line, row, cx).into_any_element()
                 }
             })
