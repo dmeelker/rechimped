@@ -188,3 +188,15 @@ Visible change: the Time tab marks entries without notes.
   Not tested against the live API, since testing doesn't save.
 - The UserId filter on `time/query` was verified once against the live API; `query_mileage`
   keeps filtering client-side.
+
+## Step 7: lock billed entries (added after step 6)
+
+- `domain`: `is_billed(status: i32) -> bool` (`status == 3`), tested.
+- `EntryLine.billed` (from `TimeEntry.status` and `TimeReportRow.status`); `entry_row` draws a lock
+  icon with a "Billed" tooltip; `row_actions` gets whether the selection is billed and then only
+  offers Copy.
+- `edit_selected` and `ask_delete` refuse a billed selection (Time tab: `selected_entry().status`;
+  Review: `selected_review().status`) with a toast "Billed entries can't be changed."; this covers
+  E, Enter, D, double-click and the Detail popup's Edit button. `copy_selected` is unchanged.
+- CLAUDE.md and README.md: a line each.
+

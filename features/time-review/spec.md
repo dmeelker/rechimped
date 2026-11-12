@@ -175,8 +175,13 @@ same project and task, one tagged `wbso_tournament` and one without tags: a tie,
   The Time tab's day is **not** moved; its week is reloaded only if it contains the entry's old
   or new date. Saves and deletes started on the Time tab behave as now.
 - Cancel/Escape on a form or dialog returns to the review unchanged.
-- Entries already billed (status 3) are offered for editing like any other; if TimeChimp refuses
-  the change, its error shows in the form as usual.
+- **Billed entries are locked** (on the Review and the Time tab alike). TimeChimp's `status` 3
+  marks a billed entry (verified: older months have it on billable client work only, the
+  current month on nothing; `statusIntern` matches on the full entry). Such a row shows a small
+  lock icon with the tooltip "Billed"; its row actions offer only Copy; Edit (E, Enter on the
+  review, double-click, the Detail popup's Edit button) and Delete (D) show a toast "Billed
+  entries can't be changed." instead. Copying one as a new entry works as usual. Findings on
+  billed entries still show and count (they may still matter, e.g. for WBSO).
 
 ## Not in this feature
 
