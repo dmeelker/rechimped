@@ -184,8 +184,8 @@ Visible change: the Time tab marks entries without notes.
 
 - Wrapped, variable-height rows in a plain scroll div: fine for a month (~150 rows); if scrolling
   gets slow, revisit with a list that only draws what's visible.
-- Billed entries (status 3) may be refused by TimeChimp when edited; the form shows its error.
-  Not tested against the live API, since testing doesn't save.
+- Billed entries (status 3) are locked in the app since step 7, so TimeChimp's own refusal is
+  never reached; untested against the live API, since testing doesn't save.
 - The UserId filter on `time/query` was verified once against the live API; `query_mileage`
   keeps filtering client-side.
 

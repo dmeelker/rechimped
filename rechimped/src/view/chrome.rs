@@ -302,8 +302,9 @@ impl TimeChimpApp {
         deferred(div().absolute().top_full().right_0().mt(px(4.)).child(menu)).with_priority(2)
     }
 
-    /// The actions work on the selection, so only the selected row shows them.
-    pub(super) fn row_actions(&self, selected: bool, cx: &mut Context<Self>) -> gpui::Div {
+    /// The actions work on the selection, so only the selected row shows them; a billed entry
+    /// can only be copied, and shows a lock at the column's start whether selected or not.
+    pub(super) fn row_actions(&self, theme: &T, selected: bool, billed: bool, cx: &mut Context<Self>) -> gpui::Div {
         let action = |id: &'static str, icon: gpui::Svg, tip: &'static str, f: fn(&mut Self, &mut Window, &mut Context<Self>)| {
             icon_button(id, icon)
                 .box_size(gpui::rems(1.5))
@@ -318,13 +319,26 @@ impl TimeChimpApp {
             .gap(px(2.))
             .pr(px(4.))
             .items_center()
-            .justify_end()
+            .when(billed, |d| {
+                d.child(
+                    div()
+                        .id("billed")
+                        .pl(px(6.))
+                        .tooltip(tooltip("Billed"))
+                        .child(Icons::lock_closed().size(px(12.)).text_color(theme.fg_muted())),
+                )
+            })
+            .child(div().flex_1())
             .when(selected, |d| {
-                d.child(action("row-edit", Icons::pencil_1(), "Edit (E)", |this, w, cx| this.edit_selected(w, cx)))
-                    .when(matches!(self.tab, Tab::Week | Tab::Review), |d| {
-                        d.child(action("row-copy", Icons::copy(), "Copy (C)", |this, w, cx| this.copy_selected(w, cx)))
-                    })
-                    .child(action("row-delete", Icons::trash(), "Delete (D)", |this, w, cx| this.ask_delete(w, cx)))
+                d.when(!billed, |d| {
+                    d.child(action("row-edit", Icons::pencil_1(), "Edit (E)", |this, w, cx| this.edit_selected(w, cx)))
+                })
+                .when(matches!(self.tab, Tab::Week | Tab::Review), |d| {
+                    d.child(action("row-copy", Icons::copy(), "Copy (C)", |this, w, cx| this.copy_selected(w, cx)))
+                })
+                .when(!billed, |d| {
+                    d.child(action("row-delete", Icons::trash(), "Delete (D)", |this, w, cx| this.ask_delete(w, cx)))
+                })
             })
     }
 

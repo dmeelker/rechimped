@@ -10,6 +10,7 @@ use gpuikit::theme::{ActiveTheme, Themeable};
 use timechimp_api::{TimeEntry, TimeReportRow};
 
 use crate::app::TimeChimpApp;
+use crate::domain::is_billed;
 use crate::domain::review::{lacks_notes, tag_names};
 use crate::domain::week::{CHART_WEEKS, Junction, WeekCard};
 
@@ -26,6 +27,7 @@ pub(super) struct EntryLine {
     pub notes: Option<String>,
     pub tags: Vec<String>,
     pub billable: bool,
+    pub billed: bool,
 }
 
 impl From<&TimeEntry> for EntryLine {
@@ -40,6 +42,7 @@ impl From<&TimeEntry> for EntryLine {
             notes: e.notes.clone(),
             tags: e.tag_names.clone(),
             billable: e.billable,
+            billed: is_billed(e.status),
         }
     }
 }
@@ -56,6 +59,7 @@ impl From<&TimeReportRow> for EntryLine {
             notes: r.notes.clone(),
             tags: tag_names(r.tags.as_deref()),
             billable: r.billable,
+            billed: is_billed(r.status),
         }
     }
 }
@@ -108,7 +112,7 @@ impl TimeChimpApp {
             .child(text_cell(None, line.notes.clone().unwrap_or_default()))
             .child(text_cell(Some(140.), line.tags.join(", ")).text_color(theme.fg_muted()))
             // Drawn empty when not selected, so the columns stay in line with the header.
-            .child(self.row_actions(selected, cx));
+            .child(self.row_actions(theme, selected, line.billed, cx));
         v_stack()
             .id(ElementId::NamedInteger("entry".into(), index as u64))
             .relative()

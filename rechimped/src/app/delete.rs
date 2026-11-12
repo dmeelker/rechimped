@@ -13,6 +13,9 @@ use super::{DELETING, Overlay, Tab, TimeChimpApp};
 
 impl TimeChimpApp {
     pub fn ask_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.refuse_billed(window, cx) {
+            return;
+        }
         let target = if self.tab == Tab::Week {
             self.session.selected_entry().map(|e| {
                 let label = entry_label(e.date, e.start_end.as_deref(), e.hours, &e.project_name, &e.task_name, e.notes.as_deref());

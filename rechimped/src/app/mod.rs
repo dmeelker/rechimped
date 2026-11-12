@@ -286,6 +286,20 @@ impl TimeChimpApp {
         cx.toast(message).success().show(window, cx);
     }
 
+    /// Billed entries are locked: true, after a toast, when the selected entry is one.
+    fn refuse_billed(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let status = match self.tab {
+            Tab::Week => self.session.selected_entry().map(|e| e.status),
+            Tab::Review => self.session.selected_review().map(|r| r.status),
+            Tab::Travel | Tab::Report => None,
+        };
+        let billed = status.is_some_and(domain::is_billed);
+        if billed {
+            cx.toast("Billed entries can't be changed.").info().show(window, cx);
+        }
+        billed
+    }
+
     fn set_error(&mut self, message: impl Into<String>, window: &mut Window, cx: &mut Context<Self>) {
         let message = message.into();
         cx.toast(message.clone()).destructive().show(window, cx);

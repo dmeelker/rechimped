@@ -43,6 +43,13 @@ pub fn hh_mm(hours: f64) -> String {
     format!("{sign}{:02}:{:02}", minutes / 60, minutes % 60)
 }
 
+/// TimeChimp's `status` of a billed time entry (verified against the live API).
+const BILLED: i32 = 3;
+
+pub fn is_billed(status: i32) -> bool {
+    status == BILLED
+}
+
 pub fn matching_addresses<'a>(addresses: &'a [String], query: &str) -> Vec<&'a str> {
     let query = query.trim().to_lowercase();
     addresses.iter().filter(|a| a.to_lowercase().contains(&query)).map(String::as_str).collect()
@@ -78,6 +85,12 @@ mod tests {
         assert_eq!(hh_mm(40.0), "40:00");
         assert_eq!(hh_mm(160.75), "160:45");
         assert_eq!(hh_mm(-1.25), "-01:15");
+    }
+
+    #[test]
+    fn only_status_3_is_billed() {
+        assert!(is_billed(3));
+        assert!(![0, 1, 2, 4].into_iter().any(is_billed));
     }
 
     #[test]

@@ -12,7 +12,7 @@ going through the web app.
 - **Report**: a monthly overview of your hours.
 - **Review**: a month of time entries on one screen, to check before handing in. It marks entries
   without notes (leave excepted) and entries whose tags differ from matching entries, and you can
-  edit, copy and delete from there.
+  edit, copy and delete from there; billed entries are locked (copy only).
 - Keyboard shortcuts throughout; the footer lists them.
 
 ## Goals
