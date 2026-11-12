@@ -60,7 +60,7 @@ copy first fetch the full entry with `Client::time_entry(id)`, which exists alre
 ### Change to a shared piece
 
 - **Empty-notes marker**: an entry without notes (missing or whitespace only) shows `No notes`
-  in the warning colour in its Notes cell. It is part of the shared row, so the Time tab shows
+  on the row's findings line (see Layout). It is part of the shared row, so the Time tab shows
   it too. (The tags finding needs the whole month, so it shows on the Review tab only.)
 
 Only on the Review tab (as options of the shared pieces, not separate versions):
@@ -140,9 +140,13 @@ same project and task, one tagged `wbso_tournament` and one without tags: a tie,
 - Per day with entries the shared day header: weekday and date and the day's total in `hh:mm`.
   Days without entries aren't listed.
 - Under each day header, that day's entry rows, with notes and tags wrapping.
-- A row with a finding gets a warning stripe at its left edge and its reason(s) in the warning
-  colour (`No notes` in the Notes cell, the tags marker under the tags). Both stay visible on
-  non-billable (muted, tinted) and selected rows, since they set their own colour.
+- A row with a finding gets a warning stripe at its left edge and, under the row's cells, one
+  findings line spanning the whole row from its left edge: all of the row's findings in one
+  label in the warning colour, joined with " · " (`No notes`,
+  `Tags differ: 1× wbso_tournament, 1× no tags`). The Notes cell stays empty when there are no
+  notes. Stripe and line stay visible on non-billable (muted, tinted) and selected rows, since
+  they set their own colour. The Time tab shows the same line for `No notes`, as the row is
+  shared.
 - The selected row is kept in view: moving the selection with keys scrolls the list to it.
 
 ## Interaction

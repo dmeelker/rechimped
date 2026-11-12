@@ -120,6 +120,11 @@ Visible change: the Time tab marks entries without notes.
 
 ## Step 5: edit, copy and delete from the review
 
+- First, the findings line (spec, Layout): `EntryRow.tag_note` becomes `findings: Vec<String>`
+  (or one label); `entry_row` becomes a column: the existing cells in a row, then, when there
+  are findings, one full-width line with them joined by " · " in the warning colour, starting at
+  the row's left edge. "No notes" moves from the Notes cell to that line.
+
 - `seed::time_form(session, entry, copy, date, now)`: the date for a new or copied entry comes
   from the caller (`session.day()` on the Time tab, the original's date on the review);
   `gap_form` passes its own. Existing seed tests updated.
