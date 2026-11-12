@@ -166,6 +166,10 @@ impl TimeChimpApp {
             Command::Step(direction) => self.step(direction, window, cx),
             Command::ShiftDay(days) => self.shift_day(days, window, cx),
             Command::MoveSelection(delta) => self.move_selection(delta),
+            Command::NextFinding(direction) => {
+                self.session.next_review_finding(direction);
+                self.scroll_to_review_selection();
+            }
             Command::ShowDetail => {
                 self.open_overlay(Overlay::Detail, cx);
             }
@@ -191,6 +195,7 @@ enum Command {
     Step(i64),
     ShiftDay(i64),
     MoveSelection(isize),
+    NextFinding(isize),
     ShowDetail,
     Add,
     Edit,
@@ -217,6 +222,8 @@ fn browse_command(key: &str, shift: bool, ctrl: bool, tab: Tab, has_entry: bool)
             "right" | "l" if !shift => Command::ShiftMonth(1),
             "down" | "j" => Command::MoveSelection(1),
             "up" | "k" => Command::MoveSelection(-1),
+            "f" if shift => Command::NextFinding(-1),
+            "f" => Command::NextFinding(1),
             _ => return None,
         },
         (_, _) if !matches!(tab, Tab::Week | Tab::Travel) => return None,
@@ -280,6 +287,9 @@ mod tests {
         assert_eq!(key("l", Tab::Review), Some(ShiftMonth(1)));
         assert_eq!(key("down", Tab::Review), Some(MoveSelection(1)));
         assert_eq!(key("k", Tab::Review), Some(MoveSelection(-1)));
+        assert_eq!(key("f", Tab::Review), Some(NextFinding(1)));
+        assert_eq!(shifted("f"), Some(NextFinding(-1)));
+        assert_eq!(key("f", Tab::Week), None, "findings are the review's");
         assert_eq!(key("t", Tab::Review), Some(Today));
         assert_eq!(key("r", Tab::Review), Some(Reload));
         assert_eq!(key("1", Tab::Review), Some(SwitchTab(0)));

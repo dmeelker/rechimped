@@ -6,7 +6,7 @@ use chrono::{Duration, Months, NaiveDate};
 use timechimp_api::{Client, CurrentUser, Mileage, Project, ProjectTask, Tag, TimeEntry, TimeReportRow};
 
 use crate::domain::report::Report;
-use crate::domain::{self, same_name, week::RecentItem};
+use crate::domain::{self, review, same_name, week::RecentItem};
 use crate::store::config::{self, Config, Settings, TimePreset, TripPreset};
 
 pub struct Session {
@@ -306,6 +306,21 @@ impl Session {
         let Some(last) = rows.len().checked_sub(1) else { return };
         let pos = rows.iter().position(|r| Some(r.id) == self.review.selected);
         self.review.selected = Some(rows[pos.map_or(0, |p| p.saturating_add_signed(delta).min(last))].id);
+    }
+
+    /// The next (`direction` 1) or previous (-1) row with a finding, wrapping around.
+    pub fn next_review_finding(&mut self, direction: isize) {
+        let Some(rows) = self.review_rows() else { return };
+        let mismatches = review::tag_mismatches(rows);
+        let len = rows.len() as isize;
+        let pos = rows.iter().position(|r| Some(r.id) == self.review.selected);
+        let start = pos.map_or(if direction < 0 { len } else { -1 }, |p| p as isize);
+        let next = (1..=len)
+            .map(|step| (start + direction * step).rem_euclid(len) as usize)
+            .find(|&i| review::has_finding(&rows[i], &mismatches, &self.settings.excluded_tasks));
+        if let Some(i) = next {
+            self.review.selected = Some(rows[i].id);
+        }
     }
 
     pub fn visible_entries(&self) -> Vec<usize> {
@@ -635,6 +650,40 @@ mod tests {
 
         s.set_review_month(november - Months::new(1));
         assert!(s.review.rows.is_empty() && s.selected_review_id().is_none(), "stepping clears the rows");
+    }
+
+    #[test]
+    fn review_finding_navigation_wraps() {
+        let mut s = Session::new(None, date(4));
+        s.next_review_finding(1);
+        assert_eq!(s.selected_review_id(), None, "nothing loaded");
+        let (generation, month) = s.begin_review_load();
+        let rows = vec![
+            noted_row(1, Some("x"), None),
+            noted_row(2, None, None),
+            noted_row(3, Some("y"), None),
+            noted_row(4, Some("z"), Some("a")),
+            noted_row(5, Some("z"), None),
+        ];
+        s.apply_review(generation, month, rows, None);
+        assert_eq!(s.selected_review_id(), Some(1));
+        let mut visits = Vec::new();
+        for _ in 0..4 {
+            s.next_review_finding(1);
+            visits.push(s.selected_review_id().unwrap());
+        }
+        assert_eq!(visits, [2, 4, 5, 2], "forwards, wrapping");
+        visits.clear();
+        for _ in 0..4 {
+            s.next_review_finding(-1);
+            visits.push(s.selected_review_id().unwrap());
+        }
+        assert_eq!(visits, [5, 4, 2, 5], "backwards, wrapping");
+
+        let (generation, month) = s.begin_review_load();
+        s.apply_review(generation, month, vec![noted_row(1, Some("x"), None)], None);
+        s.next_review_finding(1);
+        assert_eq!(s.selected_review_id(), Some(1), "no findings: stays");
     }
 
     #[test]

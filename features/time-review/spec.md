@@ -124,7 +124,8 @@ Meant to catch a forgotten or misplaced WBSO tag without the app knowing which w
   (a tie: 1/1, 2/2/1), every row of the group is marked.
 - The marker names what the others have: `Tags differ: 3 others have wbso_tournament` (or
   `… have no tags`). On a tie it lists the variants, by count descending, then alphabetically
-  with "no tags" last: `Tags differ: 1× wbso_tournament, 1× no tags`.
+  with "no tags" last: `Tags differ: 1× wbso_tournament, 1× no tags`; several tags in one
+  variant are joined with " + ".
 - Only within the month shown; earlier months aren't compared.
 
 Example from real data (October 2026): two entries with the notes "Test performance" on the

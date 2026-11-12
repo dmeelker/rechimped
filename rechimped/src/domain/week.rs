@@ -55,9 +55,13 @@ pub fn billable_hours(entries: &[TimeEntry]) -> f64 {
 pub type TaskNames = BTreeMap<String, Vec<String>>;
 
 pub fn is_excluded(entry: &TimeEntry, excluded: &TaskNames) -> bool {
-    excluded.iter().any(|(project, tasks)| {
-        super::same_name(project, &entry.project_name) && tasks.iter().any(|t| super::same_name(t, &entry.task_name))
-    })
+    is_excluded_task(&entry.project_name, &entry.task_name, excluded)
+}
+
+pub fn is_excluded_task(project: &str, task: &str, excluded: &TaskNames) -> bool {
+    excluded
+        .iter()
+        .any(|(p, tasks)| super::same_name(p, project) && tasks.iter().any(|t| super::same_name(t, task)))
 }
 
 /// Excluded tasks (leave) count neither as hours worked nor towards the contract, so a week with a

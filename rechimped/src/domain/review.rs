@@ -1,5 +1,9 @@
+use std::collections::{BTreeMap, HashMap};
+
 use chrono::NaiveDate;
 use timechimp_api::TimeReportRow;
+
+use super::week::{TaskNames, is_excluded_task};
 
 /// Whether an entry's notes say anything: missing, empty and whitespace-only notes don't.
 pub fn has_notes(notes: Option<&str>) -> bool {
@@ -9,6 +13,131 @@ pub fn has_notes(notes: Option<&str>) -> bool {
 /// A report row's tags are one comma-separated string of names.
 pub fn tag_names(tags: Option<&str>) -> Vec<String> {
     tags.into_iter().flat_map(|t| t.split(',')).map(str::trim).filter(|t| !t.is_empty()).map(str::to_owned).collect()
+}
+
+/// The No-notes finding. Leave (the excluded tasks) usually has no notes, so it is never flagged.
+pub fn lacks_notes(notes: Option<&str>, project: &str, task: &str, excluded: &TaskNames) -> bool {
+    !has_notes(notes) && !is_excluded_task(project, task, excluded)
+}
+
+fn row_lacks_notes(row: &TimeReportRow, excluded: &TaskNames) -> bool {
+    lacks_notes(row.notes.as_deref(), &row.project, &row.task, excluded)
+}
+
+/// Notes that differ only in case or whitespace are the same notes; punctuation counts.
+pub fn note_key(notes: &str) -> String {
+    notes.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+/// Why a row's tags stand out among the rows with the same project, task and notes.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TagMismatch {
+    /// The row differs from the one most common set of tags, which `others` rows have.
+    Majority { others: usize, tags: Vec<String> },
+    /// No set is the most common: every set with its count, in the label's order.
+    Tie(Vec<(usize, Vec<String>)>),
+}
+
+impl TagMismatch {
+    pub fn label(&self) -> String {
+        let tags = |tags: &[String]| if tags.is_empty() { "no tags".to_owned() } else { tags.join(" + ") };
+        match self {
+            Self::Majority { others, tags: set } => format!("Tags differ: {others} others have {}", tags(set)),
+            Self::Tie(variants) => {
+                let variants: Vec<_> = variants.iter().map(|(n, set)| format!("{n}× {}", tags(set))).collect();
+                format!("Tags differ: {}", variants.join(", "))
+            }
+        }
+    }
+}
+
+/// A row's tags by lowercased name, each spelled as on the row: compared as a set, ignoring case
+/// and order.
+fn tag_set(row: &TimeReportRow) -> BTreeMap<String, String> {
+    let mut set = BTreeMap::new();
+    for name in tag_names(row.tags.as_deref()) {
+        set.entry(name.to_lowercase()).or_insert(name);
+    }
+    set
+}
+
+/// The rows whose tags differ from others with the same project, task and notes, by row id. Rows
+/// without notes are left out: they have a finding of their own.
+pub fn tag_mismatches(rows: &[TimeReportRow]) -> HashMap<i64, TagMismatch> {
+    let mut groups: HashMap<(i64, i64, String), Vec<&TimeReportRow>> = HashMap::new();
+    for row in rows {
+        if let Some(notes) = row.notes.as_deref().filter(|n| has_notes(Some(n))) {
+            groups.entry((row.project_id, row.task_id, note_key(notes))).or_default().push(row);
+        }
+    }
+    let mut marked = HashMap::new();
+    for group in groups.values() {
+        let sets: Vec<_> = group.iter().map(|r| tag_set(r)).collect();
+        // Each distinct set (spelled as its first row has it) with its count.
+        let mut variants: Vec<(&BTreeMap<String, String>, usize)> = Vec::new();
+        for set in &sets {
+            match variants.iter_mut().find(|(v, _)| v.keys().eq(set.keys())) {
+                Some((_, n)) => *n += 1,
+                None => variants.push((set, 1)),
+            }
+        }
+        if variants.len() < 2 {
+            continue;
+        }
+        let shown = |set: &BTreeMap<String, String>| set.values().cloned().collect::<Vec<_>>();
+        let top = variants.iter().map(|&(_, n)| n).max().unwrap_or_default();
+        let leaders: Vec<_> = variants.iter().filter(|&&(_, n)| n == top).collect();
+        if let [&(majority, others)] = leaders[..] {
+            let mismatch = TagMismatch::Majority { others, tags: shown(majority) };
+            for (row, set) in group.iter().zip(&sets) {
+                if !set.keys().eq(majority.keys()) {
+                    marked.insert(row.id, mismatch.clone());
+                }
+            }
+        } else {
+            variants.sort_by(|(a, m), (b, n)| {
+                n.cmp(m).then(a.is_empty().cmp(&b.is_empty())).then_with(|| a.keys().cmp(b.keys()))
+            });
+            let tie = TagMismatch::Tie(variants.iter().map(|&(set, n)| (n, shown(set))).collect());
+            for row in group {
+                marked.insert(row.id, tie.clone());
+            }
+        }
+    }
+    marked
+}
+
+pub fn has_finding(row: &TimeReportRow, mismatches: &HashMap<i64, TagMismatch>, excluded: &TaskNames) -> bool {
+    row_lacks_notes(row, excluded) || mismatches.contains_key(&row.id)
+}
+
+/// How many rows have each finding, for the summary line.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Findings {
+    pub no_notes: usize,
+    pub tags_differ: usize,
+}
+
+impl Findings {
+    pub fn of(rows: &[TimeReportRow], mismatches: &HashMap<i64, TagMismatch>, excluded: &TaskNames) -> Self {
+        Self {
+            no_notes: rows.iter().filter(|r| row_lacks_notes(r, excluded)).count(),
+            tags_differ: rows.iter().filter(|r| mismatches.contains_key(&r.id)).count(),
+        }
+    }
+
+    pub fn any(&self) -> bool {
+        self.no_notes + self.tags_differ > 0
+    }
+
+    pub fn label(&self) -> String {
+        let parts: Vec<_> = [(self.no_notes, "without notes"), (self.tags_differ, "with different tags")]
+            .into_iter()
+            .filter(|&(n, _)| n > 0)
+            .map(|(n, what)| format!("{n} {what}"))
+            .collect();
+        if parts.is_empty() { "No findings".into() } else { parts.join(" · ") }
+    }
 }
 
 /// One line of the review list: drawn in this order, so its position is the list's child index.
@@ -34,7 +163,121 @@ pub fn lines(rows: &[TimeReportRow]) -> Vec<Line> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{date, report_row};
+    use crate::store::config::default_excluded_tasks;
+    use crate::test_support::{date, noted_row, report_row};
+
+    /// Rows with these notes and tags, ids from 1, on project 1 / task 1.
+    fn rows(rows: &[(Option<&str>, Option<&str>)]) -> Vec<TimeReportRow> {
+        rows.iter().zip(1..).map(|(&(notes, tags), id)| noted_row(id, notes, tags)).collect()
+    }
+
+    fn marked(rows: &[TimeReportRow]) -> Vec<i64> {
+        let mut ids: Vec<_> = tag_mismatches(rows).into_keys().collect();
+        ids.sort();
+        ids
+    }
+
+    #[test]
+    fn leave_needs_no_notes() {
+        let excluded = default_excluded_tasks();
+        assert!(lacks_notes(None, "P", "T", &excluded));
+        assert!(lacks_notes(Some(" "), "P", "T", &excluded));
+        assert!(!lacks_notes(Some("x"), "P", "T", &excluded));
+        assert!(!lacks_notes(None, "intern", "verlof", &excluded), "leave, by name, case-insensitively");
+        assert!(!lacks_notes(None, "Intern", "Ziek", &excluded));
+        assert!(lacks_notes(None, "Intern", "Meeting", &excluded));
+        let leave = TimeReportRow { project: "Intern".into(), task: "Verlof".into(), ..noted_row(1, None, None) };
+        let findings = Findings::of(&[leave, noted_row(2, None, None)], &HashMap::new(), &excluded);
+        assert_eq!(findings.no_notes, 1);
+    }
+
+    #[test]
+    fn notes_match_ignoring_case_and_whitespace() {
+        assert_eq!(note_key("  Refactor 	 login "), note_key("refactor login"));
+        assert_ne!(note_key("Single Sign On"), note_key("Single sign-on"), "punctuation counts");
+        let rows = rows(&[(Some("Refactor  login "), Some("w")), (Some("refactor login"), None), (Some("Refactor login."), None)]);
+        assert_eq!(marked(&rows), [1, 2], "the third has other notes");
+    }
+
+    #[test]
+    fn groups_are_per_project_task_and_notes() {
+        let mut rows = rows(&[(Some("x"), Some("w")), (Some("x"), None), (Some("x"), None), (None, Some("w")), (Some(" "), None)]);
+        rows[1].project_id = 2;
+        rows[2].task_id = 2;
+        assert!(marked(&rows).is_empty(), "another project or task, or no notes");
+    }
+
+    #[test]
+    fn tags_compare_as_sets_ignoring_case() {
+        let rows = rows(&[(Some("x"), Some("a, B")), (Some("x"), Some("b,A")), (Some("x"), Some(" A ,b,a"))]);
+        assert!(marked(&rows).is_empty());
+    }
+
+    #[test]
+    fn the_odd_ones_out_of_a_majority() {
+        let rows = rows(&[
+            (Some("x"), Some("wbso_tournament")),
+            (Some("x"), Some("WBSO_tournament")),
+            (Some("x"), None),
+            (Some("x"), Some("wbso_tournament")),
+            (Some("x"), Some("other")),
+        ]);
+        let mismatches = tag_mismatches(&rows);
+        let mut ids: Vec<_> = mismatches.keys().copied().collect();
+        ids.sort();
+        assert_eq!(ids, [3, 5], "3/1/1: only the 1s");
+        assert_eq!(mismatches[&3], TagMismatch::Majority { others: 3, tags: vec!["wbso_tournament".into()] }, "first spelling");
+        assert_eq!(mismatches[&3].label(), "Tags differ: 3 others have wbso_tournament");
+        let none = TagMismatch::Majority { others: 2, tags: vec![] };
+        assert_eq!(none.label(), "Tags differ: 2 others have no tags");
+    }
+
+    #[test]
+    fn a_tie_marks_every_row() {
+        let rows_1_1 = rows(&[(Some("Test performance"), Some("wbso_tournament")), (Some("test performance"), None)]);
+        let mismatches = tag_mismatches(&rows_1_1);
+        assert_eq!(marked(&rows_1_1), [1, 2]);
+        assert_eq!(mismatches[&1].label(), "Tags differ: 1× wbso_tournament, 1× no tags");
+        assert_eq!(mismatches[&1], mismatches[&2]);
+
+        let rows_2_2_1 = rows(&[
+            (Some("x"), None),
+            (Some("x"), Some("b")),
+            (Some("x"), Some("b, a")),
+            (Some("x"), None),
+            (Some("x"), Some("b")),
+        ]);
+        assert_eq!(marked(&rows_2_2_1), [1, 2, 3, 4, 5]);
+        assert_eq!(
+            tag_mismatches(&rows_2_2_1)[&3].label(),
+            "Tags differ: 2× b, 2× no tags, 1× a + b",
+            "by count, then alphabetically with no tags last"
+        );
+    }
+
+    #[test]
+    fn equal_tags_are_no_finding() {
+        assert!(marked(&rows(&[(Some("x"), Some("a")), (Some("x"), Some("a"))])).is_empty());
+        assert!(marked(&rows(&[(Some("x"), None), (Some("x"), None)])).is_empty());
+        assert!(marked(&rows(&[(Some("x"), Some("a"))])).is_empty());
+    }
+
+    #[test]
+    fn findings_label() {
+        let label = |no_notes, tags_differ| Findings { no_notes, tags_differ }.label();
+        assert_eq!(label(4, 2), "4 without notes · 2 with different tags");
+        assert_eq!(label(0, 2), "2 with different tags");
+        assert_eq!(label(1, 0), "1 without notes");
+        assert_eq!(label(0, 0), "No findings");
+
+        let rows = rows(&[(None, None), (Some("x"), Some("a")), (Some("x"), None), (Some("y"), None)]);
+        let mismatches = tag_mismatches(&rows);
+        let findings = Findings::of(&rows, &mismatches, &TaskNames::new());
+        assert_eq!(findings, Findings { no_notes: 1, tags_differ: 2 });
+        assert!(findings.any());
+        let found: Vec<_> = rows.iter().map(|r| has_finding(r, &mismatches, &TaskNames::new())).collect();
+        assert_eq!(found, [true, true, true, false]);
+    }
 
     #[test]
     fn notes_need_more_than_whitespace() {

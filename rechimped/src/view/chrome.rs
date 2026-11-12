@@ -356,6 +356,7 @@ impl TimeChimpApp {
                         hint(theme, "←/→", "month"),
                         hint(theme, "T", "this month"),
                         hint(theme, "↑/↓", "select"),
+                        hint(theme, "F", "finding"),
                     ],
                 };
                 h_stack()

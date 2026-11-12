@@ -10,7 +10,7 @@ use gpuikit::theme::{ActiveTheme, Themeable};
 use timechimp_api::{TimeEntry, TimeReportRow};
 
 use crate::app::TimeChimpApp;
-use crate::domain::review::{has_notes, tag_names};
+use crate::domain::review::{lacks_notes, tag_names};
 use crate::domain::week::{CHART_WEEKS, Junction, WeekCard};
 
 use super::widgets::*;
@@ -67,6 +67,8 @@ pub(super) struct EntryRow {
     pub actions: bool,
     /// Notes and tags in full rather than cut off.
     pub wrap: bool,
+    /// The tags finding, drawn under the tags.
+    pub tag_note: Option<String>,
 }
 
 impl TimeChimpApp {
@@ -94,12 +96,24 @@ impl TimeChimpApp {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let (id, selected) = (line.id, row.selected);
-        let has_notes = has_notes(line.notes.as_deref());
+        let excluded = &self.session.settings.excluded_tasks;
+        let lacks_notes = lacks_notes(line.notes.as_deref(), &line.project, &line.task, excluded);
+        let flagged = lacks_notes || row.tag_note.is_some();
         let text_cell = if row.wrap { wrap_cell } else { cell };
-        let notes = if has_notes {
-            text_cell(None, line.notes.clone().unwrap_or_default())
-        } else {
+        let notes = if lacks_notes {
             cell(None, "No notes").text_color(theme.warning())
+        } else {
+            text_cell(None, line.notes.clone().unwrap_or_default())
+        };
+        let tags = text_cell(Some(140.), line.tags.join(", ")).text_color(theme.fg_muted());
+        let tags = match row.tag_note {
+            Some(note) => v_stack()
+                .w(px(140.))
+                .flex_none()
+                .gap(px(2.))
+                .child(tags)
+                .child(text_cell(Some(140.), note).text_color(theme.warning())),
+            None => tags,
         };
         h_stack()
             .id(ElementId::NamedInteger("entry".into(), index as u64))
@@ -116,13 +130,13 @@ impl TimeChimpApp {
             .when(!selected, |d| d.hover(|s| s.bg(row_hover_bg(theme, line.billable))))
             .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| this.click_entry(id, ev.click_count(), window, cx)))
             // Absolute, inside the row's padding, so the cells stay in line with the header.
-            .when(!has_notes, |d| d.child(div().absolute().left_0().top_0().bottom_0().w(px(3.)).bg(theme.warning())))
+            .when(flagged, |d| d.child(div().absolute().left_0().top_0().bottom_0().w(px(3.)).bg(theme.warning())))
             .child(cell(Some(110.), line.start_end.clone().unwrap_or_else(|| "–".into())))
             .child(right_cell(60., hh_mm(line.hours)))
             .child(cell(Some(160.), line.customer.clone()))
             .child(cell(None, format!("{} / {}", line.project, line.task)))
             .child(notes)
-            .child(text_cell(Some(140.), line.tags.join(", ")).text_color(theme.fg_muted()))
+            .child(tags)
             // Drawn empty without actions, so the columns stay in line with the header.
             .child(self.row_actions(selected && row.actions, cx))
     }
@@ -151,7 +165,7 @@ impl TimeChimpApp {
                     });
                 }
             let line = EntryLine::from(&self.session.entries()[i]);
-            let row = EntryRow { selected: self.session.selected_entry_id() == Some(line.id), actions: true, wrap: false };
+            let row = EntryRow { selected: self.session.selected_entry_id() == Some(line.id), actions: true, wrap: false, tag_note: None };
             rows.push(self.entry_row(theme, i, &line, row, cx).into_any_element());
         }
         rows

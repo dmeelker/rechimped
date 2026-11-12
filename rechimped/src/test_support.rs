@@ -82,6 +82,11 @@ pub fn time_row(id: i64, day: u32) -> TimeReportRow {
     TimeReportRow { id, ..report_row("P", "T", day, 1.0, true) }
 }
 
+/// A review row on project 1 / task 1 with these notes and tags (comma-separated).
+pub fn noted_row(id: i64, notes: Option<&str>, tags: Option<&str>) -> TimeReportRow {
+    TimeReportRow { notes: notes.map(Into::into), tags: tags.map(Into::into), ..time_row(id, 2) }
+}
+
 pub fn base(projects: Vec<Project>, project_tasks: HashMap<i64, Vec<ProjectTask>>, tags: Vec<Tag>) -> Base {
     Base { me: user(), projects, project_tasks, tags }
 }
