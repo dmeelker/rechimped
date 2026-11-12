@@ -10,6 +10,9 @@ going through the web app.
   percentage, with a chart of the last five weeks.
 - **Travel**: your trips per week, with add, edit and delete, preset trips and address suggestions.
 - **Report**: a monthly overview of your hours.
+- **Review**: a month of time entries on one screen, to check before handing in. It marks entries
+  without notes (leave excepted) and entries whose tags differ from matching entries, and you can
+  edit, copy and delete from there.
 - Keyboard shortcuts throughout; the footer lists them.
 
 ## Goals
@@ -28,6 +31,8 @@ going through the web app.
 - Preset time entries and trips, saved from a form and started from the "+ Add" dropdown.
 - Lenient time input: `9`, `930` or `12:30`, and an end time as a duration such as `+1h30`.
 - Gaps and overlaps between consecutive entries of a day are marked.
+- A month review that flags entries without notes and entries tagged differently from others with
+  the same project, task and notes, such as a forgotten WBSO tag.
 - A weekly billable percentage against your own goal, with a chart of the last five weeks.
 - Hide projects and tasks you don't use, and limit which tags each project offers, so forms only show
   what is relevant.

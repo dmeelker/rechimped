@@ -1,5 +1,18 @@
 # Time review — plan
 
+**Done**: all six steps are implemented (steps 1–5 as commits on `time-review`, step 6 the docs).
+What follows is kept as the record. Where the code ended up differing from it:
+
+- The findings are one line under the row's cells (all of a row's findings joined by " · ",
+  `No notes` included), not a marker in the Notes cell plus a note under the tags; the spec's
+  Layout was changed to match before step 5.
+- `EntryRow` is `{ selected, wrap, tags_differ: Option<String> }`: no `actions` flag (the row
+  actions are always on) and no `tag_note`/`findings` list; the row works out No notes itself.
+- Leave is exempt from No notes (`domain::review::lacks_notes` via
+  `domain::week::is_excluded_task`), added to the spec during step 4, on the Time tab too.
+- Also added on the way: `Session::selected_review`, `reload_after_review_change` (app/save.rs),
+  and `open_time_form_on` taking an `Origin`.
+
 Implements [spec.md](spec.md). One commit per step. `rechimped` is a binary crate, so an item
 added before anything calls it is a dead-code warning: **each step only adds what it also uses**,
 and leaves `cargo test` and `cargo clippy --workspace --all-targets` clean. Paths are under
