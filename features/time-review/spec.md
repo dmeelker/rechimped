@@ -175,24 +175,18 @@ same project and task, one tagged `wbso_tournament` and one without tags: a tie,
   The Time tab's day is **not** moved; its week is reloaded only if it contains the entry's old
   or new date. Saves and deletes started on the Time tab behave as now.
 - Cancel/Escape on a form or dialog returns to the review unchanged.
-- **Billed entries are locked** (on the Review and the Time tab alike). TimeChimp's `status` 3
-  marks a billed entry (verified: older months have it on billable client work only, the
-  current month on nothing; `statusIntern` matches on the full entry). Such a row shows a small
-  lock icon with the tooltip "Billed"; its row actions offer only Copy; Edit (E, Enter on the
-  review, double-click, the Detail popup's Edit button) and Delete (D) show a toast "Billed
-  entries can't be changed." instead. Copying one as a new entry works as usual. Findings on
-  billed entries still show and count (they may still matter, e.g. for WBSO).
-
-## Not in this feature
-
-Short days (hours per day; the Time tab shows those), gaps and overlaps (noticed day to day on
-the Time tab), missing trips, deciding automatically which work qualifies for WBSO, note-quality
-checks beyond empty notes, adding entries from the review, approval, and anything persisted
-(dismissed findings, a "reviewed" mark). Edits made from the review don't feed the Recent
-picker until the next reload.
-
-## Tests
-
+- **Submitted, approved, billed and written-off entries are locked** (on the Review and the Time
+  tab alike), as the web app does. TimeChimp's approval status (from the web app's enum):
+  -1 Rejected, 0 Open, 1 Pending approval, 2 Approved, 3 Invoiced, 4 Written off; an entry has it
+  internally (`status`) and for the client (`clientStatus` on report rows, `statusExtern` on
+  entries). The web app refuses edits when either is 1 or higher; Rechimped refuses edit and
+  delete then. Such a row shows a lock icon whose tooltip names the status ("Pending approval",
+  "Approved", "Invoiced", "Written off"); its row actions offer only Copy; Edit (E, Enter on the
+  review, double-click, the Detail popup's Edit button) and Delete (D) show a toast naming the
+  status ("Approved entries can't be changed.") instead. Copying one works as usual. Findings on
+  locked entries still show and count.
+- **Rejected entries** stay editable and get a `Rejected` finding (on the findings line, counted
+  in the summary and reachable with F), as they need fixing before handing in.
 - `domain` unit tests:
   - no notes: none, empty, whitespace only; excluded (leave) tasks exempt;
   - note matching: case and whitespace ignored, punctuation not;
