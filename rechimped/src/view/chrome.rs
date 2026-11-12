@@ -12,6 +12,7 @@ use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::{ControlSize, Themeable};
 
 use crate::app::{Menu, Overlay, Tab, TimeChimpApp};
+use crate::domain::ApprovalStatus;
 use crate::{domain, session};
 
 use super::widgets::*;
@@ -307,9 +308,16 @@ impl TimeChimpApp {
         deferred(div().absolute().top_full().right_0().mt(px(4.)).child(menu)).with_priority(2)
     }
 
-    /// The actions work on the selection, so only the selected row shows them; a billed entry
-    /// can only be copied, and shows a lock at the column's start whether selected or not.
-    pub(super) fn row_actions(&self, theme: &T, selected: bool, billed: bool, cx: &mut Context<Self>) -> gpui::Div {
+    /// The actions work on the selection, so only the selected row shows them; a locked entry
+    /// can only be copied, and shows a lock naming its status at the column's start whether
+    /// selected or not.
+    pub(super) fn row_actions(
+        &self,
+        theme: &T,
+        selected: bool,
+        locked: Option<ApprovalStatus>,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
         let action = |id: &'static str, icon: gpui::Svg, tip: &'static str, f: fn(&mut Self, &mut Window, &mut Context<Self>)| {
             icon_button(id, icon)
                 .box_size(gpui::rems(1.5))
@@ -324,24 +332,24 @@ impl TimeChimpApp {
             .gap(px(2.))
             .pr(px(4.))
             .items_center()
-            .when(billed, |d| {
+            .when_some(locked, |d, status| {
                 d.child(
                     div()
-                        .id("billed")
+                        .id("locked")
                         .pl(px(6.))
-                        .tooltip(tooltip("Billed"))
+                        .tooltip(tooltip(status.label()))
                         .child(Icons::lock_closed().size(px(12.)).text_color(theme.fg_muted())),
                 )
             })
             .child(div().flex_1())
             .when(selected, |d| {
-                d.when(!billed, |d| {
+                d.when(locked.is_none(), |d| {
                     d.child(action("row-edit", Icons::pencil_1(), "Edit (E)", |this, w, cx| this.edit_selected(w, cx)))
                 })
                 .when(matches!(self.tab, Tab::Week | Tab::Review), |d| {
                     d.child(action("row-copy", Icons::copy(), "Copy (C)", |this, w, cx| this.copy_selected(w, cx)))
                 })
-                .when(!billed, |d| {
+                .when(locked.is_none(), |d| {
                     d.child(action("row-delete", Icons::trash(), "Delete (D)", |this, w, cx| this.ask_delete(w, cx)))
                 })
             })

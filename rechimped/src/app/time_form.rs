@@ -25,7 +25,7 @@ impl TimeChimpApp {
     }
 
     pub fn edit_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.refuse_billed(window, cx) {
+        if self.refuse_locked(window, cx) {
             return;
         }
         if self.tab == Tab::Review {

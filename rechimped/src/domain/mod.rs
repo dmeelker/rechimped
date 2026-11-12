@@ -43,11 +43,54 @@ pub fn hh_mm(hours: f64) -> String {
     format!("{sign}{:02}:{:02}", minutes / 60, minutes % 60)
 }
 
-/// TimeChimp's `status` of a billed time entry (verified against the live API).
-const BILLED: i32 = 3;
+/// TimeChimp's approval status of a time entry, kept internally and for the client. Codes it
+/// doesn't know are kept as `Other`: from 1 up they lock the entry, as the web app's check does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApprovalStatus {
+    Rejected,
+    Open,
+    PendingApproval,
+    Approved,
+    Invoiced,
+    WrittenOff,
+    Other(i32),
+}
 
-pub fn is_billed(status: i32) -> bool {
-    status == BILLED
+impl ApprovalStatus {
+    pub fn from_code(code: i32) -> Self {
+        match code {
+            -1 => Self::Rejected,
+            0 => Self::Open,
+            1 => Self::PendingApproval,
+            2 => Self::Approved,
+            3 => Self::Invoiced,
+            4 => Self::WrittenOff,
+            other => Self::Other(other),
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Rejected => "Rejected",
+            Self::Open => "Open",
+            Self::PendingApproval => "Pending approval",
+            Self::Approved => "Approved",
+            Self::Invoiced => "Invoiced",
+            Self::WrittenOff => "Written off",
+            Self::Other(_) => "Locked",
+        }
+    }
+}
+
+/// The status that locks an entry (the higher code when the internal or the client one is 1 or
+/// more), or None when it can still be changed.
+pub fn lock_status(internal: i32, client: i32) -> Option<ApprovalStatus> {
+    let code = internal.max(client);
+    (code >= 1).then(|| ApprovalStatus::from_code(code))
+}
+
+pub fn is_rejected(internal: i32, client: i32) -> bool {
+    [internal, client].contains(&-1)
 }
 
 pub fn matching_addresses<'a>(addresses: &'a [String], query: &str) -> Vec<&'a str> {
@@ -88,9 +131,34 @@ mod tests {
     }
 
     #[test]
-    fn only_status_3_is_billed() {
-        assert!(is_billed(3));
-        assert!(![0, 1, 2, 4].into_iter().any(is_billed));
+    fn approval_statuses() {
+        let labels: Vec<_> = (-1..=4).map(|c| ApprovalStatus::from_code(c).label()).collect();
+        assert_eq!(labels, ["Rejected", "Open", "Pending approval", "Approved", "Invoiced", "Written off"]);
+        assert_eq!(ApprovalStatus::from_code(7), ApprovalStatus::Other(7));
+        assert_eq!(ApprovalStatus::Other(7).label(), "Locked");
+    }
+
+    #[test]
+    fn locked_from_pending_approval_on() {
+        assert_eq!(lock_status(0, 0), None);
+        assert_eq!(lock_status(-1, 0), None, "rejected stays editable");
+        assert_eq!(lock_status(-1, -1), None);
+        assert_eq!(lock_status(1, 0), Some(ApprovalStatus::PendingApproval));
+        assert_eq!(lock_status(0, 2), Some(ApprovalStatus::Approved), "by the client alone");
+        assert_eq!(lock_status(-1, 2), Some(ApprovalStatus::Approved));
+        assert_eq!(lock_status(3, 2), Some(ApprovalStatus::Invoiced), "the higher of the two");
+        assert_eq!(lock_status(2, 4), Some(ApprovalStatus::WrittenOff));
+        assert_eq!(lock_status(9, 0), Some(ApprovalStatus::Other(9)));
+        assert_eq!(lock_status(-5, 0), None);
+    }
+
+    #[test]
+    fn rejected_internally_or_by_the_client() {
+        assert!(is_rejected(-1, 0));
+        assert!(is_rejected(0, -1));
+        assert!(is_rejected(-1, 2));
+        assert!(!is_rejected(0, 0));
+        assert!(!is_rejected(2, 1));
     }
 
     #[test]

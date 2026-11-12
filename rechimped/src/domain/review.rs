@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use chrono::NaiveDate;
 use timechimp_api::TimeReportRow;
 
+use super::is_rejected;
 use super::week::{TaskNames, is_excluded_task};
 
 /// Whether an entry's notes say anything: missing, empty and whitespace-only notes don't.
@@ -22,6 +23,10 @@ pub fn lacks_notes(notes: Option<&str>, project: &str, task: &str, excluded: &Ta
 
 fn row_lacks_notes(row: &TimeReportRow, excluded: &TaskNames) -> bool {
     lacks_notes(row.notes.as_deref(), &row.project, &row.task, excluded)
+}
+
+fn row_rejected(row: &TimeReportRow) -> bool {
+    is_rejected(row.status, row.client_status)
 }
 
 /// Notes that differ only in case or whitespace are the same notes; punctuation counts.
@@ -108,12 +113,13 @@ pub fn tag_mismatches(rows: &[TimeReportRow]) -> HashMap<i64, TagMismatch> {
 }
 
 pub fn has_finding(row: &TimeReportRow, mismatches: &HashMap<i64, TagMismatch>, excluded: &TaskNames) -> bool {
-    row_lacks_notes(row, excluded) || mismatches.contains_key(&row.id)
+    row_rejected(row) || row_lacks_notes(row, excluded) || mismatches.contains_key(&row.id)
 }
 
 /// How many rows have each finding, for the summary line.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Findings {
+    pub rejected: usize,
     pub no_notes: usize,
     pub tags_differ: usize,
 }
@@ -121,17 +127,19 @@ pub struct Findings {
 impl Findings {
     pub fn of(rows: &[TimeReportRow], mismatches: &HashMap<i64, TagMismatch>, excluded: &TaskNames) -> Self {
         Self {
+            rejected: rows.iter().filter(|r| row_rejected(r)).count(),
             no_notes: rows.iter().filter(|r| row_lacks_notes(r, excluded)).count(),
             tags_differ: rows.iter().filter(|r| mismatches.contains_key(&r.id)).count(),
         }
     }
 
     pub fn any(&self) -> bool {
-        self.no_notes + self.tags_differ > 0
+        self.rejected + self.no_notes + self.tags_differ > 0
     }
 
     pub fn label(&self) -> String {
-        let parts: Vec<_> = [(self.no_notes, "without notes"), (self.tags_differ, "with different tags")]
+        let parts: Vec<_> =
+            [(self.rejected, "rejected"), (self.no_notes, "without notes"), (self.tags_differ, "with different tags")]
             .into_iter()
             .filter(|&(n, _)| n > 0)
             .map(|(n, what)| format!("{n} {what}"))
@@ -286,19 +294,26 @@ mod tests {
 
     #[test]
     fn findings_label() {
-        let label = |no_notes, tags_differ| Findings { no_notes, tags_differ }.label();
-        assert_eq!(label(4, 2), "4 without notes · 2 with different tags");
-        assert_eq!(label(0, 2), "2 with different tags");
-        assert_eq!(label(1, 0), "1 without notes");
-        assert_eq!(label(0, 0), "No findings");
+        let label = |rejected, no_notes, tags_differ| Findings { rejected, no_notes, tags_differ }.label();
+        assert_eq!(label(1, 4, 2), "1 rejected · 4 without notes · 2 with different tags");
+        assert_eq!(label(0, 4, 2), "4 without notes · 2 with different tags");
+        assert_eq!(label(0, 0, 2), "2 with different tags");
+        assert_eq!(label(0, 1, 0), "1 without notes");
+        assert_eq!(label(2, 0, 0), "2 rejected");
+        assert_eq!(label(0, 0, 0), "No findings");
+        assert!(!Findings::default().any());
 
-        let rows = rows(&[(None, None), (Some("x"), Some("a")), (Some("x"), None), (Some("y"), None)]);
+        let mut rows = rows(&[(None, None), (Some("x"), Some("a")), (Some("x"), None), (Some("y"), None), (Some("z"), None)]);
+        rows[3].status = -1;
+        rows[4].client_status = -1;
         let mismatches = tag_mismatches(&rows);
         let findings = Findings::of(&rows, &mismatches, &TaskNames::new());
-        assert_eq!(findings, Findings { no_notes: 1, tags_differ: 2 });
+        assert_eq!(findings, Findings { rejected: 2, no_notes: 1, tags_differ: 2 });
         assert!(findings.any());
         let found: Vec<_> = rows.iter().map(|r| has_finding(r, &mismatches, &TaskNames::new())).collect();
-        assert_eq!(found, [true, true, true, false]);
+        assert_eq!(found, [true, true, true, true, true], "rejected internally or by the client");
+        rows[3].status = 0;
+        assert!(!has_finding(&rows[3], &mismatches, &TaskNames::new()));
     }
 
     #[test]
@@ -341,8 +356,10 @@ mod tests {
     #[test]
     fn analysis_of_a_month() {
         let excluded = default_excluded_tasks();
-        let rows = [noted_row(1, Some("x"), Some("a")), noted_row(2, Some("x"), None), noted_row(3, None, None)];
+        let mut rows = [noted_row(1, Some("x"), Some("a")), noted_row(2, Some("x"), None), noted_row(3, None, None)];
+        rows[2].client_status = -1;
         let analysis = Analysis::of(&rows, &excluded);
+        assert_eq!(analysis.findings, Findings { rejected: 1, no_notes: 1, tags_differ: 2 });
         assert_eq!(analysis.lines, lines(&rows));
         assert_eq!(analysis.mismatches, tag_mismatches(&rows));
         assert_eq!(analysis.findings, Findings::of(&rows, &analysis.mismatches, &excluded));

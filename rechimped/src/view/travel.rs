@@ -31,7 +31,7 @@ impl TimeChimpApp {
             .child(cell(Some(150.), m.project_name.clone()))
             .child(cell(Some(110.), travel_type_name(m.mileage_type)))
             .child(cell(Some(160.), m.notes.clone().unwrap_or_default()))
-            .child(self.row_actions(theme, selected, false, cx))
+            .child(self.row_actions(theme, selected, None, cx))
     }
 
     pub(super) fn render_travel(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {

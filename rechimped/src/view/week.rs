@@ -10,7 +10,7 @@ use gpuikit::theme::{ActiveTheme, Themeable};
 use timechimp_api::{TimeEntry, TimeReportRow};
 
 use crate::app::TimeChimpApp;
-use crate::domain::is_billed;
+use crate::domain::{ApprovalStatus, is_rejected, lock_status};
 use crate::domain::review::{lacks_notes, tag_names};
 use crate::domain::week::{CHART_WEEKS, Junction, WeekCard};
 
@@ -27,7 +27,9 @@ pub(super) struct EntryLine {
     pub notes: Option<String>,
     pub tags: Vec<String>,
     pub billable: bool,
-    pub billed: bool,
+    /// The status that locks it, if any.
+    pub locked: Option<ApprovalStatus>,
+    pub rejected: bool,
 }
 
 impl From<&TimeEntry> for EntryLine {
@@ -42,7 +44,8 @@ impl From<&TimeEntry> for EntryLine {
             notes: e.notes.clone(),
             tags: e.tag_names.clone(),
             billable: e.billable,
-            billed: is_billed(e.status),
+            locked: lock_status(e.status, e.status_extern),
+            rejected: is_rejected(e.status, e.status_extern),
         }
     }
 }
@@ -59,7 +62,8 @@ impl From<&TimeReportRow> for EntryLine {
             notes: r.notes.clone(),
             tags: tag_names(r.tags.as_deref()),
             billable: r.billable,
-            billed: is_billed(r.status),
+            locked: lock_status(r.status, r.client_status),
+            rejected: is_rejected(r.status, r.client_status),
         }
     }
 }
@@ -69,7 +73,7 @@ pub(super) struct EntryRow {
     pub selected: bool,
     /// Notes and tags in full rather than cut off.
     pub wrap: bool,
-    /// The review's tags finding; No notes the row works out itself.
+    /// The review's tags finding; Rejected and No notes the row works out itself.
     pub tags_differ: Option<String>,
 }
 
@@ -100,7 +104,12 @@ impl TimeChimpApp {
         let (id, selected) = (line.id, row.selected);
         let excluded = &self.session.settings.excluded_tasks;
         let lacks_notes = lacks_notes(line.notes.as_deref(), &line.project, &line.task, excluded);
-        let findings: Vec<String> = lacks_notes.then(|| "No notes".to_owned()).into_iter().chain(row.tags_differ).collect();
+        let findings: Vec<String> = [(line.rejected, "Rejected"), (lacks_notes, "No notes")]
+            .into_iter()
+            .filter(|&(found, _)| found)
+            .map(|(_, label)| label.to_owned())
+            .chain(row.tags_differ)
+            .collect();
         let text_cell = if row.wrap { wrap_cell } else { cell };
         let cells = h_stack()
             .w_full()
@@ -112,7 +121,7 @@ impl TimeChimpApp {
             .child(text_cell(None, line.notes.clone().unwrap_or_default()))
             .child(text_cell(Some(140.), line.tags.join(", ")).text_color(theme.fg_muted()))
             // Drawn empty when not selected, so the columns stay in line with the header.
-            .child(self.row_actions(theme, selected, line.billed, cx));
+            .child(self.row_actions(theme, selected, line.locked, cx));
         v_stack()
             .id(ElementId::NamedInteger("entry".into(), index as u64))
             .relative()

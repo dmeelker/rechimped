@@ -200,3 +200,8 @@ Visible change: the Time tab marks entries without notes.
   E, Enter, D, double-click and the Detail popup's Edit button. `copy_selected` is unchanged.
 - CLAUDE.md and README.md: a line each.
 
+Later: the lock was widened to the web app's edit rule (its approval status enum: -1 Rejected,
+0 Open, 1 Pending approval, 2 Approved, 3 Invoiced, 4 Written off; locked when the internal or
+client status is 1 or more), with `domain::ApprovalStatus` / `lock_status` replacing
+`is_billed`, the status named in the lock's tooltip and the refusal toast, and a "Rejected"
+finding for entries that need fixing.
