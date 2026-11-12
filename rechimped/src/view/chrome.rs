@@ -38,7 +38,7 @@ impl TimeChimpApp {
         let body: AnyElement = match self.tab {
             Tab::Week => self.render_day(theme, cx).into_any_element(),
             Tab::Travel => self.render_travel(theme, cx).into_any_element(),
-            Tab::Report => self.render_report(theme).into_any_element(),
+            Tab::Report => self.render_report(theme, cx).into_any_element(),
             Tab::Review => self.render_review(window, theme, cx).into_any_element(),
         };
 
@@ -270,11 +270,16 @@ impl TimeChimpApp {
                 )
                 .child(remove)
         });
-        let menu = menu_panel(theme, "presets-menu")
-            .max_h(px(420.))
+        let scroll = &self.menu_scroll;
+        let rows = v_stack()
+            .id("presets-rows")
+            .max_h(px(410.))
             .overflow_y_scroll()
+            .track_scroll(&scroll.handle)
             .children(rows)
             .when(is_empty, |d| d.child(div().w(px(280.)).px(px(12.)).py(px(6.)).child(muted(theme, empty))));
+        let menu = menu_panel(theme, "presets-menu")
+            .child(with_scrollbar(theme, "presets-rows", rows, &scroll.handle, &scroll.bar, cx.entity_id()));
         deferred(div().absolute().top_full().right_0().mt(px(4.)).child(menu)).with_priority(2)
     }
 

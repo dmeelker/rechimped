@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use gpui::{App, Entity, FocusHandle, ScrollHandle, Subscription};
+use gpui::{App, Entity, FocusHandle, Subscription};
 use gpuikit::elements::checkbox::Checkbox;
 use gpuikit::elements::dialog::DialogState;
 use gpuikit::input::InputState;
@@ -9,6 +9,7 @@ use timechimp_api::Project;
 
 use super::{TypeAhead, text};
 use crate::domain::same_name;
+use crate::scroll::ScrollArea;
 use crate::session::Session;
 use crate::store::config::{TimePreset, TripPreset};
 use crate::validate::SettingsValues;
@@ -122,14 +123,14 @@ pub struct PresetsForm {
     pub trips: Vec<TripPreset>,
     pub times: Vec<TimePreset>,
     original: (Vec<TripPreset>, Vec<TimePreset>),
-    pub trips_scroll: ScrollHandle,
-    pub times_scroll: ScrollHandle,
+    pub trips_scroll: ScrollArea,
+    pub times_scroll: ScrollArea,
 }
 
 impl PresetsForm {
     pub fn new(trips: Vec<TripPreset>, times: Vec<TimePreset>) -> Self {
         let original = (trips.clone(), times.clone());
-        Self { trips, times, original, trips_scroll: ScrollHandle::default(), times_scroll: ScrollHandle::default() }
+        Self { trips, times, original, trips_scroll: ScrollArea::default(), times_scroll: ScrollArea::default() }
     }
 
     pub fn is_changed(&self) -> bool {
@@ -156,8 +157,8 @@ pub enum Column {
 pub struct ListNav {
     pub column: Column,
     pub item: usize,
-    pub projects_scroll: ScrollHandle,
-    pub items_scroll: ScrollHandle,
+    pub projects_scroll: ScrollArea,
+    pub items_scroll: ScrollArea,
     typed: TypeAhead,
 }
 

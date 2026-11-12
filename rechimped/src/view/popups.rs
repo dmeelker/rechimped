@@ -352,11 +352,19 @@ impl TimeChimpApp {
                         }),
                     )
             });
-            let panel = menu_panel(theme, menu_id)
-                .max_h(px(240.))
+            let rows_id = match field {
+                AddressField::From => "from-address-rows",
+                AddressField::To => "to-address-rows",
+            };
+            let rows = v_stack()
+                .id(rows_id)
+                .max_h(px(230.))
                 .overflow_y_scroll()
+                .track_scroll(&menu.scroll.handle)
                 .children(rows)
                 .when(form.addresses.is_empty(), |d| d.child(muted(theme, "No saved addresses").px(px(10.)).py(px(5.))));
+            let panel = menu_panel(theme, menu_id)
+                .child(with_scrollbar(theme, rows_id, rows, &menu.scroll.handle, &menu.scroll.bar, cx.entity_id()));
             Some(deferred(div().absolute().top_full().left_0().right_0().mt(px(4.)).child(panel)).with_priority(3))
         });
         div().relative().key_context("AddressField").child(input).children(menu).into_any_element()

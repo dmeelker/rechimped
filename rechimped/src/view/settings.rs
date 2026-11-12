@@ -1,5 +1,5 @@
 use gpui::{
-    Context, ElementId, FontWeight, ScrollHandle, Window, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, StatefulInteractiveElement,
+    Context, ElementId, EntityId, FontWeight, Window, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, StatefulInteractiveElement,
     Styled, div, prelude::FluentBuilder, px,
 };
 use gpuikit::a11y::FocusNavigation;
@@ -13,6 +13,7 @@ use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::{ControlSize, Themeable};
 
 use crate::app::{Cancel, Confirm, TimeChimpApp, ToLists};
+use crate::scroll::ScrollArea;
 use crate::session;
 use crate::forms::{Column, ListNav, PresetsForm, ProjectRow, shift, ProjectTagsForm, ProjectVisibility, SettingsForm, SettingsPage, TaskVisibility};
 
@@ -160,7 +161,7 @@ impl TimeChimpApp {
                 )
                 .child(muted(theme, project.customer.clone()).text_xs().flex_none())
         });
-        let list = list_box(theme, "settings-projects", &p.nav.items_scroll)
+        let list = list_box("settings-projects", &p.nav.items_scroll)
             .p(px(6.))
             .when(p.projects.is_empty(), |d| d.child(muted(theme, "No projects.")))
             .children(rows);
@@ -185,7 +186,7 @@ impl TimeChimpApp {
                     .child(set_all("settings-projects-all", "Select all", true, p.hidden.is_empty()))
                     .child(set_all("settings-projects-none", "Clear all", false, shown == 0)),
             )
-            .child(list)
+            .child(framed(theme, "settings-projects", list, &p.nav.items_scroll, cx.entity_id()))
             .into_any_element()
     }
 
@@ -209,9 +210,9 @@ impl TimeChimpApp {
         let current = form.projects.get(form.current);
         let cursor = (focused && form.nav.column == Column::Items).then_some(form.nav.item);
         let tasks = match current {
-            None => list_box(theme, page.items_id, &form.nav.items_scroll).p(px(12.)).child(muted(theme, "No projects with tasks.")),
+            None => list_box(page.items_id, &form.nav.items_scroll).p(px(12.)).child(muted(theme, "No projects with tasks.")),
             Some((project, tasks)) => {
-                list_box(theme, page.items_id, &form.nav.items_scroll).p(px(8.)).children(tasks.iter().enumerate().map(|(i, (task_id, name))| {
+                list_box(page.items_id, &form.nav.items_scroll).p(px(8.)).children(tasks.iter().enumerate().map(|(i, (task_id, name))| {
                     let shown = !form.is_hidden(project.id, *task_id);
                     check_row(theme, ElementId::NamedInteger(page.items_id.into(), *task_id as u64), shown, cursor == Some(i))
                         .on_click(cx.listener(move |this, _, w, cx| this.edit_settings(w, cx, |f| list(f).toggle_at(Some(i)))))
@@ -237,7 +238,7 @@ impl TimeChimpApp {
                 .child(muted(theme, title).flex_1().min_w_0().truncate())
                 .child(set_all(page.all_id, "Select all", true, current.is_none() || hidden == 0))
                 .child(set_all(page.none_id, "Clear all", false, current.is_none() || hidden == total)),
-            tasks,
+            framed(theme, page.items_id, tasks, &form.nav.items_scroll, cx.entity_id()),
         )
         .flex_1()
         .min_w_0();
@@ -254,9 +255,9 @@ impl TimeChimpApp {
         let projects = project_list(theme, "tag-projects", projects, form.current, in_projects, &form.nav, pick, cx);
         let cursor = (focused && form.nav.column == Column::Items).then_some(form.nav.item);
         let tags = match form.current_project() {
-            None => list_box(theme, "tag-choices", &form.nav.items_scroll).p(px(12.)).child(muted(theme, "No projects.")),
+            None => list_box("tag-choices", &form.nav.items_scroll).p(px(12.)).child(muted(theme, "No projects.")),
             Some(project) => {
-                list_box(theme, "tag-choices", &form.nav.items_scroll).p(px(8.)).children(form.tags.iter().enumerate().map(|(i, (tag_id, name))| {
+                list_box("tag-choices", &form.nav.items_scroll).p(px(8.)).children(form.tags.iter().enumerate().map(|(i, (tag_id, name))| {
                     let checked = form.is_checked(project, *tag_id);
                     check_row(theme, ElementId::NamedInteger("tag-choice".into(), *tag_id as u64), checked, cursor == Some(i))
                         .on_click(cx.listener(move |this, _, w, cx| this.edit_settings(w, cx, |f| f.tags.toggle_at(Some(i)))))
@@ -284,7 +285,7 @@ impl TimeChimpApp {
                 .child(muted(theme, title).flex_1().min_w_0().truncate())
                 .child(set_all("project-tags-all", "Select all", true, no_project || count == form.tags.len()))
                 .child(set_all("project-tags-none", "Clear all", false, no_project || count == 0)),
-            tags,
+            framed(theme, "tag-choices", tags, &form.nav.items_scroll, cx.entity_id()),
         )
         .when_some(note, |d, note| d.child(muted(theme, note).text_xs()))
         .flex_1()
@@ -329,9 +330,11 @@ impl TimeChimpApp {
             )
         });
         let times: Vec<_> = times.collect();
-        let column = |title: &'static str, empty: &'static str, scroll: &ScrollHandle, rows: Vec<gpui::Stateful<gpui::Div>>| {
-            let list = list_box(theme, title, scroll).p(px(6.)).gap(px(4.)).when(rows.is_empty(), |d| d.child(muted(theme, empty).p(px(6.))));
-            settings_column(theme, h_stack().child(muted(theme, title)), list.children(rows)).flex_1().min_w_0()
+        let view = cx.entity_id();
+        let column = |title: &'static str, empty: &'static str, scroll: &ScrollArea, rows: Vec<gpui::Stateful<gpui::Div>>| {
+            let list = list_box(title, scroll).p(px(6.)).gap(px(4.)).when(rows.is_empty(), |d| d.child(muted(theme, empty).p(px(6.))));
+            let list = framed(theme, title, list.children(rows), scroll, view);
+            settings_column(theme, h_stack().child(muted(theme, title)), list).flex_1().min_w_0()
         };
         h_stack()
             .flex_1()
@@ -454,12 +457,12 @@ fn project_list<'a>(
             })
             .child(row)
     });
-    let list = list_box(theme, id, &nav.projects_scroll).children(rows);
+    let list = framed(theme, id, list_box(id, &nav.projects_scroll).children(rows), &nav.projects_scroll, cx.entity_id());
     settings_column(theme, h_stack().child(muted(theme, "Projects")), list).w(px(240.)).flex_none()
 }
 
 /// Its header row as tall as a button, so columns side by side line up.
-fn settings_column(theme: &T, header: gpui::Div, list: gpui::Stateful<gpui::Div>) -> gpui::Div {
+fn settings_column(theme: &T, header: gpui::Div, list: gpui::Div) -> gpui::Div {
     v_stack().min_h_0().gap(px(8.)).child(header.h(theme.control(ControlSize::Medium).height).items_center()).child(list)
 }
 
@@ -479,13 +482,15 @@ fn check_row(theme: &T, id: ElementId, checked: bool, cursor: bool) -> gpui::Sta
         .child(checkbox_box(if checked { CheckState::Checked } else { CheckState::Unchecked }))
 }
 
-fn list_box(theme: &T, id: &'static str, scroll: &ScrollHandle) -> gpui::Stateful<gpui::Div> {
-    v_stack()
-        .id(id)
-        .track_scroll(scroll)
+/// The scrolling part of a list; `framed` draws its box and scrollbar.
+fn list_box(id: &'static str, scroll: &ScrollArea) -> gpui::Stateful<gpui::Div> {
+    v_stack().id(id).track_scroll(&scroll.handle).flex_1().min_h_0().overflow_y_scroll()
+}
+
+/// The border is on the frame, so the scrollbar lies inside it.
+fn framed(theme: &T, id: &str, list: gpui::Stateful<gpui::Div>, scroll: &ScrollArea, view: EntityId) -> gpui::Div {
+    with_scrollbar(theme, id, list, &scroll.handle, &scroll.bar, view)
         .flex_1()
-        .min_h_0()
-        .overflow_y_scroll()
         .border_1()
         .border_color(theme.border())
         .rounded(px(6.))

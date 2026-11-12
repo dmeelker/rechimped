@@ -29,6 +29,7 @@ use crate::net;
 use crate::session::Session;
 use crate::store::token;
 use crate::password::PasswordField;
+use crate::scroll::ScrollArea;
 
 const SAVING: &str = "Saving…";
 const DELETING: &str = "Deleting…";
@@ -118,6 +119,11 @@ pub struct TimeChimpApp {
     /// The title bar was pressed; the next mouse move starts a window move (`view::frame`).
     pub title_drag: bool,
     pub review_list: review::ReviewList,
+    /// The Time, Travel and Report tables' rows and the presets dropdown.
+    pub entry_scroll: ScrollArea,
+    pub trip_scroll: ScrollArea,
+    pub report_scroll: ScrollArea,
+    pub menu_scroll: ScrollArea,
 }
 
 impl TimeChimpApp {
@@ -138,6 +144,10 @@ impl TimeChimpApp {
             fx: crate::fx::Fx::new(),
             title_drag: false,
             review_list: review::ReviewList::default(),
+            entry_scroll: ScrollArea::default(),
+            trip_scroll: ScrollArea::default(),
+            report_scroll: ScrollArea::default(),
+            menu_scroll: ScrollArea::default(),
         };
 
         match token::load_token() {
@@ -209,6 +219,8 @@ impl TimeChimpApp {
 
     pub fn toggle_menu(&mut self, menu: Menu, cx: &mut Context<Self>) {
         self.menu = if self.menu == Some(menu) { None } else { Some(menu) };
+        // Each opening starts at the top.
+        self.menu_scroll = ScrollArea::default();
         cx.notify();
     }
 

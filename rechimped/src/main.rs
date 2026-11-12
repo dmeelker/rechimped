@@ -7,6 +7,7 @@ mod fx;
 mod net;
 mod password;
 mod seed;
+mod scroll;
 mod session;
 mod store;
 #[cfg(test)]

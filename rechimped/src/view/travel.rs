@@ -72,7 +72,7 @@ impl TimeChimpApp {
                 )
                 .rounded_t(px(5.)),
             )
-            .child(table_rows("trip-rows", rows))
+            .child(table_rows(theme, "trip-rows", rows, &self.trip_scroll, cx.entity_id()))
             .when(empty, |d| d.child(empty_message(theme, message)))
     }
 }

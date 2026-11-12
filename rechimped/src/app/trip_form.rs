@@ -66,7 +66,7 @@ impl TimeChimpApp {
     pub fn open_addresses(&mut self, field: AddressField, filtered: bool, cx: &mut Context<Self>) {
         if let Some(form) = self.travel_form_mut() {
             let highlighted = (!filtered).then_some(0);
-            form.address_menu = Some(AddressMenu { field, filtered, highlighted });
+            form.address_menu = Some(AddressMenu { field, filtered, highlighted, scroll: Default::default() });
             cx.notify();
         }
     }
@@ -99,10 +99,12 @@ impl TimeChimpApp {
             return self.open_addresses(field, false, cx);
         };
         let last = count.saturating_sub(1);
-        menu.highlighted = Some(match menu.highlighted {
+        let highlighted = match menu.highlighted {
             None => 0,
             Some(i) => i.saturating_add_signed(delta).min(last),
-        });
+        };
+        menu.highlighted = Some(highlighted);
+        menu.scroll.scroll_to_item(highlighted);
         cx.notify();
     }
 

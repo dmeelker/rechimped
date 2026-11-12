@@ -276,7 +276,7 @@ impl TimeChimpApp {
             .child(
                 table_card(theme)
                     .child(Self::entry_header(theme).rounded_t(px(5.)))
-                    .child(table_rows("entry-rows", rows))
+                    .child(table_rows(theme, "entry-rows", rows, &self.entry_scroll, cx.entity_id()))
                     .when(
                     visible.is_empty() && self.busy().is_none(),
                     |d| d.child(empty_message(theme, message)),

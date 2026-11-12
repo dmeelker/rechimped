@@ -7,7 +7,7 @@ use crate::app::TimeChimpApp;
 use super::widgets::*;
 
 impl TimeChimpApp {
-    pub(super) fn render_report(&self, theme: &T) -> impl IntoElement {
+    pub(super) fn render_report(&self, theme: &T, cx: &gpui::Context<Self>) -> impl IntoElement {
         let month = self.session.report_month().format("%B %Y").to_string();
         let Some(report) = self.session.report() else {
             let message = if self.busy().is_some() { "Loading report…" } else { NOT_LOADED };
@@ -42,7 +42,7 @@ impl TimeChimpApp {
                 theme,
                 [cell(None, "Project"), cell(None, "Task"), right_cell(70., "Hours"), right_cell(50., "%"), cell(Some(100.), "")],
             ))
-            .child(table_rows("report-rows", rows))
+            .child(table_rows(theme, "report-rows", rows, &self.report_scroll, cx.entity_id()))
             .when(summary.groups.is_empty(), |d| d.child(empty_message(theme, "No time registered this month.")));
 
         let stat = |label: &'static str, value: String| {

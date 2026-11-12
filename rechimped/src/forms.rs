@@ -90,7 +90,7 @@ pub struct AddressMenu {
     pub field: AddressField,
     pub filtered: bool,
     /// None after typing, so Enter keeps the typed text.
-    pub highlighted: Option<usize>,
+    pub highlighted: Option<usize>,    pub scroll: crate::scroll::ScrollArea,
 }
 
 impl TravelForm {
