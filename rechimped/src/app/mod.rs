@@ -17,7 +17,7 @@ pub use chart::BillabilityChart;
 
 use std::future::Future;
 
-use gpui::{Context, Entity, FocusHandle, ScrollHandle, SharedString, Subscription, Window};
+use gpui::{Context, Entity, FocusHandle, SharedString, Subscription, Window};
 use gpuikit::elements::dialog::DialogState;
 use gpuikit::elements::toast::ToastExt;
 use gpuikit::input::InputState;
@@ -117,7 +117,7 @@ pub struct TimeChimpApp {
     pub fx: crate::fx::Fx,
     /// The title bar was pressed; the next mouse move starts a window move (`view::frame`).
     pub title_drag: bool,
-    pub review_scroll: ScrollHandle,
+    pub review_list: review::ReviewList,
 }
 
 impl TimeChimpApp {
@@ -137,7 +137,7 @@ impl TimeChimpApp {
             travel_reminder_checked: None,
             fx: crate::fx::Fx::new(),
             title_drag: false,
-            review_scroll: ScrollHandle::default(),
+            review_list: review::ReviewList::default(),
         };
 
         match token::load_token() {

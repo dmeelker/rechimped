@@ -83,7 +83,7 @@ impl TimeChimpApp {
             }
             Tab::Review => {
                 if domain::time::first_of_month(day) != self.session.review_month() {
-                    self.review_scroll.set_offset(gpui::Point::default());
+                    self.review_list.scroll_to_top();
                 }
                 self.session.set_review_month(day);
                 self.load_review(None, window, cx);

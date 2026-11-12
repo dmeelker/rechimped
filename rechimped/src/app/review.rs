@@ -1,6 +1,7 @@
-use gpui::{Context, Window};
+use std::cell::Cell;
 
-use crate::domain::review::{Line, lines};
+use gpui::{Context, ListAlignment, ListOffset, ListState, Window, px};
+
 use crate::domain::time::last_of_month;
 use crate::forms::Origin;
 use crate::net;
@@ -48,11 +49,52 @@ impl TimeChimpApp {
         });
     }
 
+    /// Brings the selected row into view on the next frame the list is drawn.
     pub(super) fn scroll_to_review_selection(&self) {
-        let Some(rows) = self.session.review_rows() else { return };
-        let Some(index) = rows.iter().position(|r| Some(r.id) == self.session.selected_review_id()) else { return };
-        if let Some(line) = lines(rows).iter().position(|l| *l == Line::Entry(index)) {
-            self.review_scroll.scroll_to_item(line);
+        self.review_list.reveal.set(true);
+    }
+}
+
+/// The Review tab's virtualized list: only the lines in view are laid out each frame.
+pub struct ReviewList {
+    pub state: ListState,
+    /// The `Session::review_revision` the list was last reset for.
+    revision: Cell<Option<(u64, u64)>>,
+    /// The selected row is to be scrolled into view.
+    reveal: Cell<bool>,
+}
+
+impl Default for ReviewList {
+    fn default() -> Self {
+        // Every line is measured once after a reset, so revealing a row far off is exact.
+        let state = ListState::new(0, ListAlignment::Top, px(200.)).measure_all();
+        Self { state, revision: Cell::new(None), reveal: Cell::new(false) }
+    }
+}
+
+impl ReviewList {
+    pub fn scroll_to_top(&self) {
+        self.state.scroll_to(ListOffset::default());
+    }
+
+    /// Called while drawing, before the list: resets it when its lines changed, keeping the
+    /// first line in view, then reveals `selected` (a line index) if asked to. The lines are only
+    /// measured while the list is laid out, so after a reset the reveal waits for the next frame.
+    pub fn sync(&self, revision: (u64, u64), count: usize, selected: Option<usize>, window: &Window) {
+        if self.revision.get() != Some(revision) || self.state.item_count() != count {
+            self.revision.set(Some(revision));
+            let top = self.state.logical_scroll_top();
+            self.state.reset(count);
+            self.state.scroll_to(top);
+            if self.reveal.get() {
+                window.request_animation_frame();
+            }
+            return;
+        }
+        if self.reveal.take()
+            && let Some(line) = selected
+        {
+            self.state.scroll_to_reveal_item(line);
         }
     }
 }

@@ -201,7 +201,7 @@ impl TimeChimpApp {
         });
         match saved {
             Ok(()) => {
-                self.session.settings = settings;
+                self.session.set_settings(settings);
                 self.close_overlay(window, cx);
                 self.set_info("Settings saved", window, cx);
                 if !tag_changes.is_empty() || presets_changed {

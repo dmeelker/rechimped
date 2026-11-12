@@ -112,7 +112,7 @@ pub fn has_finding(row: &TimeReportRow, mismatches: &HashMap<i64, TagMismatch>, 
 }
 
 /// How many rows have each finding, for the summary line.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Findings {
     pub no_notes: usize,
     pub tags_differ: usize,
@@ -140,7 +140,7 @@ impl Findings {
     }
 }
 
-/// One line of the review list: drawn in this order, so its position is the list's child index.
+/// One line of the review list: drawn in this order, so its position is the list's item index.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Line {
     Day { date: NaiveDate, total: f64 },
@@ -158,6 +158,28 @@ pub fn lines(rows: &[TimeReportRow]) -> Vec<Line> {
         start += day.len();
     }
     lines
+}
+
+/// What the review list draws that is worked out from the whole month: kept with the rows and
+/// redone only when they or the excluded tasks change, not per frame.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Analysis {
+    pub lines: Vec<Line>,
+    pub mismatches: HashMap<i64, TagMismatch>,
+    pub findings: Findings,
+}
+
+impl Analysis {
+    pub fn of(rows: &[TimeReportRow], excluded: &TaskNames) -> Self {
+        let mismatches = tag_mismatches(rows);
+        let findings = Findings::of(rows, &mismatches, excluded);
+        Self { lines: lines(rows), mismatches, findings }
+    }
+
+    /// The line that draws `rows[index]`.
+    pub fn line_of(&self, index: usize) -> Option<usize> {
+        self.lines.iter().position(|l| *l == Line::Entry(index))
+    }
 }
 
 #[cfg(test)]
@@ -314,5 +336,18 @@ mod tests {
             ]
         );
         assert_eq!(lines(&[]), []);
+    }
+
+    #[test]
+    fn analysis_of_a_month() {
+        let excluded = default_excluded_tasks();
+        let rows = [noted_row(1, Some("x"), Some("a")), noted_row(2, Some("x"), None), noted_row(3, None, None)];
+        let analysis = Analysis::of(&rows, &excluded);
+        assert_eq!(analysis.lines, lines(&rows));
+        assert_eq!(analysis.mismatches, tag_mismatches(&rows));
+        assert_eq!(analysis.findings, Findings::of(&rows, &analysis.mismatches, &excluded));
+        assert_eq!(analysis.line_of(0), Some(1), "after the day header");
+        assert_eq!(analysis.line_of(3), None);
+        assert_eq!(Analysis::of(&[], &excluded), Analysis::default());
     }
 }

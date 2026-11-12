@@ -55,6 +55,10 @@ struct Review {
     rows: Vec<TimeReportRow>,
     selected: Option<i64>,
     generation: u64,
+    /// Worked out from `rows` and the excluded tasks.
+    analysis: review::Analysis,
+    /// Bumped whenever `analysis` is redone, so the list knows to measure its lines again.
+    revision: u64,
 }
 
 pub struct Base {
@@ -100,6 +104,8 @@ impl Session {
                 rows: Vec::new(),
                 selected: None,
                 generation: 0,
+                analysis: review::Analysis::default(),
+                revision: 0,
             },
         }
     }
@@ -146,10 +152,10 @@ impl Session {
             self.project_tags.clear();
             self.trip_presets.clear();
             self.time_presets.clear();
-            self.settings = Settings::default();
+            self.set_settings(Settings::default());
             return None;
         };
-        self.settings = config.settings;
+        self.set_settings(config.settings);
         let (resolved, warning) = config::resolve_project_tags(&config.projects, self.projects(), self.tags());
         self.project_tags = resolved;
         let mut unknown: Vec<String> = config
@@ -261,7 +267,10 @@ impl Session {
     pub fn set_review_month(&mut self, day: NaiveDate) {
         let month = domain::time::first_of_month(day);
         if month != self.review.month {
-            self.review = Review { month, loaded: None, rows: Vec::new(), selected: None, ..self.review };
+            let Review { generation, revision, .. } = self.review;
+            let analysis = review::Analysis::default();
+            self.review = Review { month, loaded: None, rows: Vec::new(), selected: None, generation, analysis, revision };
+            self.analyze_review();
         }
     }
 
@@ -279,7 +288,34 @@ impl Session {
         self.review.selected = reselect(self.review.selected, select_id, &ids(&self.review.rows), &ids(&rows));
         self.review.rows = rows;
         self.review.loaded = Some(month);
+        self.analyze_review();
         true
+    }
+
+    fn analyze_review(&mut self) {
+        self.review.analysis = review::Analysis::of(&self.review.rows, &self.settings.excluded_tasks);
+        self.review.revision += 1;
+    }
+
+    /// The settings go through here (not by assigning the field), as the review's findings
+    /// depend on the excluded tasks.
+    pub fn set_settings(&mut self, settings: Settings) {
+        let excluded_changed = settings.excluded_tasks != self.settings.excluded_tasks;
+        self.settings = settings;
+        if excluded_changed {
+            self.analyze_review();
+        }
+    }
+
+    /// The lines, tag mismatches and findings of `review_rows`; None while those are.
+    pub fn review_analysis(&self) -> Option<&review::Analysis> {
+        self.review_rows().is_some().then_some(&self.review.analysis)
+    }
+
+    /// Changes whenever `review_analysis` is redone, also across sessions (which have their own
+    /// epoch).
+    pub fn review_revision(&self) -> (u64, u64) {
+        (self.epoch, self.review.revision)
     }
 
     /// None unless loaded for the month shown and not invalidated since.
@@ -315,13 +351,13 @@ impl Session {
     /// The next (`direction` 1) or previous (-1) row with a finding, wrapping around.
     pub fn next_review_finding(&mut self, direction: isize) {
         let Some(rows) = self.review_rows() else { return };
-        let mismatches = review::tag_mismatches(rows);
+        let mismatches = &self.review.analysis.mismatches;
         let len = rows.len() as isize;
         let pos = rows.iter().position(|r| Some(r.id) == self.review.selected);
         let start = pos.map_or(if direction < 0 { len } else { -1 }, |p| p as isize);
         let next = (1..=len)
             .map(|step| (start + direction * step).rem_euclid(len) as usize)
-            .find(|&i| review::has_finding(&rows[i], &mismatches, &self.settings.excluded_tasks));
+            .find(|&i| review::has_finding(&rows[i], mismatches, &self.settings.excluded_tasks));
         if let Some(i) = next {
             self.review.selected = Some(rows[i].id);
         }
@@ -674,6 +710,34 @@ mod tests {
 
         s.set_review_month(november - Months::new(1));
         assert!(s.review.rows.is_empty() && s.selected_review_id().is_none(), "stepping clears the rows");
+    }
+
+    #[test]
+    fn review_analysis_follows_rows_and_excluded_tasks() {
+        let mut s = Session::new(None, date(4));
+        assert!(s.review_analysis().is_none());
+        let (generation, month) = s.begin_review_load();
+        let leave = TimeReportRow { project: "Intern".into(), task: "Verlof".into(), ..noted_row(2, None, None) };
+        let start = s.review_revision();
+        s.apply_review(generation, month, vec![noted_row(1, Some("x"), None), leave], None);
+        let loaded = s.review_revision();
+        assert_ne!(loaded, start, "a load redoes it");
+        let analysis = s.review_analysis().unwrap();
+        assert_eq!(analysis.lines.len(), 3);
+        assert_eq!(analysis.findings.no_notes, 0, "leave needs no notes");
+
+        s.set_settings(s.settings.clone());
+        assert_eq!(s.review_revision(), loaded, "the same excluded tasks change nothing");
+        s.set_settings(Settings { excluded_tasks: Default::default(), ..s.settings.clone() });
+        assert_ne!(s.review_revision(), loaded);
+        assert_eq!(s.review_analysis().unwrap().findings.no_notes, 1);
+
+        s.invalidate_review();
+        assert!(s.review_analysis().is_none(), "stale with its rows");
+        let before = s.review_revision();
+        s.set_review_month(date(4) - Months::new(3));
+        assert_ne!(s.review_revision(), before, "another month");
+        assert_ne!(Session::new(None, date(4)).review_revision(), Session::new(None, date(4)).review_revision());
     }
 
     #[test]

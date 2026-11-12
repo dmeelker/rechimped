@@ -39,7 +39,7 @@ impl TimeChimpApp {
             Tab::Week => self.render_day(theme, cx).into_any_element(),
             Tab::Travel => self.render_travel(theme, cx).into_any_element(),
             Tab::Report => self.render_report(theme).into_any_element(),
-            Tab::Review => self.render_review(theme, cx).into_any_element(),
+            Tab::Review => self.render_review(window, theme, cx).into_any_element(),
         };
 
         let browse = v_stack()
