@@ -34,6 +34,8 @@ gpui crates are pinned to `=1.17.2` (`gpui-unofficial`, `gpui-platform-gpui-unof
 
 A recurring `note: did not finalize incremental compilation session directory … Access is denied` is harmless (Windows/Defender locking `target\debug\incremental`); delete that folder if it sticks.
 
+**CI**: `.github/workflows/check.yml` runs `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` on Windows on every push and pull request.
+
 **Packaging**: `scripts\package-windows.ps1` (zip) and `scripts\package-linux.ps1` (tar.gz, built in Docker from `linux/Dockerfile`; Docker Desktop must be running) write to `dist\`, named with the version from `rechimped/Cargo.toml`. `docs/release-readme.txt` ships as `README.txt`: keep it in step with `README.md`. `.github/workflows/release.yml` runs those same scripts, so change packaging in the scripts, not the workflow. Pushing a tag `vX.Y.Z` (must match the Cargo.toml version) builds and publishes a release; a manual run only builds. The Linux binary needs glibc ≥ 2.35, libxcb, libxkbcommon(-x11) and OpenSSL 3. The window's `app_id` `rechimped` must match `linux/rechimped.desktop`.
 
 App icon: `assets/make-icon.ps1` draws `assets/rechimped.ico` and `.png`; rerun it after changing the design. `build.rs` embeds the ico as resource 1 (needs the Windows SDK `rc.exe`).
