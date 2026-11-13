@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use timechimp_api::{MileageType, Project, Tag};
 
 use crate::domain::same_name;
+use crate::domain::week::TaskNames;
 
 
 pub const DEFAULT_BILLABLE_GOAL: f64 = 0.8;
@@ -19,15 +20,15 @@ pub struct Settings {
     pub work_days: [bool; 7],
     pub billable_goal: f64,
     pub hidden_projects: Vec<String>,
-    pub hidden_tasks: BTreeMap<String, Vec<String>>,
+    pub hidden_tasks: TaskNames,
     /// Per project, the tasks whose hours count neither as worked nor towards the contract (leave).
-    pub excluded_tasks: BTreeMap<String, Vec<String>>,
+    pub excluded_tasks: TaskNames,
     /// At startup, remind to register today's trip while none is (off by default).
     pub travel_reminder: bool,
 }
 
 /// Stored as exclusions, so a task added in TimeChimp later counts towards the target by itself.
-pub fn default_excluded_tasks() -> BTreeMap<String, Vec<String>> {
+pub fn default_excluded_tasks() -> TaskNames {
     BTreeMap::from([("Intern".to_owned(), vec!["Verlof".to_owned(), "Ziek".to_owned()])])
 }
 
@@ -55,8 +56,8 @@ struct ConfigFile {
     #[serde(default)]
     hidden_projects: Vec<String>,
     #[serde(default)]
-    hidden_tasks: BTreeMap<String, Vec<String>>,
-    excluded_tasks: Option<BTreeMap<String, Vec<String>>>,
+    hidden_tasks: TaskNames,
+    excluded_tasks: Option<TaskNames>,
     #[serde(default)]
     travel_reminder: bool,
     #[serde(default)]
@@ -283,7 +284,7 @@ fn with_settings(text: &str, settings: &Settings) -> Result<String, String> {
 fn set_task_table(
     doc: &mut toml_edit::DocumentMut,
     key: &str,
-    names: &BTreeMap<String, Vec<String>>,
+    names: &TaskNames,
     comment: &str,
 ) -> Result<(), String> {
     let table = doc

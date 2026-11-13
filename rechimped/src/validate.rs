@@ -1,10 +1,10 @@
 
-use std::collections::BTreeMap;
 
 use chrono::NaiveDate;
 use timechimp_api::{Mileage, MileageType, NewMileage, NewTimeEntry};
 
 use crate::domain::same_name;
+use crate::domain::week::TaskNames;
 use crate::domain::time::{local, parse_decimal, parse_end, parse_hours, parse_time};
 use crate::session::Session;
 use crate::store::config::{self, Settings, TimePreset, TripPreset};
@@ -212,8 +212,8 @@ pub struct SettingsValues {
     pub work_days: [bool; 7],
     pub billable_goal: String,
     pub hidden_projects: Vec<String>,
-    pub hidden_tasks: BTreeMap<String, Vec<String>>,
-    pub excluded_tasks: BTreeMap<String, Vec<String>>,
+    pub hidden_tasks: TaskNames,
+    pub excluded_tasks: TaskNames,
     pub travel_reminder: bool,
 }
 
@@ -382,8 +382,8 @@ mod tests {
             work_days: days,
             billable_goal: goal.into(),
             hidden_projects: vec!["Old".into()],
-            hidden_tasks: BTreeMap::from([("P".into(), vec!["T".into()])]),
-            excluded_tasks: BTreeMap::from([("Q".into(), vec!["Leave".into()])]),
+            hidden_tasks: TaskNames::from([("P".into(), vec!["T".into()])]),
+            excluded_tasks: TaskNames::from([("Q".into(), vec!["Leave".into()])]),
             travel_reminder: true,
         };
         let weekdays = [true, true, true, true, true, false, false];
@@ -393,8 +393,8 @@ mod tests {
                 work_days: weekdays,
                 billable_goal: 0.75,
                 hidden_projects: vec!["Old".into()],
-                hidden_tasks: BTreeMap::from([("P".into(), vec!["T".into()])]),
-                excluded_tasks: BTreeMap::from([("Q".into(), vec!["Leave".into()])]),
+                hidden_tasks: TaskNames::from([("P".into(), vec!["T".into()])]),
+                excluded_tasks: TaskNames::from([("Q".into(), vec!["Leave".into()])]),
                 travel_reminder: true,
             })
         );

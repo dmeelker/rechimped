@@ -9,6 +9,7 @@ use timechimp_api::Project;
 
 use super::{TypeAhead, text};
 use crate::domain::same_name;
+use crate::domain::week::TaskNames;
 use crate::scroll::ScrollArea;
 use crate::session::Session;
 use crate::store::config::{TimePreset, TripPreset};
@@ -83,6 +84,17 @@ impl SettingsForm {
             hidden_tasks: self.tasks.hidden_names(),
             excluded_tasks: self.billability.hidden_names(),
             travel_reminder: self.travel_reminder.read(cx).is_checked(),
+        }
+    }
+
+    /// The checklist the window's list keys drive on the current page, if it has one.
+    pub fn list_mut(&mut self) -> Option<&mut dyn SettingsList> {
+        match self.page {
+            SettingsPage::General | SettingsPage::Presets => None,
+            SettingsPage::Projects => Some(&mut self.projects),
+            SettingsPage::Tasks => Some(&mut self.tasks),
+            SettingsPage::Billability => Some(&mut self.billability),
+            SettingsPage::ProjectTags => Some(&mut self.tags),
         }
     }
 
@@ -224,6 +236,30 @@ impl ListNav {
     }
 }
 
+/// The list keys of a settings page's checklist.
+pub trait SettingsList {
+    fn move_cursor(&mut self, delta: isize);
+    fn type_ahead(&mut self, typed: &str);
+    fn toggle_at(&mut self, index: Option<usize>);
+}
+
+macro_rules! settings_list {
+    ($($t:ty),*) => {$(
+        impl SettingsList for $t {
+            fn move_cursor(&mut self, delta: isize) {
+                <$t>::move_cursor(self, delta)
+            }
+            fn type_ahead(&mut self, typed: &str) {
+                <$t>::type_ahead(self, typed)
+            }
+            fn toggle_at(&mut self, index: Option<usize>) {
+                <$t>::toggle_at(self, index)
+            }
+        }
+    )*};
+}
+settings_list!(ProjectVisibility, TaskVisibility, ProjectTagsForm);
+
 pub struct ProjectVisibility {
     pub projects: Vec<ProjectRow>,
     pub hidden: BTreeSet<i64>,
@@ -286,14 +322,14 @@ pub struct TaskVisibility {
     pub hidden: HashMap<i64, BTreeSet<i64>>,
     pub hidden_projects: BTreeSet<i64>,
     /// Kept so saving doesn't drop them.
-    others: BTreeMap<String, Vec<String>>,
+    others: TaskNames,
     pub nav: ListNav,
 }
 
 /// One checkbox per active task of each active project, checked unless `names` (the unchecked
 /// ones, by name per project) lists it. Used for the Tasks page and for Billability.
 impl TaskVisibility {
-    pub fn new(session: &Session, hidden_projects: &BTreeSet<i64>, names: &BTreeMap<String, Vec<String>>) -> Self {
+    pub fn new(session: &Session, hidden_projects: &BTreeSet<i64>, names: &TaskNames) -> Self {
         let projects: Vec<_> = session
             .projects()
             .iter()
@@ -389,7 +425,7 @@ impl TaskVisibility {
         self.hidden.insert(p.id, hidden);
     }
 
-    pub fn hidden_names(&self) -> BTreeMap<String, Vec<String>> {
+    pub fn hidden_names(&self) -> TaskNames {
         let mut names = BTreeMap::new();
         for (project, tasks) in &self.projects {
             let others =

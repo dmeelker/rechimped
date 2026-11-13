@@ -47,8 +47,7 @@ pub fn recent_items<'a>(entries: impl IntoIterator<Item = &'a TimeEntry>) -> Vec
 }
 
 pub fn billable_hours(entries: &[TimeEntry]) -> f64 {
-    // A fold from +0.0: `sum` of nothing is -0.0, which shows as "-0%".
-    entries.iter().filter(|e| e.billable).fold(0.0, |total, e| total + e.hours)
+    super::total(entries.iter().filter(|e| e.billable).map(|e| e.hours))
 }
 
 /// Per project, by name, as the config holds them.
@@ -80,12 +79,11 @@ pub struct WeekCard {
 
 pub fn week_card(entries: &[TimeEntry], contract_hours: f64, excluded: &TaskNames) -> WeekCard {
     let worked: Vec<TimeEntry> = entries.iter().filter(|e| !is_excluded(e, excluded)).cloned().collect();
-    // Folds from +0.0: `sum` of nothing is -0.0, which shows as "-0".
-    let hours = worked.iter().fold(0.0, |total, e| total + e.hours);
-    let leave = entries.iter().filter(|e| is_excluded(e, excluded)).fold(0.0, |total, e| total + e.hours);
+    let hours = super::total(worked.iter().map(|e| e.hours));
+    let leave = super::total(entries.iter().filter(|e| is_excluded(e, excluded)).map(|e| e.hours));
     let contract = (contract_hours - leave).max(0.0);
     let billable = billable_hours(&worked);
-    let non_billable = worked.iter().filter(|e| !e.billable).fold(0.0, |total, e| total + e.hours);
+    let non_billable = super::total(worked.iter().filter(|e| !e.billable).map(|e| e.hours));
     let of = if contract > 0.0 { contract } else { hours };
     WeekCard {
         hours,

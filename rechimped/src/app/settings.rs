@@ -89,13 +89,8 @@ impl TimeChimpApp {
         let Some(command) = settings_key(&keystroke.key, m.control, m.shift) else {
             let typed = keystroke.key_char.as_deref().filter(|c| c.chars().all(char::is_alphanumeric));
             if let Some(typed) = typed.filter(|_| on_window && !m.control) {
-                match form.page {
-                    SettingsPage::General | SettingsPage::Presets => return,
-                    SettingsPage::Projects => form.projects.type_ahead(typed),
-                    SettingsPage::Tasks => form.tasks.type_ahead(typed),
-                    SettingsPage::Billability => form.billability.type_ahead(typed),
-                    SettingsPage::ProjectTags => form.tags.type_ahead(typed),
-                }
+                let Some(list) = form.list_mut() else { return };
+                list.type_ahead(typed);
                 cx.stop_propagation();
                 cx.notify();
             }
@@ -112,12 +107,9 @@ impl TimeChimpApp {
             SettingsKey::PageTo(_) => return,
             _ if !on_window => return,
             SettingsKey::Save => return self.save_settings(window, cx),
-            SettingsKey::Move(delta) => match form.page {
-                SettingsPage::General | SettingsPage::Presets => return,
-                SettingsPage::Projects => form.projects.move_cursor(delta),
-                SettingsPage::Tasks => form.tasks.move_cursor(delta),
-                SettingsPage::Billability => form.billability.move_cursor(delta),
-                SettingsPage::ProjectTags => form.tags.move_cursor(delta),
+            SettingsKey::Move(delta) => match form.list_mut() {
+                Some(list) => list.move_cursor(delta),
+                None => return,
             },
             SettingsKey::List(column) => match form.page {
                 SettingsPage::Tasks => form.tasks.nav.column = column,
@@ -125,12 +117,9 @@ impl TimeChimpApp {
                 SettingsPage::ProjectTags => form.tags.nav.column = column,
                 SettingsPage::General | SettingsPage::Projects | SettingsPage::Presets => return,
             },
-            SettingsKey::Toggle => match form.page {
-                SettingsPage::General | SettingsPage::Presets => return,
-                SettingsPage::Projects => form.projects.toggle_at(None),
-                SettingsPage::Tasks => form.tasks.toggle_at(None),
-                SettingsPage::Billability => form.billability.toggle_at(None),
-                SettingsPage::ProjectTags => form.tags.toggle_at(None),
+            SettingsKey::Toggle => match form.list_mut() {
+                Some(list) => list.toggle_at(None),
+                None => return,
             },
         }
         cx.stop_propagation();
