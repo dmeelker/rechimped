@@ -32,12 +32,14 @@ impl TimeChimpApp {
         };
         self.run("Loading…", future, window, cx, move |this, result, window, cx| match result {
             Ok((base, week, report, history)) => {
+                let report_failed = matches!(report, Some(Err(_)));
                 // Clear the old error first: loading the config or the history may report one.
                 this.error = None;
                 let history = history.map_err(|e| this.set_error(format!("Could not load recent entries: {e}"), window, cx));
                 this.session.apply_base(base, history.ok(), &week.entries);
                 this.load_config(window, cx);
-                // Also covers switching to the tab before the user was known.
+                // The catch-ups also cover moving to another week, month or tab before the user was
+                // known, when no load could start.
                 if this.tab == Tab::Review && this.session.review_rows().is_none() {
                     this.load_review(None, window, cx);
                 }
@@ -49,9 +51,13 @@ impl TimeChimpApp {
                     Some(Err(e)) => this.set_error(format!("Could not load the report: {e}"), window, cx),
                     _ => {}
                 }
-                if this.session.is_latest_week_load(generation) {
-                    this.on_week_loaded(week, None);
+                if this.tab == Tab::Report && this.session.report().is_none() && !report_failed {
+                    this.load_report(window, cx);
+                }
+                if this.on_week_loaded(generation, week, None) {
                     this.check_travel_reminder(cx);
+                } else if !this.session.week_loaded() {
+                    this.load_week(None, window, cx);
                 }
             }
             Err(e) => this.api_error(e, window, cx),
@@ -89,19 +95,23 @@ impl TimeChimpApp {
             window,
             cx,
             move |this, result, window, cx| match result {
-                Ok(week) if this.session.is_latest_week_load(generation) => {
-                    this.on_week_loaded(week, select_id);
-                    this.error = None;
+                Ok(week) => {
+                    if this.on_week_loaded(generation, week, select_id) {
+                        this.error = None;
+                    }
                 }
-                Ok(_) => {}
                 Err(e) => this.api_error(e, window, cx),
             },
         );
     }
 
-    fn on_week_loaded(&mut self, week: session::Week, select_id: Option<i64>) {
-        self.fx.sweep += 1;
-        self.session.apply_week(week, select_id);
+    /// False when `week` was dropped, as for a week already left.
+    fn on_week_loaded(&mut self, generation: u64, week: session::Week, select_id: Option<i64>) -> bool {
+        let applied = self.session.apply_week(generation, week, select_id);
+        if applied {
+            self.fx.sweep += 1;
+        }
+        applied
     }
 
     pub(super) fn load_report(&mut self, window: &mut Window, cx: &mut Context<Self>) {

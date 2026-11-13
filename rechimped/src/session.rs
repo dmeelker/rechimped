@@ -25,15 +25,16 @@ pub struct Session {
     day: NaiveDate,
     /// Always the Monday of `day`'s week.
     week_start: NaiveDate,
-    /// Moving to another week empties `entries`/`travel` right away, so nothing of the week left
-    /// shows under the new one's title.
+    /// Moving to another week empties `entries`/`travel` right away, and `apply_week` takes only
+    /// the week shown, so they never hold another week than `week_start`.
     loaded_week: Option<NaiveDate>,
     entries: Vec<TimeEntry>,
     /// Always one of the selected day's entries, if it has any.
     selected_entry: Option<i64>,
     travel: Vec<Mileage>,
     selected_travel: Option<i64>,
-    /// Bumped on every week load, so a slow response for a week we already left is dropped.
+    /// Bumped on every week load and on moving to another week, so a slow response for a week
+    /// we already left is dropped, even if no load for the new week could start yet.
     week_generation: u64,
     history: HashMap<i64, TimeEntry>,
     pub recent: Vec<RecentItem>,
@@ -188,15 +189,15 @@ impl Session {
         (self.week_generation, self.week_start)
     }
 
-    pub fn is_latest_week_load(&self, generation: u64) -> bool {
-        generation == self.week_generation
-    }
-
     pub fn week_loaded(&self) -> bool {
         self.loaded_week == Some(self.week_start)
     }
 
-    pub fn apply_week(&mut self, week: Week, select_id: Option<i64>) {
+    /// Drops what an older load or one for another week brings back.
+    pub fn apply_week(&mut self, generation: u64, week: Week, select_id: Option<i64>) -> bool {
+        if generation != self.week_generation || week.start != self.week_start {
+            return false;
+        }
         // The week replaces what the history had for it, so saves and deletes show up in Recent.
         let week_end = week.start + Duration::days(7);
         self.history.retain(|_, e| !(week.start..week_end).contains(&e.date));
@@ -211,6 +212,7 @@ impl Session {
         self.entries = week.entries;
         self.travel = week.travel;
         self.fix_selection();
+        true
     }
 
     pub fn select_day(&mut self, day: NaiveDate) -> bool {
@@ -219,6 +221,7 @@ impl Session {
         let moved = week_start != self.week_start;
         if moved {
             self.week_start = week_start;
+            self.week_generation += 1;
             self.loaded_week = None;
             self.entries.clear();
             self.travel.clear();
@@ -616,7 +619,7 @@ mod tests {
         let mut s = Session::new(None, date(4));
         assert_eq!(s.week_start, date(2));
         let week = |entries| Week { start: date(2), entries, travel: Vec::new() };
-        s.apply_week(week(vec![entry(1, 3, "09:00-10:00"), entry(2, 4, "09:00-10:00"), entry(3, 4, "10:00-11:30")]), None);
+        load_week(&mut s, week(vec![entry(1, 3, "09:00-10:00"), entry(2, 4, "09:00-10:00"), entry(3, 4, "10:00-11:30")]), None);
         assert_eq!(s.visible_entries(), [1, 2]);
         assert_eq!(s.selected_entry().map(|e| e.id), Some(2), "the first entry of the selected day");
         s.move_entry_selection(5);
@@ -624,7 +627,7 @@ mod tests {
         assert_eq!(s.next_start_time(date(4)).as_deref(), Some("11:30"));
         assert_eq!(s.recent.len(), 1, "same project, task and notes");
 
-        s.apply_week(week(vec![entry(2, 4, "09:00-10:00"), entry(4, 4, "12:00-13:00")]), Some(4));
+        load_week(&mut s, week(vec![entry(2, 4, "09:00-10:00"), entry(4, 4, "12:00-13:00")]), Some(4));
         assert_eq!(s.selected_entry().map(|e| e.id), Some(4));
 
         assert!(!s.select_day(date(8)), "Sunday is still this week");
@@ -634,20 +637,53 @@ mod tests {
         assert_eq!(s.week_start, date(9));
         assert!(!s.week_loaded() && s.entries.is_empty(), "the week left doesn't show under the new one");
 
-        let (first, _) = s.begin_week_load();
-        let (second, monday) = s.begin_week_load();
-        assert_eq!(monday, date(9));
-        assert!(!s.is_latest_week_load(first) && s.is_latest_week_load(second));
-
         // Its entries were cleared on leaving, and no load has come back since.
         assert!(s.select_day(date(4)));
         assert!(!s.week_loaded() && s.entries.is_empty());
     }
 
+    fn load_week(s: &mut Session, week: Week, select_id: Option<i64>) -> bool {
+        let (generation, _) = s.begin_week_load();
+        s.apply_week(generation, week, select_id)
+    }
+
+    #[test]
+    fn only_the_latest_load_of_the_week_shown_applies() {
+        let mut s = Session::new(None, date(4));
+        let week = |monday: u32, id| Week {
+            start: date(monday),
+            entries: vec![entry(id, monday + 1, "09:00-10:00")],
+            travel: vec![trip(id, monday + 1)],
+        };
+
+        let (first, monday) = s.begin_week_load();
+        let (second, _) = s.begin_week_load();
+        assert_eq!(monday, date(2));
+        assert!(!s.apply_week(first, week(2, 1), None), "an older load");
+        assert!(!s.week_loaded());
+        assert!(!s.apply_week(second, week(9, 1), None), "another week");
+        assert!(!s.week_loaded() && s.entries().is_empty());
+        assert!(s.apply_week(second, week(2, 1), None));
+        assert!(s.week_loaded() && s.entries().len() == 1);
+
+        // A load for this week is underway when the user moves on before any load for the next
+        // could start (as while the user isn't known yet): its week must not show under the next.
+        let (pending, _) = s.begin_week_load();
+        assert!(s.select_day(date(11)));
+        assert!(!s.apply_week(pending, week(2, 2), None));
+        assert!(!s.week_loaded() && s.entries().is_empty() && s.travel().is_empty());
+        assert!(load_week(&mut s, week(9, 3), None));
+        assert_eq!(s.entries()[0].id, 3);
+
+        let (generation, _) = s.begin_week_load();
+        assert!(!s.select_day(date(10)), "the same week");
+        assert!(s.apply_week(generation, week(9, 4), None), "a day within the week keeps its load");
+    }
+
     #[test]
     fn next_start_time_outside_the_week_comes_from_the_review() {
         let mut s = Session::new(None, date(4));
-        s.apply_week(Week { start: date(2), entries: vec![entry(1, 4, "09:00-10:00")], travel: Vec::new() }, None);
+        load_week(&mut s, Week { start: date(2), entries: vec![entry(1, 4, "09:00-10:00")], travel: Vec::new() }, None);
         assert_eq!(s.next_start_time(date(10)), None, "no review loaded");
         s.set_review_month(date(20));
         let (generation, month) = s.begin_review_load();

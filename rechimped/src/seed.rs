@@ -223,7 +223,8 @@ mod tests {
         first.modified = date(3).and_hms_opt(12, 0, 0).unwrap();
         let mut second = entry(2, 4, "10:00-11:30");
         (second.project_id, second.project_task_id, second.tag_ids) = (6, 7, vec![20]);
-        s.apply_week(crate::session::Week { start: date(2), entries: vec![first, second], travel: vec![trip(5, 3)] }, None);
+        let (generation, _) = s.begin_week_load();
+        s.apply_week(generation, crate::session::Week { start: date(2), entries: vec![first, second], travel: vec![trip(5, 3)] }, None);
         s
     }
 
