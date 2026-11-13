@@ -314,6 +314,13 @@ impl TimeChimpApp {
         locked.is_some()
     }
 
+    /// config.toml failed to load: true, after an error toast, so nothing writes the defaults over it.
+    fn refuse_config_write(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Err(e) = self.session.config_writable() else { return false };
+        self.set_error(e, window, cx);
+        true
+    }
+
     fn set_error(&mut self, message: impl Into<String>, window: &mut Window, cx: &mut Context<Self>) {
         let message = message.into();
         cx.toast(message.clone()).destructive().show(window, cx);

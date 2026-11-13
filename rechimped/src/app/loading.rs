@@ -79,7 +79,7 @@ impl TimeChimpApp {
                 }
             }
             Err(e) => {
-                self.session.apply_config(None);
+                self.session.apply_config_error(e.clone());
                 self.set_error(e, window, cx);
             }
         }

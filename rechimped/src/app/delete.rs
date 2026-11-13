@@ -123,7 +123,8 @@ impl TimeChimpApp {
     }
 
     fn delete_preset(&mut self, preset: &impl config::Preset, window: &mut Window, cx: &mut Context<Self>) {
-        match config::path().and_then(|path| config::remove_preset(&path, preset)) {
+        let removed = self.session.config_writable().and_then(|()| config::path()).and_then(|path| config::remove_preset(&path, preset));
+        match removed {
             Ok(()) => {
                 self.load_config(window, cx);
                 self.set_info("Preset deleted from config.toml", window, cx);

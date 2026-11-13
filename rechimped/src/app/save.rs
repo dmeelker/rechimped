@@ -12,6 +12,9 @@ use super::{SAVING, TimeChimpApp};
 
 impl TimeChimpApp {
     pub fn save_as_preset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Err(e) = self.session.config_writable() {
+            return self.form_error(e, cx);
+        }
         let saved = match self.form() {
             Some(Form { body: FormBody::Travel(f), .. }) => validate::preset(&f.values(cx), &self.session)
                 .and_then(|p| config::path().and_then(|path| config::append_preset(&path, &p)).map(|_| p.name)),

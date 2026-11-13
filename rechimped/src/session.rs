@@ -21,6 +21,9 @@ pub struct Session {
     pub settings: Settings,
     pub trip_presets: Vec<TripPreset>,
     pub time_presets: Vec<TimePreset>,
+    /// Why config.toml failed to load. While set nothing writes to it: the defaults shown
+    /// meanwhile would be saved over what the file holds.
+    config_error: Option<String>,
 
     day: NaiveDate,
     /// Always the Monday of `day`'s week.
@@ -87,6 +90,7 @@ impl Session {
             settings: Settings::default(),
             trip_presets: Vec::new(),
             time_presets: Vec::new(),
+            config_error: None,
             day: today,
             week_start: domain::time::monday_of(today),
             loaded_week: None,
@@ -149,7 +153,22 @@ impl Session {
         }
     }
 
+    /// Falls back to the defaults, like a missing file, but blocks writes until a load succeeds.
+    pub fn apply_config_error(&mut self, error: String) {
+        self.apply_config(None);
+        self.config_error = Some(error);
+    }
+
+    /// Err, with the message to show, while config.toml failed to load.
+    pub fn config_writable(&self) -> Result<(), String> {
+        match &self.config_error {
+            Some(e) => Err(format!("Fix config.toml first: {e}")),
+            None => Ok(()),
+        }
+    }
+
     pub fn apply_config(&mut self, config: Option<Config>) -> Option<String> {
+        self.config_error = None;
         let Some(config) = config else {
             self.project_tags.clear();
             self.trip_presets.clear();
@@ -918,6 +937,27 @@ mod tests {
         assert_eq!((s.settings.billable_goal, s.trip_presets.len(), s.time_presets.len()), (0.7, 1, 1));
         assert_eq!(s.apply_config(None), None);
         assert_eq!((s.settings, s.trip_presets.len(), s.time_presets.len()), (Settings::default(), 0, 0));
+    }
+
+    #[test]
+    fn a_failed_config_load_blocks_writes_until_one_succeeds() {
+        let config = |billable_goal| Config {
+            settings: Settings { billable_goal, ..Settings::default() },
+            projects: HashMap::new(),
+            trips: Vec::new(),
+            time_entries: Vec::new(),
+        };
+        let mut s = Session::new(None, date(4));
+        assert_eq!(s.config_writable(), Ok(()));
+        s.apply_config(Some(config(0.7)));
+        s.apply_config_error("bad billable_goal".into());
+        assert_eq!(s.settings, Settings::default());
+        assert_eq!(s.config_writable(), Err("Fix config.toml first: bad billable_goal".into()));
+        s.apply_config(Some(config(0.8)));
+        assert_eq!(s.config_writable(), Ok(()), "a fixed file loads");
+        s.apply_config_error("again".into());
+        s.apply_config(None);
+        assert_eq!(s.config_writable(), Ok(()), "a missing file gets a fresh template");
     }
 
     #[test]

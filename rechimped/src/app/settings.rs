@@ -15,6 +15,9 @@ impl TimeChimpApp {
         if self.overlay_open() {
             return self.close_menu(cx);
         }
+        if self.refuse_config_write(window, cx) {
+            return;
+        }
         let current = &self.session.settings;
         let work_days = (0..7u8)
             .zip(current.work_days)
@@ -174,6 +177,9 @@ impl TimeChimpApp {
         let Some(form) = self.settings_form() else { return };
         if !form.is_dirty(cx) {
             return self.close_overlay(window, cx);
+        }
+        if let Err(e) = self.session.config_writable() {
+            return self.settings_failed(e, None, window, cx);
         }
         let values = form.values(cx);
         let settings = match validate::settings(&values) {
