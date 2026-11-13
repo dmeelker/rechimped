@@ -12,7 +12,7 @@ These come before convenience: a change that breaks one isn't done.
    - Never block the UI thread: network and other slow work goes through `TimeChimpApp::run`.
    - Keep `render` cheap: work out derived data when its inputs change and keep it (as the review's `Analysis` is), not on every frame.
    - Lay out only what's visible: a list that can outgrow a screen is virtualized with gpui's `list` + `ListState`, as the Review tab does, never drawn as children of a scroll div (every child is laid out every frame: Review's ~120 rows took 158 ms CPU per frame in a debug build as plain children, 21 ms as a `list`).
-   - Measure, don't guess: check a UI change with the F12 frame-time HUD (the Time tab is about 25 ms CPU per frame in a debug build); a change that pushes a view well above that needs fixing before it's committed.
+   - Measure, don't guess: run with `--perf-log <file>` (see Checking UI changes) and compare a view's CPU per frame before and after; a change that pushes a view well above its baseline (debug build, mock: Time ~12 ms, Review ~14 ms, Travel and Report ~24 ms median) needs fixing before it's committed.
 
 ## Toolchain
 
@@ -100,4 +100,5 @@ To verify visually on Windows: start the exe, post input with `PostMessage` to t
 
 - A posted Ctrl isn't seen as held (gpui reads the real key state), so Ctrl shortcuts can't be driven this way: click instead (Settings… is in the user menu under the name in the header).
 - `PrintWindow` captures the frame too: a point in the screenshot is client point (x − 8, y − 31) for `WM_LBUTTONDOWN`/`WM_MOUSEMOVE` (`MK_LBUTTON` in wParam while dragging).
-- Measure a view's cost with F12 (see Goals).
+
+Measure performance with `--perf-log <file>` (any build, combines with `--mock`), not with screenshots: it writes a tab-separated line per frame, `t_ms` (since start), `cpu_ms` (render to end of paint, `Fx::end_frame`), `anim` (1 when `Fx` asked for the next frame: login, busy, showcase; gpui's own animations such as the sweep bar don't set it) and `view` (`Login`, or the tab plus `+Overlay` and `+Menu`, `TimeChimpApp::perf_view`). Group by `view` for medians and maxima. An idle screen writes nothing, so a run of lines while nothing moves means something keeps redrawing. F12 still shows the HUD, but it also turns on the aurora, so its figures include that.

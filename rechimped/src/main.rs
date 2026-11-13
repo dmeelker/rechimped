@@ -17,6 +17,7 @@ mod test_support;
 mod validate;
 mod view;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui::{
@@ -33,12 +34,14 @@ use app::{
 };
 
 fn main() {
-    let mock = std::env::args().skip(1).any(|a| a == "--mock").then(start_mock);
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mock = args.iter().any(|a| a == "--mock").then(start_mock);
+    let perf_log = args.iter().position(|a| a == "--perf-log").and_then(|i| args.get(i + 1)).map(PathBuf::from);
     // Start the tokio runtime up front so the first request doesn't pay for it.
     let _ = net::runtime();
 
     Application::with_platform(gpui_platform::current_platform(false)).with_assets(gpuikit::assets()).run(
-        |cx: &mut App| {
+        move |cx: &mut App| {
             gpuikit::init(cx);
             cx.set_global(GlobalTheme(Arc::new(theme())));
             bind_keys(cx);
@@ -55,7 +58,17 @@ fn main() {
                     app_id: Some("rechimped".into()),
                     ..Default::default()
                 },
-                |window, cx| cx.new(|cx| TimeChimpApp::new(mock, window, cx)),
+                |window, cx| {
+                    cx.new(|cx| {
+                        let mut app = TimeChimpApp::new(mock, window, cx);
+                        if let Some(path) = &perf_log
+                            && let Err(e) = app.fx.log_to(path)
+                        {
+                            eprintln!("--perf-log {}: {e}", path.display());
+                        }
+                        app
+                    })
+                },
             )
             .expect("failed to open window");
             cx.on_window_closed(|cx, _| cx.quit()).detach();

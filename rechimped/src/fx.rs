@@ -1,9 +1,12 @@
 //! gpui has no custom-shader hook, so these effects are built from its GPU primitives and redrawn
 //! every frame. Animation only runs while wanted, so the app otherwise stays idle.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::f32::consts::TAU;
+use std::fs::File;
+use std::io::{LineWriter, Write};
+use std::path::Path;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -23,6 +26,17 @@ pub struct Fx {
     frames: VecDeque<Instant>,
     cpu: Rc<Cell<Duration>>,
     cpu_avg: f32,
+    /// Whether this frame asked for the next one (`begin_frame`), for the perf log.
+    animating: bool,
+    log: Option<Rc<RefCell<PerfLog>>>,
+}
+
+/// `--perf-log <file>`: one tab-separated line per frame, so performance can be read without the
+/// HUD: ms since start, CPU ms up to the end of paint, whether it animates, and what was shown.
+/// An idle screen writes nothing.
+struct PerfLog {
+    out: LineWriter<File>,
+    start: Instant,
 }
 
 impl Fx {
@@ -34,7 +48,16 @@ impl Fx {
             frames: VecDeque::with_capacity(HISTORY + 1),
             cpu: Rc::new(Cell::new(Duration::ZERO)),
             cpu_avg: 0.,
+            animating: false,
+            log: None,
         }
+    }
+
+    pub fn log_to(&mut self, path: &Path) -> std::io::Result<()> {
+        let mut out = LineWriter::new(File::create(path)?);
+        writeln!(out, "t_ms	cpu_ms	anim	view")?;
+        self.log = Some(Rc::new(RefCell::new(PerfLog { out, start: self.start })));
+        Ok(())
     }
 
     pub fn toggle_showcase(&mut self) {
@@ -56,16 +79,31 @@ impl Fx {
         }
         let cpu = self.cpu.get().as_secs_f32() * 1000.;
         self.cpu_avg = if self.cpu_avg == 0. { cpu } else { self.cpu_avg * 0.9 + cpu * 0.1 };
-        if animate && !cx.reduce_motion() {
+        self.animating = animate && !cx.reduce_motion();
+        if self.animating {
             window.request_animation_frame();
         }
         now
     }
 
-    /// Must be last in the tree: measures CPU time up to the end of paint.
-    pub fn end_frame(&self, started: Instant) -> impl IntoElement {
+    /// Must be last in the tree: measures CPU time up to the end of paint. `view` names what is
+    /// shown, for the perf log; it's only called while logging.
+    pub fn end_frame(&self, started: Instant, view: impl FnOnce() -> String) -> impl IntoElement {
         let cpu = self.cpu.clone();
-        canvas(|_, _, _| (), move |_, _, _, _| cpu.set(started.elapsed())).absolute().size_0()
+        let log = self.log.clone().map(|log| (log, self.animating, view()));
+        canvas(|_, _, _| (), move |_, _, _, _| {
+            let elapsed = started.elapsed();
+            cpu.set(elapsed);
+            if let Some((log, animating, view)) = log {
+                let mut log = log.borrow_mut();
+                let t = (started - log.start).as_secs_f64() * 1000.;
+                let cpu = elapsed.as_secs_f64() * 1000.;
+                // A failed write only costs the log, never the frame.
+                let _ = writeln!(log.out, "{t:.1}	{cpu:.2}	{}	{view}", u8::from(animating));
+            }
+        })
+        .absolute()
+        .size_0()
     }
 
     pub fn hud(&self, fg: Hsla, muted: Hsla, accent: Hsla, surface: Hsla) -> impl IntoElement {

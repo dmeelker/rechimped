@@ -54,7 +54,32 @@ impl Render for TimeChimpApp {
             _ => None,
         })
         .child(cx.toast_manager().clone())
-        .child(self.fx.end_frame(started));
+        .child(self.fx.end_frame(started, || self.perf_view()));
         self.frame(root.into_any_element(), window, &theme, cx)
+    }
+}
+
+impl TimeChimpApp {
+    /// What is on screen, for the perf log: `Login`, or the tab plus any overlay and open menu.
+    fn perf_view(&self) -> String {
+        if matches!(self.screen, Screen::Login(_)) {
+            return "Login".into();
+        }
+        let overlay = match &self.overlay {
+            Overlay::None => None,
+            Overlay::Detail => Some("Detail"),
+            Overlay::About => Some("About"),
+            Overlay::Chart(_) => Some("Chart"),
+            Overlay::Form(_) => Some("Form"),
+            Overlay::Settings(_) => Some("Settings"),
+            Overlay::Confirm { .. } => Some("Confirm"),
+            Overlay::TravelReminder => Some("TravelReminder"),
+        };
+        let mut view = self.tab.label().to_string();
+        for part in overlay.into_iter().chain(self.menu.map(|_| "Menu")) {
+            view.push('+');
+            view.push_str(part);
+        }
+        view
     }
 }
