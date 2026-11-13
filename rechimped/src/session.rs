@@ -6,7 +6,7 @@ use chrono::{Duration, Months, NaiveDate};
 use timechimp_api::{CurrentUser, Mileage, Project, ProjectTask, Tag, TimeEntry, TimeReportRow};
 
 use crate::backend::Api;
-use crate::domain::report::Report;
+use crate::domain::report::{Report, Summary};
 use crate::domain::{self, review, same_name, week::RecentItem};
 use crate::store::config::{self, Config, Settings, TimePreset, TripPreset};
 
@@ -46,6 +46,8 @@ pub struct Session {
     report_month: NaiveDate,
     /// May be for another month than `report_month` until the new one is in.
     report: Report,
+    /// `report.summary()`, worked out once when the report changes rather than every frame.
+    report_summary: Summary,
 
     review: Review,
 }
@@ -103,6 +105,7 @@ impl Session {
             recent: Vec::new(),
             report_month: domain::time::first_of_month(today),
             report: Report::default(),
+            report_summary: Report::default().summary(),
             // The month usually handed in.
             review: Review {
                 month: domain::time::first_of_month(today) - Months::new(1),
@@ -270,16 +273,22 @@ impl Session {
         (self.report.month == Some(self.report_month)).then_some(&self.report)
     }
 
+    pub fn report_summary(&self) -> Option<&Summary> {
+        self.report().is_some().then_some(&self.report_summary)
+    }
+
     pub fn apply_report(&mut self, report: Report) -> bool {
         let current = report.month == Some(self.report_month);
         if current {
             self.report = report;
+            self.report_summary = self.report.summary();
         }
         current
     }
 
     pub fn invalidate_report(&mut self) {
         self.report = Report::default();
+        self.report_summary = self.report.summary();
     }
 
     pub fn review_month(&self) -> NaiveDate {
@@ -730,14 +739,17 @@ mod tests {
         assert!(s.report().is_none());
         let report = |month| Report { month: Some(month), ..Report::default() };
         assert!(!s.apply_report(report(date(1) - Duration::days(1))), "October's report arrives too late");
-        assert!(s.apply_report(report(date(1))));
+        let rows = vec![crate::test_support::report_row("A", "Dev", 2, 2.0, true)];
+        assert!(s.apply_report(Report { time: rows, ..report(date(1)) }));
         assert!(s.report().is_some());
+        assert_eq!(s.report_summary().map(|summary| summary.total), Some(2.0), "summed when applied");
         s.set_report_month(date(1) - Duration::days(1));
         assert!(s.report().is_none(), "another month");
         s.set_report_month(date(30));
         assert!(s.report().is_some());
         s.invalidate_report();
         assert!(s.report().is_none());
+        assert!(s.report_summary().is_none());
     }
 
     #[test]

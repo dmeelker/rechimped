@@ -22,7 +22,8 @@ impl Render for TimeChimpApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let login = matches!(self.screen, Screen::Login(_));
-        let started = self.fx.begin_frame(login || self.fx.showcase || self.busy().is_some(), window, cx);
+        // Loads need no frames of their own here: the sweep bar is a gpui animation and asks for its own.
+        let started = self.fx.begin_frame(login || self.fx.showcase, window, cx);
         let t = self.fx.time(cx);
         let root = div()
             .id("root")

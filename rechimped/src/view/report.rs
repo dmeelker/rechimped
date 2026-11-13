@@ -9,12 +9,11 @@ use super::widgets::*;
 impl TimeChimpApp {
     pub(super) fn render_report(&self, theme: &T, cx: &gpui::Context<Self>) -> impl IntoElement {
         let month = self.session.report_month().format("%B %Y").to_string();
-        let Some(report) = self.session.report() else {
+        let Some(summary) = self.session.report_summary() else {
             let message = if self.busy().is_some() { "Loading report…" } else { NOT_LOADED };
             return panel(theme, month).child(empty_message(theme, message)).into_any_element();
         };
 
-        let summary = report.summary();
         let pct = |h: f64| summary.share(h) * 100.0;
 
         let rows = summary.groups.iter().map(|g| {
@@ -52,7 +51,7 @@ impl TimeChimpApp {
                 .child(muted(theme, label))
                 .child(div().font_weight(FontWeight::SEMIBOLD).child(value))
         };
-        let s = &summary;
+        let s = summary;
         let totals = panel(theme, "Summary").w(px(300.)).flex_none().child(
             v_stack()
                 .p(px(12.))
