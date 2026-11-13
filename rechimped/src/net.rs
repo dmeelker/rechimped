@@ -117,6 +117,15 @@ pub async fn load_report(client: &Api, user_id: i64, month: NaiveDate) -> timech
 mod tests {
     use super::*;
 
+    use std::sync::Arc;
+
+    use chrono::{TimeZone, Utc};
+    use timechimp_api::{MileageType, NewMileage, NewTimeEntry};
+
+    use crate::backend::Backend;
+    use crate::domain::time::first_of_month;
+    use crate::mock::Mock;
+
     fn grid(total: u32, row_count: i64) -> impl FnMut(std::ops::Range<u32>) -> std::future::Ready<timechimp_api::Result<QueryResult<u32>>> {
         move |rows: std::ops::Range<u32>| {
             let row_data = (rows.start..rows.end.min(total)).collect();
@@ -149,5 +158,115 @@ mod tests {
         }))
         .unwrap();
         assert_eq!((rows.len(), calls), (500, 1));
+    }
+
+    /// Thursday 12 November 2026; the mock's data runs up to then.
+    fn today() -> NaiveDate {
+        NaiveDate::from_ymd_opt(2026, 11, 12).unwrap()
+    }
+
+    fn mock() -> (Arc<Mock>, Api) {
+        let mock = Arc::new(Mock::new(Utc.with_ymd_and_hms(2026, 11, 12, 13, 7, 0).unwrap()));
+        let api: Api = mock.clone();
+        (mock, api)
+    }
+
+    fn block_on<T>(future: impl Future<Output = timechimp_api::Result<T>>) -> T {
+        futures::executor::block_on(future).unwrap()
+    }
+
+    #[test]
+    fn base_holds_active_tags_and_every_projects_tasks() {
+        let (mock, api) = mock();
+        let base = block_on(load_base(&api));
+        let all_tags = block_on(mock.tags(TagType::Time));
+        assert!(all_tags.iter().any(|t| !t.active), "the mock has an inactive tag");
+        assert!(!base.tags.is_empty() && base.tags.iter().all(|t| t.active));
+        assert_eq!(base.tags.len(), all_tags.iter().filter(|t| t.active).count());
+
+        assert_eq!(base.project_tasks.len(), base.projects.len());
+        for project in &base.projects {
+            let tasks = &base.project_tasks[&project.id];
+            assert!(!tasks.is_empty(), "{}", project.name);
+            assert!(tasks.iter().all(|t| t.project_id == project.id));
+        }
+    }
+
+    #[test]
+    fn week_is_sorted_by_day_then_start_and_trips_by_day_then_id() {
+        let (mock, api) = mock();
+        let base = block_on(load_base(&api));
+        let me = base.me.id;
+        let monday = monday_of(today());
+        // Added last, dated first: the mock hands both back at the end of the week.
+        let project = &base.projects[1];
+        let task = &base.project_tasks[&project.id][0];
+        let entry = block_on(mock.create_time_entry(&NewTimeEntry::new(me, project, task, monday, 1.0)));
+        let trip = block_on(mock.create_mileage(&NewMileage {
+            user_id: me,
+            customer_id: project.customer_id,
+            project_id: project.id,
+            date: monday,
+            distance: 5.0,
+            from_address: "A".into(),
+            to_address: "B".into(),
+            notes: None,
+            billable: false,
+            mileage_type: MileageType::Business,
+            mileage_vehicle_id: None,
+        }));
+        let raw_trips = block_on(mock.mileage_for_week(me, monday));
+        assert!(raw_trips.iter().any(|m| m.date > monday), "a later trip this week, so the new one has to move");
+
+        let week = block_on(load_week(&api, me, monday));
+        assert_eq!(week.start, monday);
+        assert_eq!(week.entries[0].id, entry.id, "no start time sorts first on its day");
+        assert!(week.entries.is_sorted_by_key(|e| (e.date, e.start)));
+        assert!(week.travel.is_sorted_by_key(|m| (m.date, m.id)));
+        assert_eq!(week.travel.len(), raw_trips.len());
+        assert!(week.travel.iter().position(|m| m.id == trip.id) < Some(week.travel.len() - 1));
+    }
+
+    #[test]
+    fn history_skips_the_week_already_loaded() {
+        let (_, api) = mock();
+        let me = block_on(load_base(&api)).me.id;
+        let this_week = monday_of(today());
+        let mondays: Vec<NaiveDate> = (0..HISTORY_WEEKS).map(|k| this_week - Duration::weeks(k)).collect();
+        let ids = |entries: Vec<TimeEntry>| entries.into_iter().map(|e| e.id).collect::<Vec<_>>();
+        let all = ids(block_on(load_weeks(&api, me, &mondays)));
+        assert!(!all.is_empty());
+
+        // Not in the range: all five weeks.
+        assert_eq!(ids(block_on(load_history(&api, me, today(), this_week - Duration::weeks(10)))), all);
+
+        let skipped = mondays[2];
+        let history = block_on(load_history(&api, me, today(), skipped));
+        let in_skipped = ids(block_on(load_weeks(&api, me, &[skipped])));
+        assert!(!in_skipped.is_empty());
+        assert!(history.iter().all(|e| !(skipped..skipped + Duration::days(7)).contains(&e.date)));
+        assert_eq!(history.len() + in_skipped.len(), all.len());
+        // Any day of the week counts as today.
+        assert_eq!(block_on(load_history(&api, me, this_week, skipped)).len(), history.len());
+    }
+
+    #[test]
+    fn report_keeps_only_the_users_trips() {
+        let (mock, api) = mock();
+        let me = block_on(load_base(&api)).me.id;
+        let month = first_of_month(today());
+        let to = last_of_month(month);
+        let grid = block_on(mock.query_mileage(month, to, 0..10_000)).row_data;
+        assert!(grid.iter().any(|r| r.user_id != me), "the grid holds a colleague's trips");
+        let mine = grid.iter().filter(|r| r.user_id == me).count();
+        assert!(mine > 0);
+
+        let report = block_on(load_report(&api, me, month));
+        assert_eq!(report.month, Some(month));
+        assert_eq!(report.travel.len(), mine);
+        assert!(report.travel.iter().all(|r| r.user_id == me));
+        assert!(!report.time.is_empty());
+        assert!(report.time.iter().all(|r| r.user_id == me && (month..=to).contains(&r.date)));
+        assert!(report.time.is_sorted_by_key(|r| (r.date, r.start)));
     }
 }
