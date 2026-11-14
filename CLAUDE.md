@@ -87,6 +87,7 @@ One root entity, `TimeChimpApp` (`app/mod.rs`), holds UI state and a `Session` (
 **UI conventions and pitfalls**
 - Theme (`main.rs::theme`): gpuikit controls size themselves from `theme.controls`, so tune sizes there rather than per element.
 - Popups and forms are `deferred` overlays from `TimeChimpApp::modal`. An overlay's `absolute().inset_0()` must not be wrapped in an unpositioned div, or it collapses to zero height. `cx.toast_manager()` must stay rendered in the root.
+- A gpui animation (`with_animation`) asks for each frame by notifying the view it is drawn in, which redraws that view and every ancestor. So the sweep bar is its own view and everything under it (toolbar, tab, footer) is the cached `view::cached::TabBody`, redrawn only when `TimeChimpApp` notifies: keep new animations out of `TimeChimpApp`'s own tree, and keep state changes going through `cx.notify()` on the app, or the cached part shows stale data.
 - Effects (`fx.rs`) are built from gpui primitives (blurred shadows, gradient paths) since gpui has no shader hook. `Fx::end_frame` must stay the last child of the root: its canvas measures CPU time per frame.
 - Scrolling lists use `view::widgets::with_scrollbar`; tables put their rows in `view::widgets::table_rows` so they scroll under a fixed header. Scrollbar state is in `scroll.rs` (pure geometry unit-tested).
 - Hours are shown as `hh:mm` everywhere (`domain::hh_mm`), never as fractions.

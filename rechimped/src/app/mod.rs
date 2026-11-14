@@ -128,6 +128,8 @@ pub struct TimeChimpApp {
     pub trip_scroll: ScrollArea,
     pub report_scroll: ScrollArea,
     pub menu_scroll: ScrollArea,
+    /// Made on the first render, as they need the app's entity (`view::cached`).
+    pub cached_views: Option<crate::view::CachedViews>,
 }
 
 impl TimeChimpApp {
@@ -154,6 +156,7 @@ impl TimeChimpApp {
             trip_scroll: ScrollArea::default(),
             report_scroll: ScrollArea::default(),
             menu_scroll: ScrollArea::default(),
+            cached_views: None,
         };
 
         let stored = || token::load_token().map(|t| Arc::new(Client::new(Authenticator::from_refresh_token(t))) as Api);

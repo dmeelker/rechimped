@@ -9,7 +9,7 @@ use gpuikit::elements::icon_button::icon_button;
 use gpuikit::elements::tooltip::tooltip;
 use gpuikit::icons::Icons;
 use gpuikit::layout::{h_stack, v_stack};
-use gpuikit::theme::{ControlSize, Themeable};
+use gpuikit::theme::{ActiveTheme, ControlSize, Themeable};
 
 use crate::app::{Menu, Overlay, Tab, TimeChimpApp};
 use crate::domain::ApprovalStatus;
@@ -36,12 +36,8 @@ impl TimeChimpApp {
                 |d| d.child(self.render_user_menu(theme, cx)),
             ));
 
-        let body: AnyElement = match self.tab {
-            Tab::Week => self.render_day(theme, cx).into_any_element(),
-            Tab::Travel => self.render_travel(theme, cx).into_any_element(),
-            Tab::Report => self.render_report(theme, cx).into_any_element(),
-            Tab::Review => self.render_review(window, theme, cx).into_any_element(),
-        };
+        let views = self.cached_views.get_or_insert_with(|| super::CachedViews::new(cx));
+        let (body, sweep) = (views.body(), views.sweep());
 
         let browse = v_stack()
             .id("browse")
@@ -56,10 +52,8 @@ impl TimeChimpApp {
             .flex_1()
             .min_h_0()
             .child(header)
-            .child(crate::fx::sweep_bar(self.fx.sweep, self.busy().is_some(), theme.accent()))
-            .child(self.render_toolbar(theme, cx))
-            .child(div().id("body").flex_1().min_h_0().flex().flex_col().px(px(16.)).pb(px(12.)).child(body))
-            .child(self.render_footer(theme));
+            .child(sweep)
+            .child(body);
 
         let focus = self.focus.clone();
         div()
@@ -81,6 +75,24 @@ impl TimeChimpApp {
             .when_some(self.chart(), |d, chart| d.child(self.render_chart(chart, theme, cx)))
             .when_some(self.form(), |d, form| d.child(self.render_form(form, theme, cx)))
             .when_some(self.settings_form(), |d, form| d.child(self.render_settings(form, window, theme, cx)))
+    }
+
+    /// Everything under the sweep bar: drawn by `view::cached::TabBody`, so it is reused while the
+    /// app isn't notified.
+    pub(super) fn render_tab_body(&mut self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme().clone();
+        let theme = &theme;
+        let body = match self.tab {
+            Tab::Week => self.render_day(theme, cx).into_any_element(),
+            Tab::Travel => self.render_travel(theme, cx).into_any_element(),
+            Tab::Report => self.render_report(theme, cx).into_any_element(),
+            Tab::Review => self.render_review(window, theme, cx).into_any_element(),
+        };
+        v_stack()
+            .size_full()
+            .child(self.render_toolbar(theme, cx))
+            .child(div().id("body").flex_1().min_h_0().flex().flex_col().px(px(16.)).pb(px(12.)).child(body))
+            .child(self.render_footer(theme))
     }
 
     fn render_tabs(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {

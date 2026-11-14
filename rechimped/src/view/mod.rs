@@ -1,3 +1,4 @@
+mod cached;
 mod chart;
 mod chrome;
 mod frame;
@@ -15,6 +16,8 @@ use gpui::{
 };
 use gpuikit::elements::toast::ToastExt;
 use gpuikit::theme::{ActiveTheme, Themeable};
+
+pub use cached::CachedViews;
 
 use crate::app::{Overlay, Screen, TimeChimpApp, ToggleShowcase};
 
