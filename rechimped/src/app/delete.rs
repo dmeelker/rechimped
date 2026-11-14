@@ -8,7 +8,7 @@ use crate::backend::Api;
 use crate::session;
 use crate::store::config;
 
-use super::{DELETING, Overlay, Tab, TimeChimpApp};
+use super::{Overlay, Tab, TimeChimpApp};
 
 impl TimeChimpApp {
     pub fn ask_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -108,7 +108,7 @@ impl TimeChimpApp {
         request: impl FnOnce(Api) -> BoxFuture<'static, timechimp_api::Result<()>>,
     ) {
         let Some(client) = self.session.client().cloned() else { return };
-        self.run(DELETING, request(client), window, cx, move |this, result, window, cx| match result {
+        self.run_write("Deleting…", request(client), window, cx, move |this, result, window, cx| match result {
             Ok(()) => {
                 this.session.invalidate_report();
                 this.session.invalidate_review();

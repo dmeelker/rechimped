@@ -8,7 +8,7 @@ use crate::validate::{self, SaveRequest};
 use crate::session;
 use crate::store::config;
 
-use super::{SAVING, TimeChimpApp};
+use super::TimeChimpApp;
 
 impl TimeChimpApp {
     pub fn save_as_preset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -79,7 +79,7 @@ impl TimeChimpApp {
                 }
             }
         };
-        self.run(SAVING, future, window, cx, move |this, result: timechimp_api::Result<Saved>, window, cx| {
+        self.run_write("Saving…", future, window, cx, move |this, result: timechimp_api::Result<Saved>, window, cx| {
             let (id, outcome) = match result {
                 Ok(Saved::Done(id, message)) => (id, Ok(message)),
                 Ok(Saved::Partial(id, e)) => (id, Err(e)),

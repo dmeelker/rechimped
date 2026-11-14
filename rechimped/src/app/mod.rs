@@ -33,12 +33,18 @@ use crate::store::token;
 use crate::password::PasswordField;
 use crate::scroll::ScrollArea;
 
-const SAVING: &str = "Saving…";
-const DELETING: &str = "Deleting…";
+/// Writes (saves, deletes) are left to finish on logout and block another save; loads are neither.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TaskKind {
+    Load,
+    Write,
+}
 
 struct Task {
     id: u64,
     epoch: u64,
+    kind: TaskKind,
+    /// For display only.
     label: &'static str,
     abort: tokio::task::AbortHandle,
 }
@@ -175,11 +181,35 @@ impl TimeChimpApp {
         cx: &mut Context<Self>,
         done: impl FnOnce(&mut Self, T, &mut Window, &mut Context<Self>) + 'static,
     ) {
+        self.spawn_task(TaskKind::Load, label, future, window, cx, done);
+    }
+
+    /// Like `run`, for a request that changes data on the server.
+    fn run_write<T: Send + 'static>(
+        &mut self,
+        label: &'static str,
+        future: impl Future<Output = T> + Send + 'static,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        done: impl FnOnce(&mut Self, T, &mut Window, &mut Context<Self>) + 'static,
+    ) {
+        self.spawn_task(TaskKind::Write, label, future, window, cx, done);
+    }
+
+    fn spawn_task<T: Send + 'static>(
+        &mut self,
+        kind: TaskKind,
+        label: &'static str,
+        future: impl Future<Output = T> + Send + 'static,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        done: impl FnOnce(&mut Self, T, &mut Window, &mut Context<Self>) + 'static,
+    ) {
         let epoch = self.session.epoch;
         self.tasks_started += 1;
         let id = self.tasks_started;
         let handle = net::runtime().spawn(future);
-        self.in_flight.push(Task { id, epoch, label, abort: handle.abort_handle() });
+        self.in_flight.push(Task { id, epoch, kind, label, abort: handle.abort_handle() });
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
             let result = handle.await;
@@ -198,7 +228,7 @@ impl TimeChimpApp {
 
     /// Saves and deletes are left to finish, so what the server receives doesn't depend on the timing.
     fn cancel_loads(&mut self) {
-        for task in self.in_flight.iter().filter(|t| t.label != SAVING && t.label != DELETING) {
+        for task in self.in_flight.iter().filter(|t| t.kind == TaskKind::Load) {
             task.abort.abort();
         }
     }
@@ -286,8 +316,9 @@ impl TimeChimpApp {
         self.form_mut()?.trip_mut()
     }
 
+    /// A save or delete is in flight.
     pub fn saving(&self) -> bool {
-        self.in_flight.iter().any(|t| t.epoch == self.session.epoch && t.label == SAVING)
+        self.in_flight.iter().any(|t| t.epoch == self.session.epoch && t.kind == TaskKind::Write)
     }
 
     fn new_form_id(&mut self) -> u64 {
