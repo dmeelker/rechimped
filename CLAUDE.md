@@ -104,4 +104,10 @@ To verify visually on Windows: start the exe, post input with `PostMessage` to t
 - A posted Ctrl isn't seen as held (gpui reads the real key state), so Ctrl shortcuts can't be driven this way: click instead (Settings… is in the user menu under the name in the header).
 - `PrintWindow` captures the frame too: a point in the screenshot is client point (x − 8, y − 31) for `WM_LBUTTONDOWN`/`WM_MOUSEMOVE` (`MK_LBUTTON` in wParam while dragging).
 
+To verify visually on Linux (GNOME/Wayland): drive input with `ydotool` (its `ydotoold` service runs with a drop-in giving the socket `/tmp/.ydotool_socket` to the user; set `YDOTOOL_SOCKET=/tmp/.ydotool_socket`) and capture with `python3 scripts/screenshot-linux.py <out.png>` (the desktop portal; GNOME refuses `gnome-screenshot`). ydotool types into whatever window has focus, so start the app and let it take focus first; a click outside it hands focus elsewhere.
+
+- Keys: `ydotool key <code>:1 <code>:0` with Linux keycodes (Esc 1, 1–4 are 2–5, ← 105, → 106, ↑ 103, ↓ 108). Ctrl does work here: `29:1 <code>:1 <code>:0 29:0`.
+- Mouse: `--absolute` moves go through pointer acceleration, so a screen point (x, y) is `ydotool mousemove --absolute -x x/2 -y y/2` (measured, 1920×1080, default accel). Then `ydotool click 0xC0` (left click), `ydotool mousemove -w -x 0 -y -8` to scroll down.
+- The screenshot is the whole screen, window decorations included; the portal saves to `~/Pictures` first, the script moves it out.
+
 Measure performance with `--perf-log <file>` (any build, combines with `--mock`), not with screenshots: it writes a tab-separated line per frame, `t_ms` (since start), `cpu_ms` (render to end of paint, `Fx::end_frame`), `anim` (1 when `Fx` asked for the next frame: login, showcase; loads and gpui's own animations such as the sweep bar don't set it) and `view` (`Login`, or the tab plus `+Overlay` and `+Menu`, `TimeChimpApp::perf_view`). Group by `view` for medians and maxima. An idle screen writes nothing, so a run of lines while nothing moves means something keeps redrawing. F12 still shows the HUD, but it also turns on the aurora, so its figures include that.
