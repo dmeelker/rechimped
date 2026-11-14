@@ -208,16 +208,8 @@ fn day_index(name: &str) -> Option<usize> {
     (name.len() >= 3).then(|| DAY_NAMES.iter().position(|full| full.starts_with(&name))).flatten()
 }
 
-/// Via a temporary file and a rename, so a crash or full disk halfway leaves the old file (often
-/// edited by hand) intact rather than truncated.
 fn replace_file(path: &Path, text: &str) -> Result<(), String> {
-    let temp = path.with_extension("toml.tmp");
-    std::fs::write(&temp, text)
-        .and_then(|()| std::fs::rename(&temp, path))
-        .map_err(|e| {
-            let _ = std::fs::remove_file(&temp);
-            format!("Could not write {}: {e}", path.display())
-        })
+    super::replace_file(path, text).map_err(|e| format!("Could not write {}: {e}", path.display()))
 }
 
 fn number(value: f64) -> toml_edit::Item {
