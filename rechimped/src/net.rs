@@ -104,10 +104,8 @@ pub async fn load_time_rows(
 
 pub async fn load_report(client: &Api, user_id: i64, month: NaiveDate) -> timechimp_api::Result<Report> {
     let to = last_of_month(month);
-    let (time, mut travel) = tokio::try_join!(
-        load_time_rows(client, user_id, month, to),
-        page_all(|rows| client.query_mileage(month, to, rows)),
-    )?;
+    let (time, mut travel) =
+        tokio::try_join!(load_time_rows(client, user_id, month, to), page_all(|rows| client.query_mileage(month, to, rows)),)?;
     // The mileage report includes everyone the caller can see.
     travel.retain(|r: &MileageReportRow| r.user_id == user_id);
     Ok(Report { month: Some(month), time, travel })
@@ -126,7 +124,10 @@ mod tests {
     use crate::domain::time::first_of_month;
     use crate::mock::Mock;
 
-    fn grid(total: u32, row_count: i64) -> impl FnMut(std::ops::Range<u32>) -> std::future::Ready<timechimp_api::Result<QueryResult<u32>>> {
+    fn grid(
+        total: u32,
+        row_count: i64,
+    ) -> impl FnMut(std::ops::Range<u32>) -> std::future::Ready<timechimp_api::Result<QueryResult<u32>>> {
         move |rows: std::ops::Range<u32>| {
             let row_data = (rows.start..rows.end.min(total)).collect();
             std::future::ready(Ok(QueryResult { row_data, row_count }))

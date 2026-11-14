@@ -6,8 +6,7 @@ pub mod week;
 use timechimp_api::MileageType;
 
 /// Names are a best guess from what the API returns.
-pub const TRAVEL_TYPES: [(MileageType, &str); 2] =
-    [(MileageType::Business, "Business"), (MileageType::HomeWork, "Home – work")];
+pub const TRAVEL_TYPES: [(MileageType, &str); 2] = [(MileageType::Business, "Business"), (MileageType::HomeWork, "Home – work")];
 
 pub fn project_label(project: &str, customer: &str) -> String {
     format!("{project} — {customer}")

@@ -10,10 +10,10 @@ use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::{ControlSize, Themeable};
 
 use crate::app::{
-    AddressDown, AddressUp, CalculateDistance, Cancel, CloseAddresses, CloseCalendar, Confirm, NextDay, NextMonth,
-    NextWeek, PickAddress, PickRecent, PreviousDay, PreviousMonth, PreviousWeek, RecentDown, RecentUp, TimeChimpApp,
+    AddressDown, AddressUp, CalculateDistance, Cancel, CloseAddresses, CloseCalendar, Confirm, NextDay, NextMonth, NextWeek,
+    PickAddress, PickRecent, PreviousDay, PreviousMonth, PreviousWeek, RecentDown, RecentUp, TimeChimpApp,
 };
-use crate::forms::{AddressField, DateField, Form, FormBody, TravelForm, RecentPicker};
+use crate::forms::{AddressField, DateField, Form, FormBody, RecentPicker, TravelForm};
 
 use super::widgets::*;
 
@@ -126,9 +126,7 @@ impl TimeChimpApp {
                         "detail-close",
                         "Close",
                         false,
-                        cx.listener(|this, _, w, cx| {
-                            this.close_overlay(w, cx)
-                        }),
+                        cx.listener(|this, _, w, cx| this.close_overlay(w, cx)),
                     )),
             );
         let close = cx.listener(|this, _: &gpui::MouseDownEvent, w, cx| this.close_overlay(w, cx));
@@ -161,11 +159,7 @@ impl TimeChimpApp {
                 row("Hours", field(&f.hours, "used without start/end, e.g. 01:30", cx)),
                 row(
                     "Tags",
-                    h_stack()
-                        .flex_wrap()
-                        .gap(px(16.))
-                        .children(f.tags.iter().map(|t| t.checkbox.clone()))
-                        .into_any_element(),
+                    h_stack().flex_wrap().gap(px(16.)).children(f.tags.iter().map(|t| t.checkbox.clone())).into_any_element(),
                 )
                 .when(f.tags.is_empty(), |d| d.hidden()),
             ]
@@ -234,7 +228,8 @@ impl TimeChimpApp {
                     .items_center()
                     .child(pop(
                         theme,
-                        button("form-preset", "Save as preset").on_click(cx.listener(|this, _, w, cx| this.save_as_preset(w, cx))),
+                        button("form-preset", "Save as preset")
+                            .on_click(cx.listener(|this, _, w, cx| this.save_as_preset(w, cx))),
                     ))
                     .child(div().flex_1())
                     .when_some(self.busy(), |d, b| d.child(div().text_color(theme.accent()).child(b)))
@@ -362,8 +357,14 @@ impl TimeChimpApp {
                 .track_scroll(&menu.scroll.handle)
                 .children(rows)
                 .when(form.addresses.is_empty(), |d| d.child(muted(theme, "No saved addresses").px(px(10.)).py(px(5.))));
-            let panel = menu_panel(theme, menu_id)
-                .child(with_scrollbar(theme, rows_id, rows, &menu.scroll.handle, &menu.scroll.bar, cx.entity_id()));
+            let panel = menu_panel(theme, menu_id).child(with_scrollbar(
+                theme,
+                rows_id,
+                rows,
+                &menu.scroll.handle,
+                &menu.scroll.bar,
+                cx.entity_id(),
+            ));
             Some(deferred(div().absolute().top_full().left_0().right_0().mt(px(4.)).child(panel)).with_priority(3))
         });
         div().relative().key_context("AddressField").child(input).children(menu).into_any_element()
@@ -404,16 +405,12 @@ impl TimeChimpApp {
             .overflow_hidden()
             .bg(theme.bg())
             .children(rows)
-            .when(empty, |d| {
-                d.child(muted(theme, "Nothing matches").px(px(10.)).py(px(4.)))
-            });
+            .when(empty, |d| d.child(muted(theme, "Nothing matches").px(px(10.)).py(px(4.))));
         v_stack()
             .gap(px(6.))
-            .child(
-                div()
-                    .key_context("RecentPicker")
-                    .child(text_field(&picker.filter, cx).placeholder("Type to search recent work · ↑/↓ and Enter to pick · Tab to skip")),
-            )
+            .child(div().key_context("RecentPicker").child(
+                text_field(&picker.filter, cx).placeholder("Type to search recent work · ↑/↓ and Enter to pick · Tab to skip"),
+            ))
             .when(typed, |d| d.child(list))
             .into_any_element()
     }

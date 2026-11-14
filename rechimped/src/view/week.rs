@@ -1,7 +1,7 @@
 use chrono::Duration;
 use gpui::{
-    AnyElement, AppContext as _, ClickEvent, Context, ElementId, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, Render, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
+    AnyElement, AppContext as _, ClickEvent, Context, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    Render, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
 };
 use gpuikit::elements::tooltip::tooltip;
 use gpuikit::icons::Icons;
@@ -10,9 +10,9 @@ use gpuikit::theme::{ActiveTheme, Themeable};
 use timechimp_api::{TimeEntry, TimeReportRow};
 
 use crate::app::TimeChimpApp;
-use crate::domain::{ApprovalStatus, is_rejected, lock_status};
 use crate::domain::review::{lacks_notes, tag_names};
 use crate::domain::week::{CHART_WEEKS, Junction, WeekCard};
+use crate::domain::{ApprovalStatus, is_rejected, lock_status};
 
 use super::widgets::*;
 
@@ -148,25 +148,27 @@ impl TimeChimpApp {
         let mut rows = Vec::new();
         for (n, &i) in indices.iter().enumerate() {
             if let Some(&prev) = n.checked_sub(1).and_then(|p| indices.get(p))
-                && let Some(junction) = crate::domain::week::junction(&self.session().entries()[prev], &self.session().entries()[i]) {
-                    let row = junction_row(theme, &junction);
-                    rows.push(match junction {
-                        Junction::Gap { from, to } => {
-                            let date = self.session().entries()[i].date;
-                            row.id(ElementId::NamedInteger("gap".into(), i as u64))
-                                .cursor_pointer()
-                                .hover(|s| s.bg(theme.warning().opacity(0.18)))
-                                .tooltip(tooltip("Double-click to add an entry for this gap"))
-                                .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
-                                    if ev.click_count() >= 2 {
-                                        this.fill_gap(date, from, to, window, cx);
-                                    }
-                                }))
-                                .into_any_element()
-                        }
-                        Junction::Overlap { .. } => row.into_any_element(),
-                    });
-                }
+                && let Some(junction) =
+                    crate::domain::week::junction(&self.session().entries()[prev], &self.session().entries()[i])
+            {
+                let row = junction_row(theme, &junction);
+                rows.push(match junction {
+                    Junction::Gap { from, to } => {
+                        let date = self.session().entries()[i].date;
+                        row.id(ElementId::NamedInteger("gap".into(), i as u64))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(theme.warning().opacity(0.18)))
+                            .tooltip(tooltip("Double-click to add an entry for this gap"))
+                            .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
+                                if ev.click_count() >= 2 {
+                                    this.fill_gap(date, from, to, window, cx);
+                                }
+                            }))
+                            .into_any_element()
+                    }
+                    Junction::Overlap { .. } => row.into_any_element(),
+                });
+            }
             let line = EntryLine::from(&self.session().entries()[i]);
             let row = EntryRow { selected: self.session().selected_entry_id() == Some(line.id), wrap: false, tags_differ: None };
             rows.push(self.entry_row(theme, i, &line, row, cx).into_any_element());
@@ -227,23 +229,20 @@ impl TimeChimpApp {
             .border_color(theme.border())
             .bg(theme.bg())
             .child(
-                h_stack()
-                    .justify_between()
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Week"))
-                    .child(
-                        h_stack()
-                            .id("open-billability-chart")
-                            .gap(px(4.))
-                            .items_center()
-                            .px(px(4.))
-                            .rounded(px(4.))
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme.accent_bg()))
-                            .tooltip(tooltip(format!("Billability of the last {CHART_WEEKS} weeks")))
-                            .on_click(cx.listener(|this, _, window, cx| this.open_chart(window, cx)))
-                            .child(div().text_xs().text_color(ratio_colour).child(format!("{:.0}% billable", ratio * 100.0)))
-                            .child(Icons::bar_chart().size(px(12.)).text_color(theme.fg_muted())),
-                    ),
+                h_stack().justify_between().child(div().font_weight(FontWeight::SEMIBOLD).child("Week")).child(
+                    h_stack()
+                        .id("open-billability-chart")
+                        .gap(px(4.))
+                        .items_center()
+                        .px(px(4.))
+                        .rounded(px(4.))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(theme.accent_bg()))
+                        .tooltip(tooltip(format!("Billability of the last {CHART_WEEKS} weeks")))
+                        .on_click(cx.listener(|this, _, window, cx| this.open_chart(window, cx)))
+                        .child(div().text_xs().text_color(ratio_colour).child(format!("{:.0}% billable", ratio * 100.0)))
+                        .child(Icons::bar_chart().size(px(12.)).text_color(theme.fg_muted())),
+                ),
             )
             .child(
                 // The hover target for the breakdown; the "% billable" link above has its own tooltip.
@@ -274,23 +273,14 @@ impl TimeChimpApp {
 
         let visible = self.session().visible_entries();
         let rows = self.entry_rows_with_gaps(theme, &visible, cx);
-        let message =
-            if self.session().week_loaded() { "No time registered on this day. Press A to add." } else { NOT_LOADED };
+        let message = if self.session().week_loaded() { "No time registered on this day. Press A to add." } else { NOT_LOADED };
 
-        v_stack()
-            .flex_1()
-            .min_h_0()
-            .gap(px(12.))
-            .child(strip)
-            .child(
-                table_card(theme)
-                    .child(Self::entry_header(theme).rounded_t(px(5.)))
-                    .child(table_rows(theme, "entry-rows", rows, &self.entry_scroll, cx.entity_id()))
-                    .when(
-                    visible.is_empty() && self.busy().is_none(),
-                    |d| d.child(empty_message(theme, message)),
-                ),
-            )
+        v_stack().flex_1().min_h_0().gap(px(12.)).child(strip).child(
+            table_card(theme)
+                .child(Self::entry_header(theme).rounded_t(px(5.)))
+                .child(table_rows(theme, "entry-rows", rows, &self.entry_scroll, cx.entity_id()))
+                .when(visible.is_empty() && self.busy().is_none(), |d| d.child(empty_message(theme, message))),
+        )
     }
 }
 
@@ -386,7 +376,11 @@ impl Render for WeekBreakdown {
                 .child(div().text_xs().text_color(theme.fg_muted()).child(format!(
                     "{}Leave is the tasks left unchecked on Settings › Billability.",
                     // The "To reach" row names the goal already.
-                    if c.billable_to_go(self.goal).is_some() { String::new() } else { format!("Goal {:.0}%. ", self.goal * 100.0) }
+                    if c.billable_to_go(self.goal).is_some() {
+                        String::new()
+                    } else {
+                        format!("Goal {:.0}%. ", self.goal * 100.0)
+                    }
                 ))),
         )
     }

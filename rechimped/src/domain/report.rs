@@ -78,11 +78,7 @@ mod tests {
     fn summary() {
         let report = Report {
             month: Some(crate::test_support::date(1)),
-            time: vec![
-                row("A", "Dev", 2, 2.0, true),
-                row("B", "Meeting", 2, 1.0, false),
-                row("A", "Dev", 3, 4.0, true),
-            ],
+            time: vec![row("A", "Dev", 2, 2.0, true), row("B", "Meeting", 2, 1.0, false), row("A", "Dev", 3, 4.0, true)],
             travel: Vec::new(),
         };
         let s = report.summary();

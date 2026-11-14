@@ -1,4 +1,3 @@
-
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use timechimp_api::{Mileage, MileageType, TimeEntry};
 
@@ -66,7 +65,11 @@ pub struct TripSeed {
 }
 
 pub fn tags(session: &Session, project_id: Option<i64>, checked: &[i64]) -> Vec<TagSeed> {
-    session.tags_for(project_id).into_iter().map(|t| TagSeed { id: t.id, name: t.name.clone(), checked: checked.contains(&t.id) }).collect()
+    session
+        .tags_for(project_id)
+        .into_iter()
+        .map(|t| TagSeed { id: t.id, name: t.name.clone(), checked: checked.contains(&t.id) })
+        .collect()
 }
 
 /// A new or copied entry is dated on `date`. `now` is the wall-clock time in the user's timezone:
@@ -95,12 +98,9 @@ pub fn time_form(session: &Session, entry: Option<&TimeEntry>, copy: bool, date:
     TimeSeed {
         kind: match editing {
             None => TimeKind::New,
-            Some(e) => TimeKind::Edit {
-                id: e.id,
-                pause: e.pause,
-                timezone: e.timezone.clone(),
-                task: (e.project_task_id, e.task_id),
-            },
+            Some(e) => {
+                TimeKind::Edit { id: e.id, pause: e.pause, timezone: e.timezone.clone(), task: (e.project_task_id, e.task_id) }
+            }
         },
         date,
         projects,
@@ -164,12 +164,8 @@ pub fn trip_form(session: &Session, editing: Option<&Mileage>, preset: Option<&T
     let template = editing.or(session.travel().last());
     let addresses = session.saved_addresses();
     let projects = session.project_options(editing.map(|m| (m.project_id, &*m.project_name, &*m.customer_name)));
-    let (mut project_id, mut travel_type, mut billable, mut return_trip) = (
-        template.map(|m| m.project_id),
-        template.map(|m| m.mileage_type),
-        template.is_some_and(|m| m.billable),
-        false,
-    );
+    let (mut project_id, mut travel_type, mut billable, mut return_trip) =
+        (template.map(|m| m.project_id), template.map(|m| m.mileage_type), template.is_some_and(|m| m.billable), false);
     if let Some(p) = preset {
         project_id = session.project_named(&p.project).map(|p| p.id).or(project_id);
         travel_type = p.trip_type();
@@ -224,7 +220,11 @@ mod tests {
         let mut second = entry(2, 4, "10:00-11:30");
         (second.project_id, second.project_task_id, second.tag_ids) = (6, 7, vec![20]);
         let (generation, _) = s.begin_week_load();
-        s.apply_week(generation, crate::session::Week { start: date(2), entries: vec![first, second], travel: vec![trip(5, 3)] }, None);
+        s.apply_week(
+            generation,
+            crate::session::Week { start: date(2), entries: vec![first, second], travel: vec![trip(5, 3)] },
+            None,
+        );
         s
     }
 
@@ -323,7 +323,10 @@ mod tests {
         let s = session();
         let new = trip_form(&s, None, None);
         assert_eq!((new.from.as_str(), new.to.as_str()), ("Home", "Office"), "the first saved addresses");
-        assert_eq!((new.date, new.project_id, new.travel_type, new.billable), (date(4), Some(3), Some(MileageType::Business), true));
+        assert_eq!(
+            (new.date, new.project_id, new.travel_type, new.billable),
+            (date(4), Some(3), Some(MileageType::Business), true)
+        );
         assert_eq!(new.addresses, ["Home", "Office", "A", "B"]);
 
         let preset = TripPreset {

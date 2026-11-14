@@ -11,9 +11,8 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    Animation, AnimationExt, App, BoxShadow, Bounds, Corners, ElementId, Hsla, IntoElement, ParentElement, PathBuilder,
-    Pixels, Styled, Window, bounds, canvas, div, ease_in_out, fill, hsla, linear_color_stop, linear_gradient, point, px,
-    relative, size,
+    Animation, AnimationExt, App, Bounds, BoxShadow, Corners, ElementId, Hsla, IntoElement, ParentElement, PathBuilder, Pixels,
+    Styled, Window, bounds, canvas, div, ease_in_out, fill, hsla, linear_color_stop, linear_gradient, point, px, relative, size,
 };
 
 const HISTORY: usize = 120;
@@ -91,28 +90,27 @@ impl Fx {
     pub fn end_frame(&self, started: Instant, view: impl FnOnce() -> String) -> impl IntoElement {
         let cpu = self.cpu.clone();
         let log = self.log.clone().map(|log| (log, self.animating, view()));
-        canvas(|_, _, _| (), move |_, _, _, _| {
-            let elapsed = started.elapsed();
-            cpu.set(elapsed);
-            if let Some((log, animating, view)) = log {
-                let mut log = log.borrow_mut();
-                let t = (started - log.start).as_secs_f64() * 1000.;
-                let cpu = elapsed.as_secs_f64() * 1000.;
-                // A failed write only costs the log, never the frame.
-                let _ = writeln!(log.out, "{t:.1}	{cpu:.2}	{}	{view}", u8::from(animating));
-            }
-        })
+        canvas(
+            |_, _, _| (),
+            move |_, _, _, _| {
+                let elapsed = started.elapsed();
+                cpu.set(elapsed);
+                if let Some((log, animating, view)) = log {
+                    let mut log = log.borrow_mut();
+                    let t = (started - log.start).as_secs_f64() * 1000.;
+                    let cpu = elapsed.as_secs_f64() * 1000.;
+                    // A failed write only costs the log, never the frame.
+                    let _ = writeln!(log.out, "{t:.1}	{cpu:.2}	{}	{view}", u8::from(animating));
+                }
+            },
+        )
         .absolute()
         .size_0()
     }
 
     pub fn hud(&self, fg: Hsla, muted: Hsla, accent: Hsla, surface: Hsla) -> impl IntoElement {
-        let intervals: Vec<f32> = self
-            .frames
-            .iter()
-            .zip(self.frames.iter().skip(1))
-            .map(|(a, b)| (*b - *a).as_secs_f32() * 1000.)
-            .collect();
+        let intervals: Vec<f32> =
+            self.frames.iter().zip(self.frames.iter().skip(1)).map(|(a, b)| (*b - *a).as_secs_f32() * 1000.).collect();
         let span = match (self.frames.front(), self.frames.back()) {
             (Some(a), Some(b)) if self.frames.len() > 1 => (*b - *a).as_secs_f32(),
             _ => 0.,
@@ -216,11 +214,7 @@ fn palette(accent: Hsla) -> [Hsla; 6] {
 }
 
 pub fn aurora(t: f32, accent: Hsla, base: Hsla, strength: f32) -> gpui::Canvas<()> {
-    canvas(
-        |_, _, _| (),
-        move |b, _, window, _| paint_aurora(b, t, accent, base, strength, window),
-    )
-    .size_full()
+    canvas(|_, _, _| (), move |b, _, window, _| paint_aurora(b, t, accent, base, strength, window)).size_full()
 }
 
 fn paint_aurora(b: Bounds<Pixels>, t: f32, accent: Hsla, base: Hsla, strength: f32, window: &mut Window) {
@@ -246,10 +240,7 @@ fn paint_aurora(b: Bounds<Pixels>, t: f32, accent: Hsla, base: Hsla, strength: f
         let y = (t * (0.087 + 0.017 * k) + phase * 1.7).cos() * h * 0.32;
         let breathe = 1. + 0.18 * (t * 0.5 + phase).sin();
         let radius = r * breathe * (0.8 + 0.08 * k);
-        let orb = bounds(
-            point(center.x + px(x - radius), center.y + px(y - radius)),
-            size(px(radius * 2.), px(radius * 2.)),
-        );
+        let orb = bounds(point(center.x + px(x - radius), center.y + px(y - radius)), size(px(radius * 2.), px(radius * 2.)));
         let alpha = (0.30 + 0.10 * (t * 0.31 + phase).sin()) * strength;
         window.paint_drop_shadows(
             orb,
@@ -365,7 +356,9 @@ pub fn sweep_bar(sweep: u64, busy: bool, accent: Hsla) -> impl IntoElement {
     } else {
         (ElementId::NamedInteger("sweep".into(), sweep), Animation::new(Duration::from_millis(900)))
     };
-    div().relative().w_full().h(px(2.)).overflow_hidden().child(
-        streak.with_animation(id, animation.with_easing(ease_in_out), |el, d| el.left(relative(-0.35 + 1.35 * d))),
-    )
+    div().relative().w_full().h(px(2.)).overflow_hidden().child(streak.with_animation(
+        id,
+        animation.with_easing(ease_in_out),
+        |el, d| el.left(relative(-0.35 + 1.35 * d)),
+    ))
 }

@@ -16,9 +16,7 @@ fn datetime<'de, D: Deserializer<'de>>(d: D) -> Result<NaiveDateTime, D::Error> 
 }
 
 fn opt_datetime<'de, D: Deserializer<'de>>(d: D) -> Result<Option<NaiveDateTime>, D::Error> {
-    Option::<String>::deserialize(d)?
-        .map(|s| parse_datetime(&s).map_err(serde::de::Error::custom))
-        .transpose()
+    Option::<String>::deserialize(d)?.map(|s| parse_datetime(&s).map_err(serde::de::Error::custom)).transpose()
 }
 
 fn date<'de, D: Deserializer<'de>>(d: D) -> Result<NaiveDate, D::Error> {

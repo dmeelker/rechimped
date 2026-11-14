@@ -4,11 +4,11 @@ use gpuikit::elements::select::SelectChanged;
 use gpuikit::input::InputStateEvent;
 use timechimp_api::TimeEntry;
 
-use crate::forms::{self, Form, FormBody, Origin, TimeForm, chosen, text};
-use crate::validate::TimeKind;
 use crate::domain;
+use crate::forms::{self, Form, FormBody, Origin, TimeForm, chosen, text};
 use crate::seed::{self, TagSeed, TimeFill};
 use crate::store::config::TimePreset;
+use crate::validate::TimeKind;
 
 use super::{Overlay, Tab, TimeChimpApp};
 
@@ -130,12 +130,7 @@ impl TimeChimpApp {
         );
     }
 
-    fn subscribe_project(
-        &self,
-        project: &forms::Choice<i64>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Subscription {
+    fn subscribe_project(&self, project: &forms::Choice<i64>, window: &mut Window, cx: &mut Context<Self>) -> Subscription {
         cx.subscribe_in(&project.state, window, |this, _, _: &SelectChanged, window, cx| this.on_project_changed(window, cx))
     }
 

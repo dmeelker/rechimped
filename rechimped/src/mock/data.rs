@@ -229,15 +229,7 @@ fn me() -> timechimp_api::CurrentUser {
 
 pub(super) fn generate(now: NaiveDateTime) -> State {
     let (projects, tasks, tags) = catalogue();
-    let mut state = State {
-        me: me(),
-        projects,
-        tasks,
-        tags,
-        entries: Vec::new(),
-        trips: Vec::new(),
-        next_id: 10_000,
-    };
+    let mut state = State { me: me(), projects, tasks, tags, entries: Vec::new(), trips: Vec::new(), next_id: 10_000 };
     let mut rng = Rng(0x5EED_CAFE);
     let today = now.date();
     let first = monday_of(today) - Duration::weeks(WEEKS - 1);

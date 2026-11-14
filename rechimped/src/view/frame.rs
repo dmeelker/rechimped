@@ -3,8 +3,8 @@
 //! (Windows, KDE, X11 window managers that decorate) `frame` returns the content unchanged.
 
 use gpui::{
-    AnyElement, Context, CursorStyle, Decorations, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    Pixels, ResizeEdge, StatefulInteractiveElement, Styled, Svg, Tiling, Window, div, prelude::FluentBuilder, px,
+    AnyElement, Context, CursorStyle, Decorations, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels,
+    ResizeEdge, StatefulInteractiveElement, Styled, Svg, Tiling, Window, div, prelude::FluentBuilder, px,
 };
 use gpuikit::icons::Icons;
 use gpuikit::theme::Themeable;
@@ -111,11 +111,7 @@ fn window_button(
     close: bool,
     on_click: impl Fn(&mut Window) + 'static,
 ) -> impl IntoElement {
-    let (hover_bg, hover_fg) = if close {
-        (theme.danger(), gpui::white())
-    } else {
-        (theme.fg().opacity(0.08), theme.fg())
-    };
+    let (hover_bg, hover_fg) = if close { (theme.danger(), gpui::white()) } else { (theme.fg().opacity(0.08), theme.fg()) };
     div()
         .id(id)
         .w(px(44.))

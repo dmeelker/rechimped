@@ -24,14 +24,14 @@ use gpuikit::elements::toast::ToastExt;
 use gpuikit::input::InputState;
 use timechimp_api::{Authenticator, Client, MfaChallenge};
 
-use crate::forms::{Form, TravelForm, SettingsForm, TimeForm};
 use crate::backend::Api;
 use crate::domain;
+use crate::forms::{Form, SettingsForm, TimeForm, TravelForm};
 use crate::net;
-use crate::session::Session;
-use crate::store::token;
 use crate::password::PasswordField;
 use crate::scroll::ScrollArea;
+use crate::session::Session;
+use crate::store::token;
 
 /// Writes (saves, deletes) are left to finish on logout and block another save; loads are neither.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -110,7 +110,10 @@ pub enum Overlay {
     Chart(BillabilityChart),
     Form(Box<Form>),
     Settings(Box<SettingsForm>),
-    Confirm { dialog: Entity<DialogState>, _closed: Subscription },
+    Confirm {
+        dialog: Entity<DialogState>,
+        _closed: Subscription,
+    },
     /// No trip registered today yet (`app/reminder.rs`).
     TravelReminder,
 }

@@ -56,10 +56,12 @@ impl TimeChimpApp {
             v_stack()
                 .p(px(12.))
                 .child(stat("Total hours", hh_mm(s.total)))
-                .child(stat("Billable", format!("{} ({:.0}%)", hh_mm(s.billable), pct(s.billable))).when_some(
-                    s.billable_share(),
-                    |d, share| d.text_color(goal_colour(theme, Some(share), self.session().settings().billable_goal)),
-                ))
+                .child(
+                    stat("Billable", format!("{} ({:.0}%)", hh_mm(s.billable), pct(s.billable)))
+                        .when_some(s.billable_share(), |d, share| {
+                            d.text_color(goal_colour(theme, Some(share), self.session().settings().billable_goal))
+                        }),
+                )
                 .child(stat("Billable goal", format!("{:.0}%", self.session().settings().billable_goal * 100.0)))
                 .child(stat("Non-billable", hh_mm(s.total - s.billable)))
                 .child(stat("Days registered", s.days.to_string()))

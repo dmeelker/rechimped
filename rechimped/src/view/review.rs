@@ -20,14 +20,10 @@ impl TimeChimpApp {
             return body.child(card.child(empty_message(theme, "No time registered this month.")));
         }
         let findings = analysis.findings;
-        let summary = div()
-            .px(px(4.))
-            .text_color(if findings.any() { theme.warning() } else { theme.success() })
-            .child(findings.label());
-        let selected = rows
-            .iter()
-            .position(|r| Some(r.id) == self.session().selected_review_id())
-            .and_then(|index| analysis.line_of(index));
+        let summary =
+            div().px(px(4.)).text_color(if findings.any() { theme.warning() } else { theme.success() }).child(findings.label());
+        let selected =
+            rows.iter().position(|r| Some(r.id) == self.session().selected_review_id()).and_then(|index| analysis.line_of(index));
         self.review_list.sync(self.session().review_revision(), analysis.lines.len(), selected, window);
         // Only the lines in view are drawn, each frame; `sync` resets the list when they change.
         // The list has no height of its own, so the card fills the page.
@@ -47,8 +43,7 @@ impl TimeChimpApp {
         let theme = cx.theme().clone();
         match analysis.lines.get(n) {
             Some(&Line::Day { date, total }) => {
-                day_header(&theme, ElementId::NamedInteger("review-day".into(), n as u64), date, hh_mm(total))
-                    .into_any_element()
+                day_header(&theme, ElementId::NamedInteger("review-day".into(), n as u64), date, hh_mm(total)).into_any_element()
             }
             Some(&Line::Entry(i)) => {
                 let line = EntryLine::from(&rows[i]);

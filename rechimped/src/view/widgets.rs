@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use chrono::{Datelike, Duration};
 use gpui::{
-    BoxShadow, point, ClickEvent, DispatchPhase, ElementId, EntityId, FontWeight, Hsla, InteractiveElement, IntoElement,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, SharedString, StatefulInteractiveElement,
-    Styled, Window, canvas, div, prelude::FluentBuilder, px,
+    BoxShadow, ClickEvent, DispatchPhase, ElementId, EntityId, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
+    canvas, div, point, prelude::FluentBuilder, px,
 };
 use gpuikit::elements::icon_button::{IconButton, icon_button};
 use gpuikit::elements::tooltip::tooltip;
@@ -13,9 +13,9 @@ use gpuikit::theme::{ControlSize, Theme, Themeable};
 use gpuikit::traits::control_sized::ControlSized;
 
 use crate::app::TimeChimpApp;
+pub(super) use crate::domain::{hh_mm, plain_number};
 use crate::forms::Choice;
 use crate::scroll::{BarHit, ScrollArea, Scrollable, Scrollbar};
-pub(super) use crate::domain::{hh_mm, plain_number};
 
 pub(super) type T = Arc<Theme>;
 
@@ -209,10 +209,7 @@ pub(super) fn period_title(theme: &T, main: String, suffix: Option<String>) -> g
 }
 
 pub(super) fn hint(theme: &T, key: &'static str, label: &'static str) -> gpui::Div {
-    h_stack()
-        .gap(px(4.))
-        .child(div().font_weight(FontWeight::SEMIBOLD).text_color(theme.fg()).child(key))
-        .child(label)
+    h_stack().gap(px(4.)).child(div().font_weight(FontWeight::SEMIBOLD).text_color(theme.fg()).child(key)).child(label)
 }
 
 pub(super) fn day_header(

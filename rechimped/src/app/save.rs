@@ -4,9 +4,9 @@ use timechimp_api::NewMileage;
 
 use crate::domain::week::touches_week;
 use crate::forms::{Form, FormBody, Origin};
-use crate::validate::{self, SaveRequest};
 use crate::session;
 use crate::store::config;
+use crate::validate::{self, SaveRequest};
 
 use super::TimeChimpApp;
 
@@ -70,7 +70,8 @@ impl TimeChimpApp {
                     if !return_trip {
                         return Ok(Saved::Done(id, "Trip saved."));
                     }
-                    let back = NewMileage { from_address: trip.to_address.clone(), to_address: trip.from_address.clone(), ..trip };
+                    let back =
+                        NewMileage { from_address: trip.to_address.clone(), to_address: trip.from_address.clone(), ..trip };
                     match client.create_mileage(&back).await {
                         Ok(_) => Ok(Saved::Done(id, "Trip saved (return trip included).")),
                         // The outbound trip is in: closing the form keeps Save from adding it twice.

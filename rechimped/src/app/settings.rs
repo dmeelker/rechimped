@@ -62,7 +62,11 @@ impl TimeChimpApp {
         form.tags.order(&form.projects.hidden);
         let focus = match page {
             SettingsPage::Billability => form.billable_goal.read(cx).focus_handle(cx),
-            SettingsPage::General | SettingsPage::Projects | SettingsPage::Tasks | SettingsPage::ProjectTags | SettingsPage::Presets => form.focus.clone(),
+            SettingsPage::General
+            | SettingsPage::Projects
+            | SettingsPage::Tasks
+            | SettingsPage::ProjectTags
+            | SettingsPage::Presets => form.focus.clone(),
         };
         window.focus(&focus, cx);
         cx.notify();
@@ -103,7 +107,9 @@ impl TimeChimpApp {
                 let len = SettingsPage::ALL.len() as isize;
                 return self.show_settings_page(page((current as isize + delta).rem_euclid(len) as usize), window, cx);
             }
-            SettingsKey::PageTo(index) if index < SettingsPage::ALL.len() => return self.show_settings_page(page(index), window, cx),
+            SettingsKey::PageTo(index) if index < SettingsPage::ALL.len() => {
+                return self.show_settings_page(page(index), window, cx);
+            }
             SettingsKey::PageTo(_) => return,
             _ if !on_window => return,
             SettingsKey::Save => return self.save_settings(window, cx),

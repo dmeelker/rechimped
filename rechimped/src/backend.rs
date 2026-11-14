@@ -6,8 +6,8 @@ use std::ops::Range;
 use chrono::NaiveDate;
 use futures::future::BoxFuture;
 use timechimp_api::{
-    Client, CurrentUser, Mileage, NewMileage, NewTimeEntry, PlacePrediction, Project, ProjectTask, QueryResult,
-    RouteDistance, Tag, TagType, TimeEntry, TimeReportRow, MileageReportRow,
+    Client, CurrentUser, Mileage, MileageReportRow, NewMileage, NewTimeEntry, PlacePrediction, Project, ProjectTask, QueryResult,
+    RouteDistance, Tag, TagType, TimeEntry, TimeReportRow,
 };
 
 pub type Call<'a, T> = BoxFuture<'a, timechimp_api::Result<T>>;
@@ -23,8 +23,7 @@ pub trait Backend: Send + Sync {
     fn create_time_entry<'a>(&'a self, entry: &'a NewTimeEntry) -> Call<'a, TimeEntry>;
     fn update_time_entry<'a>(&'a self, id: i64, entry: &'a NewTimeEntry) -> Call<'a, TimeEntry>;
     fn delete_time_entry(&self, id: i64) -> Call<'_, ()>;
-    fn query_time(&self, user_id: i64, from: NaiveDate, to: NaiveDate, rows: Range<u32>)
-    -> Call<'_, QueryResult<TimeReportRow>>;
+    fn query_time(&self, user_id: i64, from: NaiveDate, to: NaiveDate, rows: Range<u32>) -> Call<'_, QueryResult<TimeReportRow>>;
 
     fn mileage_for_week(&self, user_id: i64, monday: NaiveDate) -> Call<'_, Vec<Mileage>>;
     fn create_mileage<'a>(&'a self, mileage: &'a NewMileage) -> Call<'a, Mileage>;
@@ -73,13 +72,7 @@ impl Backend for Client {
         Box::pin(Client::delete_time_entry(self, id))
     }
 
-    fn query_time(
-        &self,
-        user_id: i64,
-        from: NaiveDate,
-        to: NaiveDate,
-        rows: Range<u32>,
-    ) -> Call<'_, QueryResult<TimeReportRow>> {
+    fn query_time(&self, user_id: i64, from: NaiveDate, to: NaiveDate, rows: Range<u32>) -> Call<'_, QueryResult<TimeReportRow>> {
         Box::pin(Client::query_time(self, user_id, from, to, rows))
     }
 

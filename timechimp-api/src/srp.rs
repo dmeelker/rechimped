@@ -1,4 +1,3 @@
-
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
@@ -91,9 +90,7 @@ impl SrpClient {
         let s = base.modpow(&(&self.a + &u * &x), &self.n);
 
         let key = hkdf(&pad(&s), &pad(&u));
-        let secret_block = BASE64
-            .decode(p.secret_block_b64)
-            .map_err(|e| format!("invalid SECRET_BLOCK: {e}"))?;
+        let secret_block = BASE64.decode(p.secret_block_b64).map_err(|e| format!("invalid SECRET_BLOCK: {e}"))?;
 
         let mut mac = HmacSha256::new_from_slice(&key).expect("any key length");
         mac.update(p.pool_name.as_bytes());
@@ -151,8 +148,7 @@ mod tests {
 
     #[test]
     fn matches_pycognito() {
-        let v: serde_json::Value =
-            serde_json::from_str(include_str!("../testdata/srp_vector_pycognito.json")).unwrap();
+        let v: serde_json::Value = serde_json::from_str(include_str!("../testdata/srp_vector_pycognito.json")).unwrap();
         let s = |k: &str| v[k].as_str().unwrap();
 
         let client = SrpClient::with_private_key(BigUint::parse_bytes(s("a").as_bytes(), 16).unwrap());

@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -230,9 +229,9 @@ impl Session {
             let what = time_preset_label(preset);
             match self.resolve_time_preset(preset) {
                 Err(name) => unknown.push(format!("{name} (time entry \"{what}\")")),
-                Ok(resolved) => unknown.extend(
-                    resolved.unknown_tags.iter().map(|t| format!("tag \"{t}\" (time entry \"{what}\")")),
-                ),
+                Ok(resolved) => {
+                    unknown.extend(resolved.unknown_tags.iter().map(|t| format!("tag \"{t}\" (time entry \"{what}\")")))
+                }
             }
         }
         self.trip_presets = config.trips;
@@ -494,8 +493,7 @@ impl Session {
     }
 
     pub fn is_hidden(&self, project_id: i64) -> bool {
-        self.project(project_id)
-            .is_some_and(|p| self.settings.hidden_projects.iter().any(|name| same_name(name, &p.name)))
+        self.project(project_id).is_some_and(|p| self.settings.hidden_projects.iter().any(|name| same_name(name, &p.name)))
     }
 
     pub fn project_options(&self, current: Option<(i64, &str, &str)>) -> Vec<(i64, String)> {
@@ -536,9 +534,10 @@ impl Session {
             })
             .unwrap_or_default();
         if let Some(e) = entry.filter(|e| Some(e.project_id) == project_id)
-            && !tasks.iter().any(|(id, _)| *id == e.project_task_id) {
-                tasks.push((e.project_task_id, e.task_name.clone()));
-            }
+            && !tasks.iter().any(|(id, _)| *id == e.project_task_id)
+        {
+            tasks.push((e.project_task_id, e.task_name.clone()));
+        }
         tasks
     }
 
@@ -640,7 +639,9 @@ impl Session {
 
     pub fn shown_days(&self, today: NaiveDate) -> Vec<usize> {
         let work_days = self.settings.work_days;
-        (0..7).filter(|&i| domain::week::shows_day(self.week_start + Duration::days(i as i64), work_days, today, self.day)).collect()
+        (0..7)
+            .filter(|&i| domain::week::shows_day(self.week_start + Duration::days(i as i64), work_days, today, self.day))
+            .collect()
     }
 
     pub fn contract_hours(&self) -> f64 {
@@ -657,12 +658,7 @@ pub struct ResolvedTimePreset {
 }
 
 pub fn time_preset_label(preset: &TimePreset) -> &str {
-    [&preset.notes, &preset.task]
-        .into_iter()
-        .flatten()
-        .map(|s| s.trim())
-        .find(|s| !s.is_empty())
-        .unwrap_or(&preset.project)
+    [&preset.notes, &preset.task].into_iter().flatten().map(|s| s.trim()).find(|s| !s.is_empty()).unwrap_or(&preset.project)
 }
 
 /// If the selected row was deleted, the row now at its position takes over.
@@ -1002,7 +998,12 @@ mod tests {
                 billable: false,
                 notes: None,
             }],
-            time_entries: vec![TimePreset { project: "Gone".into(), task: None, notes: Some("Standup".into()), tags: Vec::new() }],
+            time_entries: vec![TimePreset {
+                project: "Gone".into(),
+                task: None,
+                notes: Some("Standup".into()),
+                tags: Vec::new(),
+            }],
         };
         let warning = s.apply_config(Some(config)).unwrap();
         assert!(warning.contains("project \"Nope\"") && warning.contains("trip \"Trip\""), "{warning}");
@@ -1036,7 +1037,11 @@ mod tests {
     #[test]
     fn time_presets() {
         let mut s = Session::new(None, date(4));
-        s.apply_base(base(vec![project(3, "Intern")], HashMap::from([(3, vec![task(4, 3, "Meeting")])]), vec![tag(7, "Daily")]), None, &[]);
+        s.apply_base(
+            base(vec![project(3, "Intern")], HashMap::from([(3, vec![task(4, 3, "Meeting")])]), vec![tag(7, "Daily")]),
+            None,
+            &[],
+        );
         let preset = |task: Option<&str>, tags: &[&str]| TimePreset {
             project: "intern".into(),
             task: task.map(Into::into),
@@ -1045,7 +1050,12 @@ mod tests {
         };
         assert_eq!(
             s.resolve_time_preset(&preset(Some("meeting"), &["daily", "gone"])),
-            Ok(ResolvedTimePreset { project_id: 3, project_task_id: Some(4), tag_ids: vec![7], unknown_tags: vec!["gone".into()] })
+            Ok(ResolvedTimePreset {
+                project_id: 3,
+                project_task_id: Some(4),
+                tag_ids: vec![7],
+                unknown_tags: vec!["gone".into()]
+            })
         );
         assert_eq!(s.resolve_time_preset(&preset(None, &[])).unwrap().project_task_id, None);
         assert!(s.resolve_time_preset(&preset(Some("Nap"), &[])).unwrap_err().starts_with("task \"Nap\""));

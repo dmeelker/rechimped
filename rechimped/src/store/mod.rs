@@ -57,10 +57,8 @@ fn write_then_rename(path: &Path, contents: &str, private: bool) -> std::io::Res
     }
     #[cfg(not(unix))]
     let _ = private;
-    let result = options
-        .open(&temp)
-        .and_then(|mut file| file.write_all(contents.as_bytes()))
-        .and_then(|()| std::fs::rename(&temp, path));
+    let result =
+        options.open(&temp).and_then(|mut file| file.write_all(contents.as_bytes())).and_then(|()| std::fs::rename(&temp, path));
     if result.is_err() {
         let _ = std::fs::remove_file(&temp);
     }

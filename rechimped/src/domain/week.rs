@@ -40,9 +40,7 @@ pub fn recent_items<'a>(entries: impl IntoIterator<Item = &'a TimeEntry>) -> Vec
         }
     }
     let mut items: Vec<RecentItem> = groups.into_values().collect();
-    items.sort_by(|a, b| {
-        (b.entry.date, b.uses, b.entry.modified).cmp(&(a.entry.date, a.uses, a.entry.modified))
-    });
+    items.sort_by_key(|a| std::cmp::Reverse((a.entry.date, a.uses, a.entry.modified)));
     items
 }
 
@@ -54,9 +52,7 @@ pub fn is_excluded(entry: &TimeEntry, excluded: &TaskNames) -> bool {
 }
 
 pub fn is_excluded_task(project: &str, task: &str, excluded: &TaskNames) -> bool {
-    excluded
-        .iter()
-        .any(|(p, tasks)| super::same_name(p, project) && tasks.iter().any(|t| super::same_name(t, task)))
+    excluded.iter().any(|(p, tasks)| super::same_name(p, project) && tasks.iter().any(|t| super::same_name(t, task)))
 }
 
 /// Excluded tasks (leave) count neither as hours worked nor towards the contract, so a week with a
@@ -75,8 +71,7 @@ pub struct WeekCard {
 
 /// Borrows the entries: it runs on every render of the Time tab.
 pub fn week_card<'a>(entries: impl IntoIterator<Item = &'a TimeEntry>, contract_hours: f64, excluded: &TaskNames) -> WeekCard {
-    let (leave, worked): (Vec<&TimeEntry>, Vec<&TimeEntry>) =
-        entries.into_iter().partition(|e| is_excluded(e, excluded));
+    let (leave, worked): (Vec<&TimeEntry>, Vec<&TimeEntry>) = entries.into_iter().partition(|e| is_excluded(e, excluded));
     let hours = super::total(worked.iter().map(|e| e.hours));
     let leave = super::total(leave.iter().map(|e| e.hours));
     let contract = (contract_hours - leave).max(0.0);
@@ -204,9 +199,7 @@ pub fn contract_summary(contract_hours: f64) -> String {
 
 /// What a billable goal comes to in hours, for a full week without leave.
 pub fn goal_summary(contract_hours: f64, goal: f64) -> Option<String> {
-    (contract_hours > 0.0).then(|| {
-        format!("= {} / {}", super::hh_mm(contract_hours * goal), super::hh_mm(contract_hours))
-    })
+    (contract_hours > 0.0).then(|| format!("= {} / {}", super::hh_mm(contract_hours * goal), super::hh_mm(contract_hours)))
 }
 
 #[cfg(test)]
@@ -246,10 +239,7 @@ mod tests {
             range_junction(r("830", "1000"), r("930", "1100")),
             Some(Junction::Overlap { from: tm("930"), to: tm("1000") })
         );
-        assert_eq!(
-            range_junction(r("8", "12"), r("9", "10")),
-            Some(Junction::Overlap { from: tm("9"), to: tm("10") })
-        );
+        assert_eq!(range_junction(r("8", "12"), r("9", "10")), Some(Junction::Overlap { from: tm("9"), to: tm("10") }));
     }
 
     const WEEKDAYS: [bool; 7] = [true, true, true, true, true, false, false];
@@ -272,7 +262,8 @@ mod tests {
         let mut leave = entry(2, 3, "");
         (leave.project_name, leave.task_name, leave.billable, leave.hours) = ("intern".into(), "Verlof".into(), false, 8.0);
         let mut meeting = entry(3, 4, "");
-        (meeting.project_name, meeting.task_name, meeting.billable, meeting.hours) = ("Intern".into(), "Meeting".into(), false, 2.0);
+        (meeting.project_name, meeting.task_name, meeting.billable, meeting.hours) =
+            ("Intern".into(), "Meeting".into(), false, 2.0);
         let entries = [entry(1, 2, "9:00-10:00"), leave.clone(), meeting.clone()];
         let excluded = TaskNames::from([("Intern".into(), vec!["verlof".into()])]);
         assert!(is_excluded(&leave, &excluded) && !is_excluded(&meeting, &excluded), "by name, case-insensitively");
@@ -307,7 +298,8 @@ mod tests {
         let mut unbilled = entry(3, 8, "");
         unbilled.billable = false;
         let entries = [entry(1, 2, ""), entry(2, 8, ""), unbilled, entry(4, 9, "")];
-        let shares: Vec<_> = week_cards(&entries, &mondays, 4.0, &TaskNames::new()).into_iter().map(|(m, c)| (m, c.hours, c.share)).collect();
+        let shares: Vec<_> =
+            week_cards(&entries, &mondays, 4.0, &TaskNames::new()).into_iter().map(|(m, c)| (m, c.hours, c.share)).collect();
         assert_eq!(
             shares,
             [(mondays[0], 0.0, Some(0.0)), (date(2), 3.0, Some(2.0 / 4.0)), (date(9), 1.0, Some(1.0 / 4.0))],

@@ -1,11 +1,9 @@
-
-
 use chrono::NaiveDate;
 use timechimp_api::{Mileage, MileageType, NewMileage, NewTimeEntry};
 
 use crate::domain::same_name;
-use crate::domain::week::TaskNames;
 use crate::domain::time::{local, parse_decimal, parse_end, parse_hours, parse_time};
+use crate::domain::week::TaskNames;
 use crate::session::Session;
 use crate::store::config::{self, Settings, TimePreset, TripPreset};
 
@@ -13,7 +11,12 @@ use crate::store::config::{self, Settings, TimePreset, TripPreset};
 pub enum TimeKind {
     New,
     /// Carries what the form doesn't edit, so an update doesn't drop it.
-    Edit { id: i64, pause: f64, timezone: Option<String>, task: (i64, i64) },
+    Edit {
+        id: i64,
+        pause: f64,
+        timezone: Option<String>,
+        task: (i64, i64),
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -226,8 +229,7 @@ pub fn settings(v: &SettingsValues) -> Result<Settings, String> {
     if !v.work_days.contains(&true) {
         return Err("Pick at least one work day".into());
     }
-    let billable_goal =
-        billable_goal(&v.billable_goal).ok_or("Billable target must be a percentage between 0 and 100")?;
+    let billable_goal = billable_goal(&v.billable_goal).ok_or("Billable target must be a percentage between 0 and 100")?;
     Ok(Settings {
         work_days: v.work_days,
         billable_goal,
@@ -247,7 +249,11 @@ mod tests {
 
     fn session() -> Session {
         let mut s = Session::new(None, date(4));
-        s.apply_base(base(vec![project(3, "Intern")], HashMap::from([(3, vec![task(4, 3, "Dev")])]), vec![tag(7, "Daily")]), None, &[]);
+        s.apply_base(
+            base(vec![project(3, "Intern")], HashMap::from([(3, vec![task(4, 3, "Dev")])]), vec![tag(7, "Daily")]),
+            None,
+            &[],
+        );
         s
     }
 
@@ -331,8 +337,7 @@ mod tests {
 
     #[test]
     fn trips() {
-        let (date, SaveRequest::Travel { trip: t, return_trip, editing }) = trip(&trip_values(), &session()).unwrap()
-        else {
+        let (date, SaveRequest::Travel { trip: t, return_trip, editing }) = trip(&trip_values(), &session()).unwrap() else {
             unreachable!()
         };
         assert_eq!(date, NaiveDate::from_ymd_opt(2026, 11, 4).unwrap());
@@ -368,7 +373,12 @@ mod tests {
         let p = time_preset(&v, &s).unwrap();
         assert_eq!(
             p,
-            TimePreset { project: "Intern".into(), task: Some("Dev".into()), notes: Some("Standup".into()), tags: vec!["Daily".into()] }
+            TimePreset {
+                project: "Intern".into(),
+                task: Some("Dev".into()),
+                notes: Some("Standup".into()),
+                tags: vec!["Daily".into()]
+            }
         );
         s.set_presets(Vec::new(), vec![p]);
         assert!(time_preset(&v, &s).unwrap_err().starts_with("There already is a preset"));
@@ -403,5 +413,4 @@ mod tests {
         assert!(settings(&v(weekdays, "101")).unwrap_err().starts_with("Billable"));
         assert!(settings(&v(weekdays, "lots")).unwrap_err().starts_with("Billable"));
     }
-
 }

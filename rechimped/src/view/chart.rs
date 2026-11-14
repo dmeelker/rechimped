@@ -1,7 +1,7 @@
 use chrono::{Datelike, Duration};
 use gpui::{
-    Context, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement,
-    Styled, div, prelude::FluentBuilder, px,
+    Context, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled, div,
+    prelude::FluentBuilder, px,
 };
 use gpuikit::elements::tooltip::tooltip;
 use gpuikit::layout::{h_stack, v_stack};
@@ -41,21 +41,16 @@ impl TimeChimpApp {
             .child(div().text_lg().font_weight(FontWeight::BOLD).text_color(theme.accent()).child("Billability"))
             .child(muted(
                 theme,
-                format!(
-                    "Billable hours per week as a share of the contract hours, leave left out · goal {:.0}%",
-                    goal * 100.0
-                ),
+                format!("Billable hours per week as a share of the contract hours, leave left out · goal {:.0}%", goal * 100.0),
             ))
             .child(div().mt(px(16.)).child(body))
-            .child(
-                h_stack().mt(px(16.)).justify_end().child(primary_button(
-                    theme,
-                    "chart-close",
-                    "Close",
-                    false,
-                    cx.listener(|this, _, w, cx| this.close_overlay(w, cx)),
-                )),
-            );
+            .child(h_stack().mt(px(16.)).justify_end().child(primary_button(
+                theme,
+                "chart-close",
+                "Close",
+                false,
+                cx.listener(|this, _, w, cx| this.close_overlay(w, cx)),
+            )));
         let close = cx.listener(|this, _: &gpui::MouseDownEvent, w, cx| this.close_overlay(w, cx));
         Self::modal(theme, "chart", 560., card, Some(Box::new(close)))
     }
@@ -112,22 +107,15 @@ fn plot(theme: &T, weeks: &[(chrono::NaiveDate, WeekCard)], goal: f64) -> impl I
             )))
     });
 
-    let goal_line = div()
-        .absolute()
-        .left_0()
-        .right_0()
-        .bottom(px(y(goal)))
-        .h(px(1.))
-        .bg(theme.fg_muted().opacity(0.6))
-        .child(
-            div()
-                .absolute()
-                .right_0()
-                .bottom(px(2.))
-                .text_xs()
-                .text_color(theme.fg_muted())
-                .child(format!("goal {:.0}%", goal * 100.0)),
-        );
+    let goal_line = div().absolute().left_0().right_0().bottom(px(y(goal))).h(px(1.)).bg(theme.fg_muted().opacity(0.6)).child(
+        div()
+            .absolute()
+            .right_0()
+            .bottom(px(2.))
+            .text_xs()
+            .text_color(theme.fg_muted())
+            .child(format!("goal {:.0}%", goal * 100.0)),
+    );
 
     let bars = h_stack()
         .relative()

@@ -4,45 +4,31 @@ use gpui::{AppContext, Context, Focusable, Window};
 use timechimp_api::{Authenticator, Client, LoginOutcome};
 
 use crate::backend::Api;
-use crate::forms::{self, text};
 use crate::domain;
+use crate::forms::{self, text};
+use crate::password::{PasswordEvent, PasswordField};
 use crate::session::Session;
 use crate::store::token;
-use crate::password::{PasswordEvent, PasswordField};
 
 use super::{Login, Screen, TimeChimpApp};
 
 impl TimeChimpApp {
     pub(super) fn show_login(&mut self, error: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
-        let email = self
-            .session
-            .me()
-            .map(|m| m.user_name.clone())
-            .or_else(|| std::env::var("TIMECHIMP_EMAIL").ok())
-            .unwrap_or_default();
+        let email =
+            self.session.me().map(|m| m.user_name.clone()).or_else(|| std::env::var("TIMECHIMP_EMAIL").ok()).unwrap_or_default();
         let email_input = forms::text_input(cx, email.clone());
         let password = cx.new(PasswordField::new);
         let code = forms::text_input(cx, "");
         let sub = cx.subscribe_in(&password, window, |this, _, _: &PasswordEvent, window, cx| this.login(window, cx));
-        let focus = if email.is_empty() {
-            email_input.read(cx).focus_handle(cx)
-        } else {
-            password.read(cx).focus_handle(cx)
-        };
+        let focus = if email.is_empty() { email_input.read(cx).focus_handle(cx) } else { password.read(cx).focus_handle(cx) };
         window.focus(&focus, cx);
 
         self.cancel_loads();
         self.session = Session::new(None, domain::time::today());
         self.reset_overlay(cx);
         self.error = None;
-        self.screen = Screen::Login(Box::new(Login {
-            email: email_input,
-            password,
-            code,
-            mfa: None,
-            error,
-            _subscriptions: vec![sub],
-        }));
+        self.screen =
+            Screen::Login(Box::new(Login { email: email_input, password, code, mfa: None, error, _subscriptions: vec![sub] }));
         cx.notify();
     }
 
@@ -69,8 +55,12 @@ impl TimeChimpApp {
         }
         let email = text(&login.email, cx);
         let password = login.password.read(cx).value().to_owned();
-        self.run("Logging in…", async move { Authenticator::login(&email, &password).await }, window, cx, |this, result, window, cx| {
-            match result {
+        self.run(
+            "Logging in…",
+            async move { Authenticator::login(&email, &password).await },
+            window,
+            cx,
+            |this, result, window, cx| match result {
                 Ok(LoginOutcome::LoggedIn(auth)) => this.logged_in(auth, window, cx),
                 Ok(LoginOutcome::MfaRequired(challenge)) => {
                     if let Screen::Login(login) = &mut this.screen {
@@ -85,8 +75,8 @@ impl TimeChimpApp {
                         login.error = Some(e.to_string());
                     }
                 }
-            }
-        });
+            },
+        );
     }
 
     fn submit_mfa_code(&mut self, window: &mut Window, cx: &mut Context<Self>) {

@@ -6,7 +6,6 @@ use timechimp_api::{MileageType, Project, Tag};
 use crate::domain::same_name;
 use crate::domain::week::TaskNames;
 
-
 pub const DEFAULT_BILLABLE_GOAL: f64 = 0.8;
 
 pub const DAY_NAMES: [&str; 7] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
@@ -229,10 +228,12 @@ pub fn save_settings(path: &Path, settings: &Settings) -> Result<(), String> {
 
 fn with_settings(text: &str, settings: &Settings) -> Result<String, String> {
     let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| e.to_string())?;
-    let days: toml_edit::Array =
-        (0..7).zip(settings.work_days).filter(|(_, on)| *on).map(|(i, _)| day_key(i)).collect();
+    let days: toml_edit::Array = (0..7).zip(settings.work_days).filter(|(_, on)| *on).map(|(i, _)| day_key(i)).collect();
     // Set in place, so a key keeps its position and the comment above it.
-    let set = |doc: &mut toml_edit::DocumentMut, key: &str, item: toml_edit::Item, comment: &str| match doc.get_mut(key).and_then(|i| i.as_value_mut()) {
+    let set = |doc: &mut toml_edit::DocumentMut, key: &str, item: toml_edit::Item, comment: &str| match doc
+        .get_mut(key)
+        .and_then(|i| i.as_value_mut())
+    {
         Some(value) => {
             let decor = value.decor().clone();
             *value = item.into_value().expect("a value");
@@ -273,19 +274,16 @@ fn with_settings(text: &str, settings: &Settings) -> Result<String, String> {
 }
 
 /// Keys are changed in place and emptied ones dropped.
-fn set_task_table(
-    doc: &mut toml_edit::DocumentMut,
-    key: &str,
-    names: &TaskNames,
-    comment: &str,
-) -> Result<(), String> {
+fn set_task_table(doc: &mut toml_edit::DocumentMut, key: &str, names: &TaskNames, comment: &str) -> Result<(), String> {
     let table = doc
         .entry(key)
         .or_insert_with(|| {
             let mut table = toml_edit::Table::new();
-            table.decor_mut().set_prefix(format!("
+            table.decor_mut().set_prefix(format!(
+                "
 {comment}
-"));
+"
+            ));
             toml_edit::Item::Table(table)
         })
         .as_table_like_mut()
@@ -317,11 +315,7 @@ pub fn save_project_tags(path: &Path, changes: &[(String, Vec<String>)]) -> Resu
 
 fn with_project_tags(text: &str, changes: &[(String, Vec<String>)]) -> Result<String, String> {
     let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| e.to_string())?;
-    let projects = doc
-        .entry("projects")
-        .or_insert_with(toml_edit::table)
-        .as_table_mut()
-        .ok_or("[projects] is not a table")?;
+    let projects = doc.entry("projects").or_insert_with(toml_edit::table).as_table_mut().ok_or("[projects] is not a table")?;
     for (project, tags) in changes {
         set_names(projects, project, tags);
     }
@@ -659,7 +653,10 @@ mod tests {
             ("Untagged".to_owned(), Vec::new()),
         ];
         let saved = with_project_tags(text, &changes).unwrap();
-        assert!(saved.contains("# keep me\nintern = [\"a\", \"b\"]\n"), "existing key changed in place, its spelling kept:\n{saved}");
+        assert!(
+            saved.contains("# keep me\nintern = [\"a\", \"b\"]\n"),
+            "existing key changed in place, its spelling kept:\n{saved}"
+        );
         assert!(saved.contains("Other = [\"x\"]"), "projects not changed stay");
         let config = parse_config(&saved).unwrap();
         assert_eq!(config.projects["New"], ["c"]);
@@ -743,13 +740,31 @@ mod tests {
     #[test]
     fn excluded_tasks() {
         assert_eq!(parse_config("").unwrap().settings.excluded_tasks, default_excluded_tasks(), "leave by default");
-        assert!(parse_config("[excluded_tasks]
-").unwrap().settings.excluded_tasks.is_empty(), "an empty table excludes nothing");
+        assert!(
+            parse_config(
+                "[excluded_tasks]
+"
+            )
+            .unwrap()
+            .settings
+            .excluded_tasks
+            .is_empty(),
+            "an empty table excludes nothing"
+        );
         assert!(!with_settings("", &Settings::default()).unwrap().contains("excluded_tasks"), "not written while the default");
         let none = Settings { excluded_tasks: BTreeMap::new(), ..Settings::default() };
-        let saved = with_settings("billable_goal = 80
-", &none).unwrap();
-        assert!(saved.contains("# Per project, the tasks that don't count towards the billable target, like leave: their hours are\n# left out"), "{saved}");
+        let saved = with_settings(
+            "billable_goal = 80
+",
+            &none,
+        )
+        .unwrap();
+        assert!(
+            saved.contains(
+                "# Per project, the tasks that don't count towards the billable target, like leave: their hours are\n# left out"
+            ),
+            "{saved}"
+        );
         assert!(saved.contains("[excluded_tasks]"), "{saved}");
         assert_eq!(parse_config(&saved).unwrap().settings, none, "cleared stays cleared");
         assert_eq!(parse_config(&with_settings(&saved, &Settings::default()).unwrap()).unwrap().settings, Settings::default());
@@ -825,10 +840,17 @@ mod tests {
 
         let done = with_presets(&text, &[gym, commute], &[times[1].clone(), times[0].clone()]).unwrap();
         let config = parse_config(&done).unwrap();
-        assert_eq!(config.trips.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["Gym", "Commute"], "reordered, Client gone");
+        assert_eq!(
+            config.trips.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(),
+            ["Gym", "Commute"],
+            "reordered, Client gone"
+        );
         assert_eq!(config.time_entries.iter().map(|t| t.notes.as_deref().unwrap()).collect::<Vec<_>>(), ["b", "a"]);
         let at = |needle: &str| done.find(needle).unwrap_or_else(|| panic!("{needle} missing:\n{done}"));
-        assert!(at("# about trips") < at("name = \"Gym\"") && at("name = \"Gym\"") < at("name = \"Commute\""), "section comment stays on top:\n{done}");
+        assert!(
+            at("# about trips") < at("name = \"Gym\"") && at("name = \"Gym\"") < at("name = \"Commute\""),
+            "section comment stays on top:\n{done}"
+        );
         assert!(!done.contains("# second"), "Client's own comment went with it");
         assert!(at("# about time") < at("notes = \"b\""));
         assert!(done.contains("Intern = []"));

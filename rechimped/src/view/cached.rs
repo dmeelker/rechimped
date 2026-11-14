@@ -58,8 +58,7 @@ pub struct SweepBar {
 
 impl Render for SweepBar {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (sweep, busy) =
-            self.app.upgrade().map_or((0, false), |app| (app.read(cx).fx.sweep, app.read(cx).busy().is_some()));
+        let (sweep, busy) = self.app.upgrade().map_or((0, false), |app| (app.read(cx).fx.sweep, app.read(cx).busy().is_some()));
         crate::fx::sweep_bar(sweep, busy, cx.theme().accent())
     }
 }

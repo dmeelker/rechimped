@@ -100,9 +100,8 @@ pub fn tag_mismatches(rows: &[TimeReportRow]) -> HashMap<i64, TagMismatch> {
                 }
             }
         } else {
-            variants.sort_by(|(a, m), (b, n)| {
-                n.cmp(m).then(a.is_empty().cmp(&b.is_empty())).then_with(|| a.keys().cmp(b.keys()))
-            });
+            variants
+                .sort_by(|(a, m), (b, n)| n.cmp(m).then(a.is_empty().cmp(&b.is_empty())).then_with(|| a.keys().cmp(b.keys())));
             let tie = TagMismatch::Tie(variants.iter().map(|&(set, n)| (n, shown(set))).collect());
             for row in group {
                 marked.insert(row.id, tie.clone());
@@ -140,10 +139,10 @@ impl Findings {
     pub fn label(&self) -> String {
         let parts: Vec<_> =
             [(self.rejected, "rejected"), (self.no_notes, "without notes"), (self.tags_differ, "with different tags")]
-            .into_iter()
-            .filter(|&(n, _)| n > 0)
-            .map(|(n, what)| format!("{n} {what}"))
-            .collect();
+                .into_iter()
+                .filter(|&(n, _)| n > 0)
+                .map(|(n, what)| format!("{n} {what}"))
+                .collect();
         if parts.is_empty() { "No findings".into() } else { parts.join(" · ") }
     }
 }
@@ -151,7 +150,10 @@ impl Findings {
 /// One line of the review list: drawn in this order, so its position is the list's item index.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Line {
-    Day { date: NaiveDate, total: f64 },
+    Day {
+        date: NaiveDate,
+        total: f64,
+    },
     /// An index into the rows.
     Entry(usize),
 }
@@ -225,13 +227,15 @@ mod tests {
     fn notes_match_ignoring_case_and_whitespace() {
         assert_eq!(note_key("  Refactor 	 login "), note_key("refactor login"));
         assert_ne!(note_key("Single Sign On"), note_key("Single sign-on"), "punctuation counts");
-        let rows = rows(&[(Some("Refactor  login "), Some("w")), (Some("refactor login"), None), (Some("Refactor login."), None)]);
+        let rows =
+            rows(&[(Some("Refactor  login "), Some("w")), (Some("refactor login"), None), (Some("Refactor login."), None)]);
         assert_eq!(marked(&rows), [1, 2], "the third has other notes");
     }
 
     #[test]
     fn groups_are_per_project_task_and_notes() {
-        let mut rows = rows(&[(Some("x"), Some("w")), (Some("x"), None), (Some("x"), None), (None, Some("w")), (Some(" "), None)]);
+        let mut rows =
+            rows(&[(Some("x"), Some("w")), (Some("x"), None), (Some("x"), None), (None, Some("w")), (Some(" "), None)]);
         rows[1].project_id = 2;
         rows[2].task_id = 2;
         assert!(marked(&rows).is_empty(), "another project or task, or no notes");
@@ -335,11 +339,7 @@ mod tests {
 
     #[test]
     fn a_header_per_day() {
-        let rows = [
-            report_row("P", "T", 2, 1.5, true),
-            report_row("P", "T", 2, 0.25, true),
-            report_row("P", "T", 4, 8.0, false),
-        ];
+        let rows = [report_row("P", "T", 2, 1.5, true), report_row("P", "T", 2, 0.25, true), report_row("P", "T", 4, 8.0, false)];
         assert_eq!(
             lines(&rows),
             [

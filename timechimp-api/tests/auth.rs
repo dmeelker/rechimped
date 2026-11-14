@@ -26,8 +26,7 @@ async fn refreshes_the_access_token_first() {
 
 #[tokio::test]
 async fn retries_once_with_a_new_token_after_a_401() {
-    let (base, requests) =
-        serve(vec![tokens("t1"), ("401 Unauthorized", "{}".into()), tokens("t2"), current_user()]).await;
+    let (base, requests) = serve(vec![tokens("t1"), ("401 Unauthorized", "{}".into()), tokens("t2"), current_user()]).await;
     let client = Client::with_base_url(Authenticator::from_refresh_token_at(&base, "r1"), base);
     client.current_user().await.unwrap();
 
@@ -61,11 +60,9 @@ async fn logs_in_with_srp_and_an_sms_code() {
         "SALT": "abcd", "SRP_B": "02", "SECRET_BLOCK": "c2VjcmV0", "USER_ID_FOR_SRP": "uid", "USERNAME": "uid"}}"#;
     let mfa = r#"{"ChallengeName": "SMS_MFA", "Session": "s1", "ChallengeParameters": {"USER_ID_FOR_SRP": "uid"}}"#;
     let done = r#"{"AuthenticationResult": {"AccessToken": "t", "RefreshToken": "r", "ExpiresIn": 3600}}"#;
-    let (base, requests) =
-        serve(vec![("200 OK", verifier.into()), ("200 OK", mfa.into()), ("200 OK", done.into())]).await;
+    let (base, requests) = serve(vec![("200 OK", verifier.into()), ("200 OK", mfa.into()), ("200 OK", done.into())]).await;
 
-    let LoginOutcome::MfaRequired(challenge) = Authenticator::login_at(&base, "me@example.com", "secret").await.unwrap()
-    else {
+    let LoginOutcome::MfaRequired(challenge) = Authenticator::login_at(&base, "me@example.com", "secret").await.unwrap() else {
         panic!("expected an MFA challenge")
     };
     assert_eq!(challenge.kind(), MfaKind::Sms);
@@ -94,8 +91,7 @@ async fn a_wrong_authenticator_code_can_be_retried() {
     ])
     .await;
 
-    let LoginOutcome::MfaRequired(challenge) = Authenticator::login_at(&base, "me@example.com", "secret").await.unwrap()
-    else {
+    let LoginOutcome::MfaRequired(challenge) = Authenticator::login_at(&base, "me@example.com", "secret").await.unwrap() else {
         panic!("expected an MFA challenge")
     };
     assert_eq!(challenge.kind(), MfaKind::Totp);

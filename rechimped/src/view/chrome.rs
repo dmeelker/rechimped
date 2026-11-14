@@ -31,10 +31,12 @@ impl TimeChimpApp {
             // Pulled 1px down so the selected tab's underline covers the header's border.
             .child(div().mb(px(-1.)).font_weight(FontWeight::MEDIUM).child(self.render_tabs(theme, cx)))
             .child(div().flex_1())
-            .child(div().relative().child(self.render_user_button(theme, title, cx)).when(
-                self.menu() == Some(Menu::User),
-                |d| d.child(self.render_user_menu(theme, cx)),
-            ));
+            .child(
+                div()
+                    .relative()
+                    .child(self.render_user_button(theme, title, cx))
+                    .when(self.menu() == Some(Menu::User), |d| d.child(self.render_user_menu(theme, cx))),
+            );
 
         let views = self.cached_views.get_or_insert_with(|| super::CachedViews::new(cx));
         let (body, sweep) = (views.body(), views.sweep());
@@ -43,9 +45,9 @@ impl TimeChimpApp {
             .id("browse")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key))
-            .on_action(cx.listener(|this, _: &gpuikit::a11y::FocusNext, window, cx| {
-                this.switch_tab(this.tab().cycled(1), window, cx)
-            }))
+            .on_action(
+                cx.listener(|this, _: &gpuikit::a11y::FocusNext, window, cx| this.switch_tab(this.tab().cycled(1), window, cx)),
+            )
             .on_action(cx.listener(|this, _: &gpuikit::a11y::FocusPrevious, window, cx| {
                 this.switch_tab(this.tab().cycled(-1), window, cx)
             }))
@@ -203,19 +205,13 @@ impl TimeChimpApp {
             Tab::Week => ("+ Add time", Menu::AddTime),
             _ => ("+ Add trip", Menu::AddTrip),
         };
-        let main =
-            primary_button(theme, "add", label, false, cx.listener(|this, _, w, cx| this.add(w, cx))).rounded_r(px(0.));
-        let caret = primary_button(
-            theme,
-            "add-presets",
-            "▾",
-            false,
-            cx.listener(move |this, _, _, cx| this.toggle_menu(kind, cx)),
-        )
-        .rounded_l(px(0.))
-        .px(px(8.))
-        .border_l_1()
-        .border_color(gpui::white().opacity(0.35));
+        let main = primary_button(theme, "add", label, false, cx.listener(|this, _, w, cx| this.add(w, cx))).rounded_r(px(0.));
+        let caret =
+            primary_button(theme, "add-presets", "▾", false, cx.listener(move |this, _, _, cx| this.toggle_menu(kind, cx)))
+                .rounded_l(px(0.))
+                .px(px(8.))
+                .border_l_1()
+                .border_color(gpui::white().opacity(0.35));
         div()
             .relative()
             .child(h_stack().child(main).child(caret))
@@ -291,8 +287,14 @@ impl TimeChimpApp {
             .track_scroll(&scroll.handle)
             .children(rows)
             .when(is_empty, |d| d.child(div().w(px(280.)).px(px(12.)).py(px(6.)).child(muted(theme, empty))));
-        let menu = menu_panel(theme, "presets-menu")
-            .child(with_scrollbar(theme, "presets-rows", rows, &scroll.handle, &scroll.bar, cx.entity_id()));
+        let menu = menu_panel(theme, "presets-menu").child(with_scrollbar(
+            theme,
+            "presets-rows",
+            rows,
+            &scroll.handle,
+            &scroll.bar,
+            cx.entity_id(),
+        ));
         deferred(div().absolute().top_full().right_0().mt(px(4.)).child(menu)).with_priority(2)
     }
 

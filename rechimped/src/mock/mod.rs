@@ -11,8 +11,8 @@ use std::sync::Mutex;
 
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use timechimp_api::{
-    CurrentUser, Error, Mileage, MileageReportRow, NewMileage, NewTimeEntry, PlacePrediction, Project, ProjectTask,
-    QueryResult, RouteDistance, Tag, TagType, TimeEntry, TimeReportRow,
+    CurrentUser, Error, Mileage, MileageReportRow, NewMileage, NewTimeEntry, PlacePrediction, Project, ProjectTask, QueryResult,
+    RouteDistance, Tag, TagType, TimeEntry, TimeReportRow,
 };
 
 use crate::backend::{Backend, Call};
@@ -245,9 +245,7 @@ impl Backend for Mock {
     }
 
     fn time_entries_for_week(&self, user_id: i64, monday: NaiveDate) -> Call<'_, Vec<TimeEntry>> {
-        self.call(move |s| {
-            Ok(s.entries.iter().filter(|e| e.user_id == user_id && in_week(e.date, monday)).cloned().collect())
-        })
+        self.call(move |s| Ok(s.entries.iter().filter(|e| e.user_id == user_id && in_week(e.date, monday)).cloned().collect()))
     }
 
     fn time_entry(&self, id: i64) -> Call<'_, TimeEntry> {
@@ -276,13 +274,7 @@ impl Backend for Mock {
         })
     }
 
-    fn query_time(
-        &self,
-        user_id: i64,
-        from: NaiveDate,
-        to: NaiveDate,
-        rows: Range<u32>,
-    ) -> Call<'_, QueryResult<TimeReportRow>> {
+    fn query_time(&self, user_id: i64, from: NaiveDate, to: NaiveDate, rows: Range<u32>) -> Call<'_, QueryResult<TimeReportRow>> {
         self.call(move |s| {
             let mut matching: Vec<TimeReportRow> = s
                 .entries
@@ -296,9 +288,7 @@ impl Backend for Mock {
     }
 
     fn mileage_for_week(&self, user_id: i64, monday: NaiveDate) -> Call<'_, Vec<Mileage>> {
-        self.call(move |s| {
-            Ok(s.trips.iter().filter(|m| m.user_id == user_id && in_week(m.date, monday)).cloned().collect())
-        })
+        self.call(move |s| Ok(s.trips.iter().filter(|m| m.user_id == user_id && in_week(m.date, monday)).cloned().collect()))
     }
 
     fn create_mileage<'a>(&'a self, mileage: &'a NewMileage) -> Call<'a, Mileage> {
@@ -419,7 +409,10 @@ mod tests {
         let all = block_on(mock.query_time(me.id, today - chrono::Duration::weeks(4), today, 0..10_000));
         let second = block_on(mock.query_time(me.id, today - chrono::Duration::weeks(4), today, 10..20));
         assert_eq!(second.row_count, all.row_count);
-        assert_eq!(second.row_data.iter().map(|r| r.id).collect::<Vec<_>>(), all.row_data[10..20].iter().map(|r| r.id).collect::<Vec<_>>());
+        assert_eq!(
+            second.row_data.iter().map(|r| r.id).collect::<Vec<_>>(),
+            all.row_data[10..20].iter().map(|r| r.id).collect::<Vec<_>>()
+        );
         let trips = block_on(mock.query_mileage(today - chrono::Duration::weeks(8), today, 0..10_000));
         assert!(trips.row_data.iter().any(|r| r.user_id != me.id), "the grid holds a colleague's trips too");
     }

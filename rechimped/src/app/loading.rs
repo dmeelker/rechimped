@@ -19,9 +19,7 @@ impl TimeChimpApp {
             let user_id = base.me.id;
             // Only the week is needed: a failed history (the Recent picker) or report (its tab
             // then says "Not loaded") is reported but doesn't fail the reload.
-            let report = async {
-                if want_report { Some(net::load_report(&client, user_id, report_month).await) } else { None }
-            };
+            let report = async { if want_report { Some(net::load_report(&client, user_id, report_month).await) } else { None } };
             let (week, history, report) = tokio::join!(
                 net::load_week(&client, user_id, week_start),
                 net::load_history(&client, user_id, today, week_start),

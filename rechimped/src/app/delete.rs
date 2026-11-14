@@ -17,7 +17,8 @@ impl TimeChimpApp {
         }
         let target = if self.tab == Tab::Week {
             self.session.selected_entry().map(|e| {
-                let label = entry_label(e.date, e.start_end.as_deref(), e.hours, &e.project_name, &e.task_name, e.notes.as_deref());
+                let label =
+                    entry_label(e.date, e.start_end.as_deref(), e.hours, &e.project_name, &e.task_name, e.notes.as_deref());
                 (DeleteTarget::Time { id: e.id, review_date: None }, "Delete time entry?", label)
             })
         } else if self.tab == Tab::Review {
@@ -90,9 +91,8 @@ impl TimeChimpApp {
 
     fn delete(&mut self, target: DeleteTarget, window: &mut Window, cx: &mut Context<Self>) {
         match target {
-            DeleteTarget::Time { id, review_date } => self.delete_remote(review_date, window, cx, move |client| {
-                async move { client.delete_time_entry(id).await }.boxed()
-            }),
+            DeleteTarget::Time { id, review_date } => self
+                .delete_remote(review_date, window, cx, move |client| async move { client.delete_time_entry(id).await }.boxed()),
             DeleteTarget::Travel(id) => {
                 self.delete_remote(None, window, cx, move |client| async move { client.delete_mileage(id).await }.boxed())
             }
@@ -124,7 +124,8 @@ impl TimeChimpApp {
     }
 
     fn delete_preset(&mut self, preset: &impl config::Preset, window: &mut Window, cx: &mut Context<Self>) {
-        let removed = self.session.config_writable().and_then(|()| config::path()).and_then(|path| config::remove_preset(&path, preset));
+        let removed =
+            self.session.config_writable().and_then(|()| config::path()).and_then(|path| config::remove_preset(&path, preset));
         match removed {
             Ok(()) => {
                 self.load_config(window, cx);
@@ -150,7 +151,10 @@ fn entry_label(date: NaiveDate, start_end: Option<&str>, hours: f64, project: &s
 #[derive(Clone)]
 enum DeleteTarget {
     /// `review_date` is the entry's date when deleted on the Review tab.
-    Time { id: i64, review_date: Option<NaiveDate> },
+    Time {
+        id: i64,
+        review_date: Option<NaiveDate>,
+    },
     Travel(i64),
     TripPreset(config::TripPreset),
     TimePreset(config::TimePreset),

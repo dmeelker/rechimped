@@ -1,6 +1,6 @@
 use gpui::{
-    AnyElement, ClickEvent, Context, ElementId, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, prelude::FluentBuilder, px,
+    AnyElement, ClickEvent, Context, ElementId, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement,
+    Styled, prelude::FluentBuilder, px,
 };
 use gpuikit::layout::h_stack;
 use gpuikit::theme::Themeable;

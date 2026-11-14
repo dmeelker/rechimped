@@ -12,7 +12,7 @@ use gpuikit::elements::switch::{Switch, switch};
 use gpuikit::input::InputState;
 use timechimp_api::{Mileage, MileageType};
 
-use crate::validate::{TravelValues, TimeKind, TimeValues};
+use crate::validate::{TimeKind, TimeValues, TravelValues};
 
 mod settings;
 
@@ -90,7 +90,8 @@ pub struct AddressMenu {
     pub field: AddressField,
     pub filtered: bool,
     /// None after typing, so Enter keeps the typed text.
-    pub highlighted: Option<usize>,    pub scroll: crate::scroll::ScrollArea,
+    pub highlighted: Option<usize>,
+    pub scroll: crate::scroll::ScrollArea,
 }
 
 impl TravelForm {
@@ -166,7 +167,9 @@ pub enum FormBody {
 pub enum Origin {
     Week,
     /// `date` is the original's date when editing.
-    Review { date: Option<NaiveDate> },
+    Review {
+        date: Option<NaiveDate>,
+    },
 }
 
 pub struct Form {

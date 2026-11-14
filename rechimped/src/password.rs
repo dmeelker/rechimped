@@ -82,9 +82,7 @@ impl Render for PasswordField {
             .border_color(if focused { theme.input_border_focused() } else { theme.input_border() })
             .text_color(theme.input_text())
             .cursor_text()
-            .when(self.value.is_empty() && !focused, |d| {
-                d.child(div().text_color(theme.input_placeholder()).child("Password"))
-            })
+            .when(self.value.is_empty() && !focused, |d| d.child(div().text_color(theme.input_placeholder()).child("Password")))
             .child("•".repeat(self.value.chars().count()))
             .when(focused, |d| d.child(div().w(px(1.5)).h(m.line_height).ml(px(1.)).bg(theme.input_cursor())))
     }

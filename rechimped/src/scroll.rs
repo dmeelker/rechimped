@@ -33,9 +33,8 @@ impl ScrollMetrics {
         if self.viewport <= 0. || self.max_offset < 0.5 {
             return None;
         }
-        let height = (self.viewport * self.viewport / (self.viewport + self.max_offset))
-            .max(SCROLLBAR_MIN_THUMB)
-            .min(self.viewport);
+        let height =
+            (self.viewport * self.viewport / (self.viewport + self.max_offset)).max(SCROLLBAR_MIN_THUMB).min(self.viewport);
         let fraction = (self.offset / self.max_offset).clamp(0., 1.);
         Some(((self.viewport - height) * fraction, height))
     }
@@ -111,7 +110,11 @@ impl Scrollable for ScrollHandle {
     }
 }
 
-fn metrics_of(bounds: gpui::Bounds<gpui::Pixels>, max: gpui::Point<gpui::Pixels>, offset: gpui::Point<gpui::Pixels>) -> ScrollMetrics {
+fn metrics_of(
+    bounds: gpui::Bounds<gpui::Pixels>,
+    max: gpui::Point<gpui::Pixels>,
+    offset: gpui::Point<gpui::Pixels>,
+) -> ScrollMetrics {
     ScrollMetrics {
         top: bounds.origin.y.as_f32(),
         viewport: bounds.size.height.as_f32(),

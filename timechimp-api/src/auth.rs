@@ -87,11 +87,7 @@ impl Authenticator {
             return Err(Error::Auth(format!("unexpected challenge: {}", init["ChallengeName"])));
         }
         let params = &init["ChallengeParameters"];
-        let param = |key: &str| {
-            params[key]
-                .as_str()
-                .ok_or_else(|| Error::Auth(format!("challenge is missing {key}")))
-        };
+        let param = |key: &str| params[key].as_str().ok_or_else(|| Error::Auth(format!("challenge is missing {key}")));
 
         let timestamp = srp::timestamp(chrono::Utc::now());
         let secret_block = param("SECRET_BLOCK")?;
@@ -249,14 +245,9 @@ impl MfaChallenge {
 
 fn parse_access_token(response: &Value) -> Result<AccessToken> {
     let result = &response["AuthenticationResult"];
-    let token = result["AccessToken"]
-        .as_str()
-        .ok_or_else(|| Error::Auth("no access token in response".into()))?;
+    let token = result["AccessToken"].as_str().ok_or_else(|| Error::Auth("no access token in response".into()))?;
     let expires_in = result["ExpiresIn"].as_u64().unwrap_or(3600);
-    Ok(AccessToken {
-        token: token.to_owned(),
-        expires_at: Instant::now() + Duration::from_secs(expires_in),
-    })
+    Ok(AccessToken { token: token.to_owned(), expires_at: Instant::now() + Duration::from_secs(expires_in) })
 }
 
 async fn cognito(http: &reqwest::Client, url: &str, target: &str, body: Value) -> Result<Value> {
@@ -269,10 +260,7 @@ async fn cognito(http: &reqwest::Client, url: &str, target: &str, body: Value) -
         .await?;
     let status = response.status();
     let bytes = response.bytes().await?;
-    let value: Value = serde_json::from_slice(&bytes).map_err(|source| Error::Decode {
-        url: url.into(),
-        source,
-    })?;
+    let value: Value = serde_json::from_slice(&bytes).map_err(|source| Error::Decode { url: url.into(), source })?;
     if !status.is_success() {
         let kind = value["__type"].as_str().unwrap_or("UnknownError");
         let kind = kind.rsplit('#').next().unwrap_or(kind);

@@ -2,8 +2,8 @@ use gpui::{Context, Focusable, Window};
 use gpuikit::input::InputStateEvent;
 use timechimp_api::Mileage;
 
-use crate::forms::{self, AddressField, AddressMenu, Form, FormBody, Origin, TravelForm, text};
 use crate::domain::TRAVEL_TYPES;
+use crate::forms::{self, AddressField, AddressMenu, Form, FormBody, Origin, TravelForm, text};
 use crate::seed;
 use crate::store::config;
 
@@ -111,10 +111,8 @@ impl TimeChimpApp {
 
     pub fn pick_highlighted_address(&mut self, cx: &mut Context<Self>) {
         let Some(form) = self.travel_form() else { return cx.propagate() };
-        let picked = form
-            .address_menu
-            .as_ref()
-            .and_then(|m| Some((m.field, form.address_matches(cx).get(m.highlighted?)?.to_string())));
+        let picked =
+            form.address_menu.as_ref().and_then(|m| Some((m.field, form.address_matches(cx).get(m.highlighted?)?.to_string())));
         match picked {
             Some((field, address)) => self.pick_address(field, address, cx),
             None => {
@@ -173,11 +171,7 @@ impl TimeChimpApp {
                         forms::set_text(&f.distance, format!("{:.0}", route.kilometres()), cx);
                     }
                 }
-                this.set_info(
-                    format!("Route: {:.1} km, {} min by car", route.kilometres(), route.seconds / 60),
-                    window,
-                    cx,
-                );
+                this.set_info(format!("Route: {:.1} km, {} min by car", route.kilometres(), route.seconds / 60), window, cx);
             }
             Err(e) => this.form_api_error(form_id, e, window, cx),
         });

@@ -3,17 +3,15 @@ mod chart;
 mod chrome;
 mod frame;
 mod login;
-mod travel;
 mod popups;
 mod report;
 mod review;
 mod settings;
+mod travel;
 mod week;
 mod widgets;
 
-use gpui::{
-    Context, InteractiveElement, IntoElement, ParentElement, Render, Styled, Window, div, prelude::FluentBuilder,
-};
+use gpui::{Context, InteractiveElement, IntoElement, ParentElement, Render, Styled, Window, div, prelude::FluentBuilder};
 use gpuikit::elements::toast::ToastExt;
 use gpuikit::theme::{ActiveTheme, Themeable};
 
@@ -49,16 +47,15 @@ impl Render for TimeChimpApp {
             Screen::Login(_) => root.child(self.render_login(&theme, t, cx)),
             Screen::Main => root.child(self.render_main(window, &theme, cx)),
         };
-        let root = root.when(self.fx.showcase, |d| {
-            d.child(self.fx.hud(theme.fg(), theme.fg_muted(), theme.accent(), theme.surface()))
-        })
-        .children(match self.overlay() {
-            Overlay::Confirm { dialog, .. } => Some(dialog.clone()),
-            Overlay::Settings(form) => form.discard.as_ref().map(|(dialog, _)| dialog.clone()),
-            _ => None,
-        })
-        .child(cx.toast_manager().clone())
-        .child(self.fx.end_frame(started, || self.perf_view()));
+        let root = root
+            .when(self.fx.showcase, |d| d.child(self.fx.hud(theme.fg(), theme.fg_muted(), theme.accent(), theme.surface())))
+            .children(match self.overlay() {
+                Overlay::Confirm { dialog, .. } => Some(dialog.clone()),
+                Overlay::Settings(form) => form.discard.as_ref().map(|(dialog, _)| dialog.clone()),
+                _ => None,
+            })
+            .child(cx.toast_manager().clone())
+            .child(self.fx.end_frame(started, || self.perf_view()));
         self.frame(root.into_any_element(), window, &theme, cx)
     }
 }

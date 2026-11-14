@@ -3,8 +3,8 @@ use gpuikit::date::Weekday;
 use gpuikit::elements::calendar::{Calendar, CalendarEvent};
 use gpuikit::input::InputStateEvent;
 
-use crate::forms;
 use crate::domain;
+use crate::forms;
 
 use super::TimeChimpApp;
 

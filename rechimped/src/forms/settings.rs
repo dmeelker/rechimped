@@ -360,8 +360,7 @@ impl TaskVisibility {
                 others.insert(project.clone(), unlisted);
             }
         }
-        let mut form =
-            Self { projects, current: 0, hidden, hidden_projects: BTreeSet::new(), others, nav: ListNav::default() };
+        let mut form = Self { projects, current: 0, hidden, hidden_projects: BTreeSet::new(), others, nav: ListNav::default() };
         form.order(hidden_projects);
         form.current = 0;
         form
@@ -614,7 +613,10 @@ mod tests {
         assert_eq!(form.projects[0].1.iter().map(|t| t.0).collect::<Vec<_>>(), [20, 10], "tasks by name");
         assert!(form.is_hidden(3, 10) && !form.is_hidden(3, 20));
         let names = |pairs: &[(&str, &[&str])]| {
-            pairs.iter().map(|(p, t)| ((*p).to_owned(), t.iter().map(|t| (*t).to_owned()).collect())).collect::<BTreeMap<_, Vec<_>>>()
+            pairs
+                .iter()
+                .map(|(p, t)| ((*p).to_owned(), t.iter().map(|t| (*t).to_owned()).collect()))
+                .collect::<BTreeMap<_, Vec<_>>>()
         };
         assert_eq!(form.hidden_names(), names(&[("P", &["b", "Gone"]), ("Old", &["X"])]), "unlisted names are kept");
         form.toggle(10);
@@ -636,7 +638,11 @@ mod tests {
         s.set_project_tags(HashMap::from([(3, vec![tag(40, "z_used")])]));
 
         let mut form = ProjectTagsForm::new(&s, &BTreeSet::new());
-        assert_eq!(form.projects.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["Other", "P"], "by name, inactive left out");
+        assert_eq!(
+            form.projects.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(),
+            ["Other", "P"],
+            "by name, inactive left out"
+        );
         assert_eq!(form.tags.iter().map(|t| t.0).collect::<Vec<_>>(), [20, 10, 40], "by name; z_ only when in use");
         assert!(form.changes().is_empty());
 
@@ -658,10 +664,11 @@ mod tests {
         assert_eq!(form.count(6), 2, "all tags while none are configured");
         assert!(form.changes().is_empty(), "nothing written unless changed");
         form.toggle(10);
-        assert_eq!(form.changes(), [
-            ("Other".to_owned(), vec!["A".to_owned()]),
-            ("P".to_owned(), vec!["A".to_owned(), "b".to_owned()]),
-        ], "the first change writes every project, so the others keep their tags");
+        assert_eq!(
+            form.changes(),
+            [("Other".to_owned(), vec!["A".to_owned()]), ("P".to_owned(), vec!["A".to_owned(), "b".to_owned()]),],
+            "the first change writes every project, so the others keep their tags"
+        );
     }
 
     #[test]

@@ -8,8 +8,8 @@ mod fx;
 mod mock;
 mod net;
 mod password;
-mod seed;
 mod scroll;
+mod seed;
 mod session;
 mod store;
 #[cfg(test)]
@@ -21,16 +21,16 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui::{
-    App, AppContext, Application, Bounds, KeyBinding, Rems, SharedString, TitlebarOptions, WindowBounds, WindowOptions,
-    px, size,
+    App, AppContext, Application, Bounds, KeyBinding, Rems, SharedString, TitlebarOptions, WindowBounds, WindowOptions, px, size,
 };
 use gpuikit::a11y::{FocusNext, FocusPrevious};
 use gpuikit::input::INPUT_CONTEXT;
 use gpuikit::theme::{ControlMetrics, GlobalTheme, Theme, parse_hex};
 
 use app::{
-    AddressDown, AddressUp, CalculateDistance, Cancel, CloseAddresses, CloseCalendar, Confirm, NextDay, NextMonth, NextWeek, PickAddress, PickRecent, PreviousDay, PreviousMonth,
-    PreviousWeek, RecentDown, RecentUp, TimeChimpApp, ToLists, ToggleShowcase,
+    AddressDown, AddressUp, CalculateDistance, Cancel, CloseAddresses, CloseCalendar, Confirm, NextDay, NextMonth, NextWeek,
+    PickAddress, PickRecent, PreviousDay, PreviousMonth, PreviousWeek, RecentDown, RecentUp, TimeChimpApp, ToLists,
+    ToggleShowcase,
 };
 
 fn main() {
@@ -40,41 +40,39 @@ fn main() {
     // Start the tokio runtime up front so the first request doesn't pay for it.
     let _ = net::runtime();
 
-    Application::with_platform(gpui_platform::current_platform(false)).with_assets(gpuikit::assets()).run(
-        move |cx: &mut App| {
-            gpuikit::init(cx);
-            cx.set_global(GlobalTheme(Arc::new(theme())));
-            bind_keys(cx);
+    Application::with_platform(gpui_platform::current_platform(false)).with_assets(gpuikit::assets()).run(move |cx: &mut App| {
+        gpuikit::init(cx);
+        cx.set_global(GlobalTheme(Arc::new(theme())));
+        bind_keys(cx);
 
-            let bounds = Bounds::centered(None, size(px(1200.), px(800.)), cx);
-            cx.open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    titlebar: Some(TitlebarOptions {
-                        title: Some(SharedString::from(if mock.is_some() { "Rechimped (mock)" } else { "Rechimped" })),
-                        ..Default::default()
-                    }),
-                    // Linux desktops match this to linux/rechimped.desktop for the window's icon.
-                    app_id: Some("rechimped".into()),
+        let bounds = Bounds::centered(None, size(px(1200.), px(800.)), cx);
+        cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                titlebar: Some(TitlebarOptions {
+                    title: Some(SharedString::from(if mock.is_some() { "Rechimped (mock)" } else { "Rechimped" })),
                     ..Default::default()
-                },
-                |window, cx| {
-                    cx.new(|cx| {
-                        let mut app = TimeChimpApp::new(mock, window, cx);
-                        if let Some(path) = &perf_log
-                            && let Err(e) = app.fx.log_to(path)
-                        {
-                            eprintln!("--perf-log {}: {e}", path.display());
-                        }
-                        app
-                    })
-                },
-            )
-            .expect("failed to open window");
-            cx.on_window_closed(|cx, _| cx.quit()).detach();
-            cx.activate(true);
-        },
-    );
+                }),
+                // Linux desktops match this to linux/rechimped.desktop for the window's icon.
+                app_id: Some("rechimped".into()),
+                ..Default::default()
+            },
+            |window, cx| {
+                cx.new(|cx| {
+                    let mut app = TimeChimpApp::new(mock, window, cx);
+                    if let Some(path) = &perf_log
+                        && let Err(e) = app.fx.log_to(path)
+                    {
+                        eprintln!("--perf-log {}: {e}", path.display());
+                    }
+                    app
+                })
+            },
+        )
+        .expect("failed to open window");
+        cx.on_window_closed(|cx, _| cx.quit()).detach();
+        cx.activate(true);
+    });
 }
 
 /// `--mock`: a generated account held in memory, and the config, token and reminder files in a

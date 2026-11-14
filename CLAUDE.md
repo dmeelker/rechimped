@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 These come before convenience: a change that breaks one isn't done.
 
 1. **No clippy warnings.** Keep `cargo clippy --workspace --all-targets` free of warnings and errors: fix every one before committing, including ones that were already there, rather than leaving them for later.
+   Code is formatted with `cargo fmt --all` (config in `rustfmt.toml`); CI checks it with `cargo fmt --all -- --check`.
 2. **Performance is key.** The app must feel instant and cost nothing while idle.
    - Idle means idle: request animation frames only while something actually moves (see `Fx::begin_frame`); a static screen does no work.
    - Never block the UI thread: network and other slow work goes through `TimeChimpApp::run`.
@@ -25,6 +26,7 @@ cargo run -p rechimped -- --mock              # same, against a generated in-mem
 cargo test                                    # all tests
 cargo test -p rechimped lenient_times         # single test by name
 cargo clippy --workspace --all-targets
+cargo fmt --all                               # format (config in rustfmt.toml)
 TIMECHIMP_REFRESH_TOKEN=... cargo run -p timechimp-api --example smoke [-- --write]
 ```
 
@@ -34,7 +36,7 @@ gpui crates are pinned to `=1.17.2` (`gpui-unofficial`, `gpui-platform-gpui-unof
 
 A recurring `note: did not finalize incremental compilation session directory … Access is denied` is harmless (Windows/Defender locking `target\debug\incremental`); delete that folder if it sticks.
 
-**CI**: `.github/workflows/check.yml` runs `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` on Windows on every push and pull request.
+**CI**: `.github/workflows/check.yml` runs `cargo fmt --all -- --check`, `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` on Windows on every push and pull request.
 
 **Packaging**: `scripts\package-windows.ps1` (zip) and `scripts\package-linux.ps1` (tar.gz, built in Docker from `linux/Dockerfile`; Docker Desktop must be running) write to `dist\`, named with the version from `rechimped/Cargo.toml`. `docs/release-readme.txt` ships as `README.txt`: keep it in step with `README.md`. `.github/workflows/release.yml` runs those same scripts, so change packaging in the scripts, not the workflow. Pushing a tag `vX.Y.Z` (must match the Cargo.toml version) builds and publishes a release; a manual run only builds. The Linux binary needs glibc ≥ 2.35, libxcb, libxkbcommon(-x11) and OpenSSL 3. The window's `app_id` `rechimped` must match `linux/rechimped.desktop`.
 
