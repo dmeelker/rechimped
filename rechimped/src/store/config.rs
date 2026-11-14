@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use timechimp_api::{MileageType, Project, Tag};
+use toml_edit::DocumentMut;
 
 use crate::domain::same_name;
 use crate::domain::week::TaskNames;
@@ -215,22 +216,40 @@ fn number(value: f64) -> toml_edit::Item {
     if value.fract() == 0.0 && value.abs() < 1e15 { toml_edit::value(value as i64) } else { toml_edit::value(value) }
 }
 
-pub fn save_settings(path: &Path, settings: &Settings) -> Result<(), String> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(format!("Could not read {}: {e}", path.display())),
-    };
-    let text = with_settings(&text, settings).map_err(|e| format!("Error in {}: {e}", path.display()))?;
-    std::fs::create_dir_all(path.parent().expect("has parent")).map_err(|e| e.to_string())?;
-    replace_file(path, &text)
+fn read_or_empty(path: &Path) -> Result<String, String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(format!("Could not read {}: {e}", path.display())),
+    }
 }
 
-fn with_settings(text: &str, settings: &Settings) -> Result<String, String> {
-    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| e.to_string())?;
+fn write(path: &Path, text: &str) -> Result<(), String> {
+    std::fs::create_dir_all(path.parent().expect("has parent")).map_err(|e| e.to_string())?;
+    replace_file(path, text)
+}
+
+/// Applies `f` to the document and returns the result, provided it is still a valid config.
+fn edited(text: &str, f: impl FnOnce(&mut DocumentMut) -> Result<(), String>) -> Result<String, String> {
+    let mut doc: DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| e.to_string())?;
+    f(&mut doc)?;
+    let text = doc.to_string();
+    parse_config(&text)?;
+    Ok(text)
+}
+
+/// The one way the app changes `config.toml`, but for `append_preset`: read, edit in place
+/// (comments and the rest stay), validate, replace. All or nothing: if `f` fails or leaves an
+/// invalid config, the file is not touched.
+pub fn edit(path: &Path, f: impl FnOnce(&mut DocumentMut) -> Result<(), String>) -> Result<(), String> {
+    let text = edited(&read_or_empty(path)?, f).map_err(|e| format!("Error in {}: {e}", path.display()))?;
+    write(path, &text)
+}
+
+pub fn set_settings(doc: &mut DocumentMut, settings: &Settings) -> Result<(), String> {
     let days: toml_edit::Array = (0..7).zip(settings.work_days).filter(|(_, on)| *on).map(|(i, _)| day_key(i)).collect();
     // Set in place, so a key keeps its position and the comment above it.
-    let set = |doc: &mut toml_edit::DocumentMut, key: &str, item: toml_edit::Item, comment: &str| match doc
+    let set = |doc: &mut DocumentMut, key: &str, item: toml_edit::Item, comment: &str| match doc
         .get_mut(key)
         .and_then(|i| i.as_value_mut())
     {
@@ -246,35 +265,33 @@ fn with_settings(text: &str, settings: &Settings) -> Result<String, String> {
             }
         }
     };
-    set(&mut doc, "work_days", toml_edit::value(days), "# The days you work (mon, tue, wed, thu, fri, sat, sun).\n");
+    set(doc, "work_days", toml_edit::value(days), "# The days you work (mon, tue, wed, thu, fri, sat, sun).\n");
     // Rounded, so 0.8 * 100 doesn't come out as 80.00000000000001.
     let pct = (settings.billable_goal * 10000.0).round() / 100.0;
-    set(&mut doc, "billable_goal", number(pct), "# Percentage of your hours that should be billable.\n");
+    set(doc, "billable_goal", number(pct), "# Percentage of your hours that should be billable.\n");
     let comment = "# At startup, remind you to register today's trip while none is (true or false).\n";
-    set(&mut doc, "travel_reminder", toml_edit::value(settings.travel_reminder), comment);
+    set(doc, "travel_reminder", toml_edit::value(settings.travel_reminder), comment);
     // Only written once something is hidden, so a new file doesn't start with it.
     if !settings.hidden_projects.is_empty() || doc.contains_key("hidden_projects") {
         let hidden: toml_edit::Array = settings.hidden_projects.iter().map(String::as_str).collect();
         let comment = "# Projects the forms don't offer (Settings, in the menu under your name).\n";
-        set(&mut doc, "hidden_projects", toml_edit::value(hidden), comment);
+        set(doc, "hidden_projects", toml_edit::value(hidden), comment);
     }
     if !settings.hidden_tasks.is_empty() || doc.contains_key("hidden_tasks") {
         let comment = "# Per project, the tasks the time form doesn't offer (Settings, in the menu under your name).";
-        set_task_table(&mut doc, "hidden_tasks", &settings.hidden_tasks, comment)?;
+        set_task_table(doc, "hidden_tasks", &settings.hidden_tasks, comment)?;
     }
     // Once written, even empty, so clearing the default doesn't bring it back.
     if settings.excluded_tasks != default_excluded_tasks() || doc.contains_key("excluded_tasks") {
         let comment = "# Per project, the tasks that don't count towards the billable target, like leave: their hours are\n\
                        # left out of both your hours and your contract hours (Settings, in the menu under your name).";
-        set_task_table(&mut doc, "excluded_tasks", &settings.excluded_tasks, comment)?;
+        set_task_table(doc, "excluded_tasks", &settings.excluded_tasks, comment)?;
     }
-    let text = doc.to_string();
-    parse_config(&text)?;
-    Ok(text)
+    Ok(())
 }
 
 /// Keys are changed in place and emptied ones dropped.
-fn set_task_table(doc: &mut toml_edit::DocumentMut, key: &str, names: &TaskNames, comment: &str) -> Result<(), String> {
+fn set_task_table(doc: &mut DocumentMut, key: &str, names: &TaskNames, comment: &str) -> Result<(), String> {
     let table = doc
         .entry(key)
         .or_insert_with(|| {
@@ -302,26 +319,12 @@ fn set_task_table(doc: &mut toml_edit::DocumentMut, key: &str, names: &TaskNames
     Ok(())
 }
 
-pub fn save_project_tags(path: &Path, changes: &[(String, Vec<String>)]) -> Result<(), String> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(format!("Could not read {}: {e}", path.display())),
-    };
-    let text = with_project_tags(&text, changes).map_err(|e| format!("Error in {}: {e}", path.display()))?;
-    std::fs::create_dir_all(path.parent().expect("has parent")).map_err(|e| e.to_string())?;
-    replace_file(path, &text)
-}
-
-fn with_project_tags(text: &str, changes: &[(String, Vec<String>)]) -> Result<String, String> {
-    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| e.to_string())?;
+pub fn set_project_tags(doc: &mut DocumentMut, changes: &[(String, Vec<String>)]) -> Result<(), String> {
     let projects = doc.entry("projects").or_insert_with(toml_edit::table).as_table_mut().ok_or("[projects] is not a table")?;
     for (project, tags) in changes {
         set_names(projects, project, tags);
     }
-    let text = doc.to_string();
-    parse_config(&text)?;
-    Ok(text)
+    Ok(())
 }
 
 /// An absent key is only added when there are any.
@@ -348,12 +351,8 @@ fn preset_toml<P: Preset>(preset: &P) -> Result<String, String> {
 
 pub fn append_preset<P: Preset>(path: &Path, preset: &P) -> Result<(), String> {
     let block = preset_toml(preset)?;
-    let mut text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(format!("Could not read {}: {e}", path.display())),
-    };
-    let had_any = text.parse::<toml_edit::DocumentMut>().is_ok_and(|doc| doc.contains_key(P::KEY));
+    let mut text = read_or_empty(path)?;
+    let had_any = text.parse::<DocumentMut>().is_ok_and(|doc| doc.contains_key(P::KEY));
     if !text.is_empty() && !text.ends_with('\n') {
         text.push('\n');
     }
@@ -363,18 +362,14 @@ pub fn append_preset<P: Preset>(path: &Path, preset: &P) -> Result<(), String> {
     text.push('\n');
     text.push_str(&block);
     parse_config(&text).map_err(|e| format!("Error in {}: {e}", path.display()))?;
-    std::fs::create_dir_all(path.parent().expect("has parent")).map_err(|e| e.to_string())?;
-    replace_file(path, &text)
+    write(path, &text)
 }
 
 pub fn remove_preset<P: Preset>(path: &Path, preset: &P) -> Result<(), String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
-    let text = without(&text, preset).map_err(|e| format!("{}: {e}", path.display()))?;
-    replace_file(path, &text)
+    edit(path, |doc| remove(doc, preset))
 }
 
-fn without<P: Preset>(text: &str, preset: &P) -> Result<String, String> {
-    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| e.to_string())?;
+fn remove<P: Preset>(doc: &mut DocumentMut, preset: &P) -> Result<(), String> {
     let not_found = || "preset not found (was it changed in the meantime?)".to_owned();
     let presets = doc.get_mut(P::KEY).and_then(toml_edit::Item::as_array_of_tables_mut).ok_or_else(not_found)?;
     let index = presets.iter().position(|t| preset.is(t)).ok_or_else(not_found)?;
@@ -390,26 +385,17 @@ fn without<P: Preset>(text: &str, preset: &P) -> Result<String, String> {
     if presets.is_empty() {
         doc.remove(P::KEY);
     }
-    Ok(doc.to_string())
+    Ok(())
 }
 
-/// Each preset is found by `Preset::is`, so its block keeps its own comments.
-pub fn save_presets(path: &Path, trips: &[TripPreset], times: &[TimePreset]) -> Result<(), String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
-    let text = with_presets(&text, trips, times).map_err(|e| format!("{}: {e}", path.display()))?;
-    replace_file(path, &text)
+/// Keeps only the given presets, in that order. Each is found by `Preset::is`, so its block keeps
+/// its own comments.
+pub fn rearrange_presets(doc: &mut DocumentMut, trips: &[TripPreset], times: &[TimePreset]) -> Result<(), String> {
+    rearrange(doc, trips)?;
+    rearrange(doc, times)
 }
 
-fn with_presets(text: &str, trips: &[TripPreset], times: &[TimePreset]) -> Result<String, String> {
-    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| e.to_string())?;
-    rearrange(&mut doc, trips)?;
-    rearrange(&mut doc, times)?;
-    let text = doc.to_string();
-    parse_config(&text)?;
-    Ok(text)
-}
-
-fn rearrange<P: Preset>(doc: &mut toml_edit::DocumentMut, kept: &[P]) -> Result<(), String> {
+fn rearrange<P: Preset>(doc: &mut DocumentMut, kept: &[P]) -> Result<(), String> {
     let not_found = || "preset not found (was it changed in the meantime?)".to_owned();
     let Some(item) = doc.get_mut(P::KEY) else {
         return if kept.is_empty() { Ok(()) } else { Err(not_found()) };
@@ -458,7 +444,7 @@ pub fn load(path: &Path) -> Result<Option<Config>, String> {
         // Earlier versions used projects.toml. The settings go on top, where top-level keys must be.
         let old = std::fs::read_to_string(&legacy).map_err(|e| format!("Could not read {}: {e}", legacy.display()))?;
         let migrated = format!("{}\n{old}", settings_toml());
-        std::fs::write(path, migrated).map_err(|e| format!("Could not write {}: {e}", path.display()))?;
+        replace_file(path, &migrated)?;
         let _ = std::fs::remove_file(&legacy);
     }
     let text = match std::fs::read_to_string(path) {
@@ -495,7 +481,7 @@ pub fn resolve_project_tags(
 }
 
 fn settings_toml() -> String {
-    with_settings("", &Settings::default()).expect("the defaults are valid")
+    edited("", |doc| set_settings(doc, &Settings::default())).expect("the defaults are valid")
 }
 
 pub fn write_template(path: &Path, projects: &[Project], tags: &[Tag]) -> std::io::Result<()> {
@@ -530,6 +516,22 @@ pub fn write_template(path: &Path, projects: &[Project], tags: &[Tag]) -> std::i
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn with_settings(text: &str, settings: &Settings) -> Result<String, String> {
+        edited(text, |doc| set_settings(doc, settings))
+    }
+
+    fn with_project_tags(text: &str, changes: &[(String, Vec<String>)]) -> Result<String, String> {
+        edited(text, |doc| set_project_tags(doc, changes))
+    }
+
+    fn with_presets(text: &str, trips: &[TripPreset], times: &[TimePreset]) -> Result<String, String> {
+        edited(text, |doc| rearrange_presets(doc, trips, times))
+    }
+
+    fn without<P: Preset>(text: &str, preset: &P) -> Result<String, String> {
+        edited(text, |doc| remove(doc, preset))
+    }
 
     struct TempDir(PathBuf);
 
@@ -710,9 +712,9 @@ mod tests {
 
         let dir = TempDir::new("settings");
         let path = dir.0.join("config.toml");
-        save_settings(&path, &settings).unwrap();
+        edit(&path, |doc| set_settings(doc, &settings)).unwrap();
         assert_eq!(load(&path).unwrap().unwrap().settings, settings);
-        save_settings(&path, &Settings { billable_goal: 0.5, ..settings.clone() }).unwrap();
+        edit(&path, |doc| set_settings(doc, &Settings { billable_goal: 0.5, ..settings.clone() })).unwrap();
         assert_eq!(load(&path).unwrap().unwrap().settings.billable_goal, 0.5, "replaces an existing file");
         assert!(!path.with_extension("toml.tmp").exists(), "no temporary file left behind");
     }
@@ -826,7 +828,40 @@ mod tests {
     }
 
     #[test]
-    fn rearrange_presets() {
+    fn a_failing_edit_leaves_the_file_alone() {
+        let dir = TempDir::new("atomic");
+        let path = dir.0.join("config.toml");
+        let text = "# mine\nbillable_goal = 75\n\n[projects]\nIntern = []\n\n[[trips]]\nname = \"T\"\nproject = \"P\"\nfrom = \"A\"\nto = \"B\"\n";
+        std::fs::write(&path, text).unwrap();
+        let settings = Settings { billable_goal: 0.5, ..Settings::default() };
+        let saved = edit(&path, |doc| {
+            set_settings(doc, &settings)?;
+            set_project_tags(doc, &[("Intern".to_owned(), vec!["x".to_owned()])])?;
+            rearrange_presets(doc, &[preset_named("Gone")], &[])
+        });
+        assert!(saved.unwrap_err().contains("preset not found"));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "earlier steps not written either");
+
+        let invalid = edit(&path, |doc| {
+            doc["billable_goal"] = toml_edit::value(150);
+            Ok(())
+        });
+        assert!(invalid.is_err(), "the result is validated");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+    }
+
+    #[test]
+    fn remove_preset_validates() {
+        let dir = TempDir::new("remove-validates");
+        let path = dir.0.join("config.toml");
+        let text = "billable_goal = 150\n\n[[trips]]\nname = \"T\"\nproject = \"P\"\nfrom = \"A\"\nto = \"B\"\n";
+        std::fs::write(&path, text).unwrap();
+        assert!(remove_preset(&path, &preset_named("T")).is_err(), "an invalid file isn't rewritten");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+    }
+
+    #[test]
+    fn presets_rearranged() {
         let trip = |name: &str| format!("[[trips]]\nname = \"{name}\"\nproject = \"p\"\nfrom = \"a\"\nto = \"b\"\n");
         let text = format!(
             "billable_goal = 70\n\n# about trips\n{}\n# second\n{}\n{}\n[projects]\nIntern = []\n\n# about time\n[[time_entries]]\nproject = \"Intern\"\nnotes = \"a\"\n\n[[time_entries]]\nproject = \"Intern\"\nnotes = \"b\"\n",

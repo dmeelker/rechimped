@@ -190,15 +190,18 @@ impl TimeChimpApp {
         let presets_changed = form.presets.is_changed();
         let (trips, times) = (form.presets.trips.clone(), form.presets.times.clone());
         let tag_changes = form.tags.changes();
+        // One edit, so a failing step leaves the file as it was.
         let saved = config::path().and_then(|path| {
-            config::save_settings(&path, &settings)?;
-            if !tag_changes.is_empty() {
-                config::save_project_tags(&path, &tag_changes)?;
-            }
-            if presets_changed {
-                config::save_presets(&path, &trips, &times)?;
-            }
-            Ok(())
+            config::edit(&path, |doc| {
+                config::set_settings(doc, &settings)?;
+                if !tag_changes.is_empty() {
+                    config::set_project_tags(doc, &tag_changes)?;
+                }
+                if presets_changed {
+                    config::rearrange_presets(doc, &trips, &times)?;
+                }
+                Ok(())
+            })
         });
         match saved {
             Ok(()) => {
