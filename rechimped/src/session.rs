@@ -8,6 +8,7 @@ use crate::backend::Api;
 use crate::domain::report::{Report, Summary};
 use crate::domain::{self, review, same_name, week::RecentItem};
 use crate::store::config::{self, Config, Settings, TimePreset, TripPreset};
+use crate::tab::Tab;
 
 pub struct Session {
     /// `TimeChimpApp::run` drops results that arrive for an older epoch.
@@ -440,13 +441,6 @@ impl Session {
         }
     }
 
-    pub fn move_review_selection(&mut self, delta: isize) {
-        let Some(rows) = self.review_rows() else { return };
-        let Some(last) = rows.len().checked_sub(1) else { return };
-        let pos = rows.iter().position(|r| Some(r.id) == self.review.selected);
-        self.review.selected = Some(rows[pos.map_or(0, |p| p.saturating_add_signed(delta).min(last))].id);
-    }
-
     /// The next (`direction` 1) or previous (-1) row with a finding, wrapping around.
     pub fn next_review_finding(&mut self, direction: isize) {
         let Some(rows) = self.review_rows() else { return };
@@ -473,18 +467,43 @@ impl Session {
         }
     }
 
-    pub fn move_entry_selection(&mut self, delta: isize) {
-        let visible = self.visible_entries();
-        let Some(last) = visible.len().checked_sub(1) else { return };
-        let pos = visible.iter().position(|&i| Some(self.entries[i].id) == self.selected_entry);
-        let pos = pos.map_or(0, |p| p.saturating_add_signed(delta).min(last));
-        self.selected_entry = Some(self.entries[visible[pos]].id);
+    /// Moves `tab`'s selection `delta` rows, stopping at either end. The Report tab has none.
+    pub fn move_selection(&mut self, tab: Tab, delta: isize) {
+        let ids: Vec<i64> = match tab {
+            Tab::Week => self.visible_entries().into_iter().map(|i| self.entries[i].id).collect(),
+            Tab::Travel => self.travel.iter().map(|m| m.id).collect(),
+            Tab::Review => self.review_rows().unwrap_or_default().iter().map(|r| r.id).collect(),
+            Tab::Report => return,
+        };
+        let selected = match tab {
+            Tab::Week => &mut self.selected_entry,
+            Tab::Travel => &mut self.selected_travel,
+            _ => &mut self.review.selected,
+        };
+        if let Some(id) = step(&ids, *selected, delta) {
+            *selected = Some(id);
+        }
     }
 
-    pub fn move_travel_selection(&mut self, delta: isize) {
-        let Some(last) = self.travel.len().checked_sub(1) else { return };
-        let pos = self.travel.iter().position(|m| Some(m.id) == self.selected_travel);
-        self.selected_travel = Some(self.travel[pos.map_or(0, |p| p.saturating_add_signed(delta).min(last))].id);
+    /// Selects row `id` of `tab`, if it is one of the rows that tab shows.
+    pub fn select(&mut self, tab: Tab, id: i64) {
+        match tab {
+            Tab::Week => self.select_entry(id),
+            Tab::Travel => self.select_travel(id),
+            Tab::Review => self.select_review(id),
+            Tab::Report => {}
+        }
+    }
+
+    /// What is selected on `tab`; the Report tab has no selection.
+    pub fn selection(&self, tab: Tab) -> Selected<'_> {
+        let selected = match tab {
+            Tab::Week => self.selected_entry().map(Selected::Entry),
+            Tab::Travel => self.selected_travel().map(Selected::Trip),
+            Tab::Review => self.selected_review().map(Selected::ReviewRow),
+            Tab::Report => None,
+        };
+        selected.unwrap_or(Selected::None)
     }
 
     pub fn select_entry(&mut self, id: i64) {
@@ -685,6 +704,34 @@ pub fn time_preset_label(preset: &TimePreset) -> &str {
     [&preset.notes, &preset.task].into_iter().flatten().map(|s| s.trim()).find(|s| !s.is_empty()).unwrap_or(&preset.project)
 }
 
+/// The row of a tab's list that is selected (see `Session::selection`).
+#[derive(Clone, Copy, Debug)]
+pub enum Selected<'a> {
+    Entry(&'a TimeEntry),
+    ReviewRow(&'a TimeReportRow),
+    Trip(&'a Mileage),
+    None,
+}
+
+impl Selected<'_> {
+    /// Why the selected time entry can't be edited or deleted, if it can't; trips don't lock.
+    pub fn lock_status(&self) -> Option<domain::ApprovalStatus> {
+        match self {
+            Selected::Entry(e) => domain::lock_status(e.status, e.status_extern),
+            Selected::ReviewRow(r) => domain::lock_status(r.status, r.client_status),
+            Selected::Trip(_) | Selected::None => None,
+        }
+    }
+}
+
+/// The id `delta` places from `selected` in `ids`, stopping at either end; the first one when
+/// `selected` isn't among them, None when there are none.
+fn step(ids: &[i64], selected: Option<i64>, delta: isize) -> Option<i64> {
+    let last = ids.len().checked_sub(1)?;
+    let pos = ids.iter().position(|&id| Some(id) == selected);
+    Some(ids[pos.map_or(0, |p| p.saturating_add_signed(delta).min(last))])
+}
+
 /// If the selected row was deleted, the row now at its position takes over.
 fn reselect(selected: Option<i64>, wanted: Option<i64>, old: &[i64], new: &[i64]) -> Option<i64> {
     if let Some(id) = [wanted, selected].into_iter().flatten().find(|id| new.contains(id)) {
@@ -714,7 +761,7 @@ mod tests {
         load_week(&mut s, week(vec![entry(1, 3, "09:00-10:00"), entry(2, 4, "09:00-10:00"), entry(3, 4, "10:00-11:30")]), None);
         assert_eq!(s.visible_entries(), [1, 2]);
         assert_eq!(s.selected_entry().map(|e| e.id), Some(2), "the first entry of the selected day");
-        s.move_entry_selection(5);
+        s.move_selection(Tab::Week, 5);
         assert_eq!(s.selected_entry().map(|e| e.id), Some(3), "stays within the day");
         assert_eq!(s.next_start_time(date(4)).as_deref(), Some("11:30"));
         assert_eq!(s.recent.len(), 1, "same project, task and notes");
@@ -953,6 +1000,50 @@ mod tests {
     }
 
     #[test]
+    fn step_stops_at_either_end() {
+        assert_eq!(step(&[], Some(1), 1), None, "no rows");
+        assert_eq!(step(&[4, 5, 6], None, 1), Some(4), "nothing selected: the first");
+        assert_eq!(step(&[4, 5, 6], Some(9), -1), Some(4), "not a row: the first");
+        assert_eq!(step(&[4, 5, 6], Some(4), 1), Some(5));
+        assert_eq!(step(&[4, 5, 6], Some(5), 7), Some(6), "stops at the last");
+        assert_eq!(step(&[4, 5, 6], Some(5), -7), Some(4), "stops at the first");
+    }
+
+    #[test]
+    fn selection_per_tab() {
+        let mut s = Session::new(None, date(4));
+        assert!(matches!(s.selection(Tab::Week), Selected::None), "nothing loaded");
+        let mut locked = entry(2, 4, "09:00-10:00");
+        locked.status = 2;
+        let travel = vec![trip(7, 3), trip(8, 4)];
+        load_week(&mut s, Week { start: date(2), entries: vec![entry(1, 3, "09:00-10:00"), locked], travel }, None);
+        let (generation, month) = s.begin_review_load();
+        let mut row = time_row(5, 2);
+        row.client_status = 1;
+        s.apply_review(generation, month, vec![time_row(4, 2), row], None);
+        s.select_travel(8);
+        s.select_review(5);
+
+        let Selected::Entry(e) = s.selection(Tab::Week) else { panic!("an entry") };
+        assert_eq!(e.id, 2, "the selected day's");
+        assert_eq!(s.selection(Tab::Week).lock_status(), Some(domain::ApprovalStatus::Approved));
+        let Selected::Trip(m) = s.selection(Tab::Travel) else { panic!("a trip") };
+        assert_eq!(m.id, 8);
+        assert_eq!(s.selection(Tab::Travel).lock_status(), None, "trips don't lock");
+        let Selected::ReviewRow(r) = s.selection(Tab::Review) else { panic!("a review row") };
+        assert_eq!(r.id, 5);
+        assert_eq!(s.selection(Tab::Review).lock_status(), Some(domain::ApprovalStatus::PendingApproval));
+        assert!(matches!(s.selection(Tab::Report), Selected::None), "the report has no selection");
+
+        s.select(Tab::Week, 1);
+        assert_eq!(s.selected_entry_id(), Some(1));
+        s.move_selection(Tab::Travel, -1);
+        assert_eq!(s.selected_travel_id(), Some(7));
+        s.invalidate_review();
+        assert!(matches!(s.selection(Tab::Review), Selected::None), "not while stale");
+    }
+
+    #[test]
     fn review_selection() {
         let mut s = Session::new(None, date(4));
         let load = |s: &mut Session, ids: &[i64], select_id| {
@@ -965,13 +1056,13 @@ mod tests {
         s.select_review(2);
         s.select_review(9);
         assert_eq!(s.selected_review_id(), Some(2), "not a row");
-        s.move_review_selection(5);
+        s.move_selection(Tab::Review, 5);
         assert_eq!(s.selected_review_id(), Some(3), "stops at the last row");
-        s.move_review_selection(-1);
+        s.move_selection(Tab::Review, -1);
         assert_eq!(s.selected_review_id(), Some(2));
 
         s.invalidate_review();
-        s.move_review_selection(1);
+        s.move_selection(Tab::Review, 1);
         assert_eq!(s.selected_review_id(), Some(2), "not while stale");
         load(&mut s, &[3, 1, 2], None);
         assert_eq!(s.selected_review_id(), Some(2), "kept after a reload");

@@ -33,6 +33,7 @@ use crate::password::PasswordField;
 use crate::scroll::ScrollArea;
 use crate::session::Session;
 use crate::store::token;
+pub use crate::tab::Tab;
 
 /// Writes (saves, deletes) are left to finish on logout and block another save; loads are neither.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -48,37 +49,6 @@ struct Task {
     /// For display only.
     label: &'static str,
     abort: tokio::task::AbortHandle,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Tab {
-    Week,
-    Travel,
-    Review,
-    Report,
-}
-
-impl Tab {
-    pub const ALL: [Tab; 4] = [Tab::Week, Tab::Travel, Tab::Review, Tab::Report];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Tab::Week => "Time",
-            Tab::Travel => "Travel",
-            Tab::Report => "Report",
-            Tab::Review => "Review",
-        }
-    }
-
-    pub fn index(self) -> usize {
-        Tab::ALL.iter().position(|t| *t == self).expect("tab in ALL")
-    }
-
-    /// The tab `step` places along the strip, wrapping around.
-    pub fn cycled(self, step: isize) -> Tab {
-        let len = Tab::ALL.len() as isize;
-        Tab::ALL[(self.index() as isize + step).rem_euclid(len) as usize]
-    }
 }
 
 pub struct Login {
@@ -382,11 +352,7 @@ impl TimeChimpApp {
 
     /// Submitted and later entries are locked: true, after a toast, when the selected entry is one.
     fn refuse_locked(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let locked = match self.tab {
-            Tab::Week => self.session.selected_entry().and_then(|e| domain::lock_status(e.status, e.status_extern)),
-            Tab::Review => self.session.selected_review().and_then(|r| domain::lock_status(r.status, r.client_status)),
-            Tab::Travel | Tab::Report => None,
-        };
+        let locked = self.session.selection(self.tab).lock_status();
         if let Some(status) = locked {
             cx.toast(format!("{} entries can't be changed.", status.label())).info().show(window, cx);
         }

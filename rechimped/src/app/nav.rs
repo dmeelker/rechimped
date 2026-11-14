@@ -92,22 +92,14 @@ impl TimeChimpApp {
     }
 
     fn move_selection(&mut self, delta: isize) {
-        match self.tab {
-            Tab::Travel => self.session.move_travel_selection(delta),
-            Tab::Review => {
-                self.session.move_review_selection(delta);
-                self.scroll_to_review_selection();
-            }
-            Tab::Week | Tab::Report => self.session.move_entry_selection(delta),
+        self.session.move_selection(self.tab, delta);
+        if self.tab == Tab::Review {
+            self.scroll_to_review_selection();
         }
     }
 
     pub fn click_entry(&mut self, id: i64, clicks: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if self.tab == Tab::Review {
-            self.session.select_review(id);
-        } else {
-            self.session.select_entry(id);
-        }
+        self.session.select(self.tab, id);
         window.focus(&self.focus, cx);
         if clicks >= 2 {
             self.edit_selected(window, cx);

@@ -5,44 +5,40 @@ use gpui::{AppContext, Context, Window};
 use gpuikit::elements::dialog::{DialogClosed, DialogState, dialog};
 
 use crate::backend::Api;
-use crate::session;
+use crate::session::{self, Selected};
 use crate::store::config;
 
 use super::changes::Change;
-use super::{Overlay, Tab, TimeChimpApp};
+use super::{Overlay, TimeChimpApp};
 
 impl TimeChimpApp {
     pub fn ask_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.refuse_locked(window, cx) {
             return;
         }
-        let target = if self.tab == Tab::Week {
-            self.session.selected_entry().map(|e| {
+        let (target, question, label) = match self.session.selection(self.tab) {
+            Selected::Entry(e) => {
                 let label =
                     entry_label(e.date, e.start_end.as_deref(), e.hours, &e.project_name, &e.task_name, e.notes.as_deref());
                 (DeleteTarget::Time { id: e.id, review_date: None }, "Delete time entry?", label)
-            })
-        } else if self.tab == Tab::Review {
-            self.session.selected_review().map(|r| {
+            }
+            Selected::ReviewRow(r) => {
                 let label = entry_label(r.date, r.start_end.as_deref(), r.time, &r.project, &r.task, r.notes.as_deref());
                 (DeleteTarget::Time { id: r.id, review_date: Some(r.date) }, "Delete time entry?", label)
-            })
-        } else {
-            self.session.selected_travel().map(|m| {
-                (
-                    DeleteTarget::Travel(m.id),
-                    "Delete trip?",
-                    format!(
-                        "{} {} km {} → {}",
-                        m.date.format("%a %d %b"),
-                        m.distance,
-                        m.from_address.as_deref().unwrap_or("?"),
-                        m.to_address.as_deref().unwrap_or("?")
-                    ),
-                )
-            })
+            }
+            Selected::Trip(m) => (
+                DeleteTarget::Travel(m.id),
+                "Delete trip?",
+                format!(
+                    "{} {} km {} → {}",
+                    m.date.format("%a %d %b"),
+                    m.distance,
+                    m.from_address.as_deref().unwrap_or("?"),
+                    m.to_address.as_deref().unwrap_or("?")
+                ),
+            ),
+            Selected::None => return,
         };
-        let Some((target, question, label)) = target else { return };
         self.confirm_delete(target, question, label, window, cx);
     }
 

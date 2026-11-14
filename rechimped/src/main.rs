@@ -12,6 +12,7 @@ mod scroll;
 mod seed;
 mod session;
 mod store;
+mod tab;
 #[cfg(test)]
 mod test_support;
 mod validate;

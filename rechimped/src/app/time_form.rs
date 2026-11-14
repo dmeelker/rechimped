@@ -7,6 +7,7 @@ use timechimp_api::TimeEntry;
 use crate::domain;
 use crate::forms::{self, Form, FormBody, Origin, TimeForm, chosen, text};
 use crate::seed::{self, TagSeed, TimeFill};
+use crate::session::Selected;
 use crate::store::config::TimePreset;
 use crate::validate::TimeKind;
 
@@ -28,22 +29,28 @@ impl TimeChimpApp {
         if self.refuse_locked(window, cx) {
             return;
         }
-        if self.tab == Tab::Review {
-            self.open_review_entry(false, window, cx);
-        } else if self.tab == Tab::Travel {
-            if let Some(trip) = self.session.selected_travel().cloned() {
-                self.open_travel_form(Some(Box::new(trip)), None, window, cx);
+        match self.session.selection(self.tab) {
+            Selected::Entry(entry) => {
+                let entry = entry.clone();
+                self.open_time_form(Some(&entry), false, window, cx);
             }
-        } else if let Some(entry) = self.session.selected_entry().cloned() {
-            self.open_time_form(Some(&entry), false, window, cx);
+            Selected::ReviewRow(_) => self.open_review_entry(false, window, cx),
+            Selected::Trip(trip) => {
+                let trip = Box::new(trip.clone());
+                self.open_travel_form(Some(trip), None, window, cx);
+            }
+            Selected::None => {}
         }
     }
 
     pub fn copy_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.tab == Tab::Review {
-            self.open_review_entry(true, window, cx);
-        } else if let Some(entry) = self.session.selected_entry().cloned() {
-            self.open_time_form(Some(&entry), true, window, cx);
+        match self.session.selection(self.tab) {
+            Selected::Entry(entry) => {
+                let entry = entry.clone();
+                self.open_time_form(Some(&entry), true, window, cx);
+            }
+            Selected::ReviewRow(_) => self.open_review_entry(true, window, cx),
+            Selected::Trip(_) | Selected::None => {}
         }
     }
 
