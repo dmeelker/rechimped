@@ -113,12 +113,12 @@ pub struct TimeChimpApp {
     /// `--mock`: the backend every session uses, so logging in needs no credentials.
     fixed_api: Option<Api>,
     pub focus: FocusHandle,
-    pub screen: Screen,
-    pub session: Session,
-    pub tab: Tab,
+    screen: Screen,
+    session: Session,
+    tab: Tab,
     overlay: Overlay,
     menu: Option<Menu>,
-    pub error: Option<String>,
+    error: Option<String>,
     in_flight: Vec<Task>,
     tasks_started: u64,
     forms_opened: u64,
@@ -205,7 +205,7 @@ impl TimeChimpApp {
         cx: &mut Context<Self>,
         done: impl FnOnce(&mut Self, T, &mut Window, &mut Context<Self>) + 'static,
     ) {
-        let epoch = self.session.epoch;
+        let epoch = self.session.epoch();
         self.tasks_started += 1;
         let id = self.tasks_started;
         let handle = net::runtime().spawn(future);
@@ -216,7 +216,7 @@ impl TimeChimpApp {
             let _ = this.update_in(cx, |this, window, cx| {
                 this.in_flight.retain(|t| t.id != id);
                 match result {
-                    _ if this.session.epoch != epoch => {}
+                    _ if this.session.epoch() != epoch => {}
                     Ok(value) => done(this, value, window, cx),
                     Err(e) => this.set_error(format!("Background task failed: {e}"), window, cx),
                 }
@@ -241,6 +241,23 @@ impl TimeChimpApp {
     /// The open dropdown; it changes only through `toggle_menu`, `close_menu`, and when an overlay opens or is reset.
     pub fn menu(&self) -> Option<Menu> {
         self.menu
+    }
+
+    pub fn session(&self) -> &Session {
+        &self.session
+    }
+
+    pub fn screen(&self) -> &Screen {
+        &self.screen
+    }
+
+    pub fn tab(&self) -> Tab {
+        self.tab
+    }
+
+    /// The last failure, shown in the footer.
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
     }
 
     pub fn overlay_open(&self) -> bool {
@@ -336,7 +353,7 @@ impl TimeChimpApp {
 
     /// A save or delete is in flight.
     pub fn saving(&self) -> bool {
-        self.in_flight.iter().any(|t| t.epoch == self.session.epoch && t.kind == TaskKind::Write)
+        self.in_flight.iter().any(|t| t.epoch == self.session.epoch() && t.kind == TaskKind::Write)
     }
 
     fn new_form_id(&mut self) -> u64 {
@@ -345,7 +362,7 @@ impl TimeChimpApp {
     }
 
     pub fn busy(&self) -> Option<&'static str> {
-        self.in_flight.iter().rev().find(|t| t.epoch == self.session.epoch).map(|t| t.label)
+        self.in_flight.iter().rev().find(|t| t.epoch == self.session.epoch()).map(|t| t.label)
     }
 
     fn set_info(&mut self, message: impl Into<SharedString>, window: &mut Window, cx: &mut Context<Self>) {

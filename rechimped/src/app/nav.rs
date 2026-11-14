@@ -28,7 +28,7 @@ impl TimeChimpApp {
 
     pub fn step(&mut self, direction: i64, window: &mut Window, cx: &mut Context<Self>) {
         if self.tab == Tab::Week {
-            let work_days = self.session.settings.work_days;
+            let work_days = self.session.settings().work_days;
             let day = domain::week::step_day(self.session.day(), direction, work_days, domain::time::today());
             self.select_day(day, window, cx);
         } else {

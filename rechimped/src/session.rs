@@ -12,15 +12,15 @@ use crate::store::config::{self, Config, Settings, TimePreset, TripPreset};
 
 pub struct Session {
     /// `TimeChimpApp::run` drops results that arrive for an older epoch.
-    pub epoch: u64,
+    epoch: u64,
     client: Option<Api>,
     base: Option<Base>,
 
     /// Read through `tags_for`, which offers all tags while none are configured.
-    pub project_tags: HashMap<i64, Vec<Tag>>,
-    pub settings: Settings,
-    pub trip_presets: Vec<TripPreset>,
-    pub time_presets: Vec<TimePreset>,
+    project_tags: HashMap<i64, Vec<Tag>>,
+    settings: Settings,
+    trip_presets: Vec<TripPreset>,
+    time_presets: Vec<TimePreset>,
     /// Why config.toml failed to load. While set nothing writes to it: the defaults shown
     /// meanwhile would be saved over what the file holds.
     config_error: Option<String>,
@@ -40,7 +40,7 @@ pub struct Session {
     /// we already left is dropped, even if no load for the new week could start yet.
     week_generation: u64,
     history: HashMap<i64, TimeEntry>,
-    pub recent: Vec<RecentItem>,
+    recent: Vec<RecentItem>,
 
     /// Always the first of the month.
     report_month: NaiveDate,
@@ -117,6 +117,44 @@ impl Session {
                 revision: 0,
             },
         }
+    }
+
+    pub fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    pub fn settings(&self) -> &Settings {
+        &self.settings
+    }
+
+    /// The tags configured per project id; offering them goes through `tags_for`.
+    pub fn project_tags(&self) -> &HashMap<i64, Vec<Tag>> {
+        &self.project_tags
+    }
+
+    pub fn trip_presets(&self) -> &[TripPreset] {
+        &self.trip_presets
+    }
+
+    pub fn time_presets(&self) -> &[TimePreset] {
+        &self.time_presets
+    }
+
+    pub fn recent(&self) -> &[RecentItem] {
+        &self.recent
+    }
+
+    /// Stands in for loading `[projects]` from config.toml.
+    #[cfg(test)]
+    pub fn set_project_tags(&mut self, project_tags: HashMap<i64, Vec<Tag>>) {
+        self.project_tags = project_tags;
+    }
+
+    /// Stands in for loading the presets from config.toml.
+    #[cfg(test)]
+    pub fn set_presets(&mut self, trips: Vec<TripPreset>, times: Vec<TimePreset>) {
+        self.trip_presets = trips;
+        self.time_presets = times;
     }
 
     pub fn client(&self) -> Option<&Api> {
@@ -875,7 +913,7 @@ mod tests {
     #[test]
     fn kept_tags() {
         let mut s = Session::new(None, date(4));
-        s.project_tags = HashMap::from([(1, vec![tag(10, "a")]), (2, vec![tag(20, "b")])]);
+        s.set_project_tags(HashMap::from([(1, vec![tag(10, "a")]), (2, vec![tag(20, "b")])]));
         assert_eq!(s.kept_tags(Some(2), &[10, 20, 30]), [10, 30]);
         assert_eq!(s.kept_tags(Some(1), &[10, 20, 30]), [20, 30]);
         assert_eq!(s.kept_tags(None, &[10, 20]), [10, 20]);
@@ -891,9 +929,9 @@ mod tests {
         assert_eq!(ids(&s, None), Vec::<i64>::new(), "no project, no tags");
         assert_eq!(s.kept_tags(Some(1), &[10, 20]), [20]);
 
-        s.project_tags = HashMap::from([(1, Vec::new())]);
+        s.set_project_tags(HashMap::from([(1, Vec::new())]));
         assert_eq!(ids(&s, Some(1)), [10, 30], "only empty lists count as nothing configured");
-        s.project_tags = HashMap::from([(1, Vec::new()), (2, vec![tag(30, "b")])]);
+        s.set_project_tags(HashMap::from([(1, Vec::new()), (2, vec![tag(30, "b")])]));
         assert_eq!(ids(&s, Some(1)), Vec::<i64>::new(), "once one project has tags, the lists hold");
         assert_eq!(ids(&s, Some(2)), [30]);
     }
@@ -902,7 +940,7 @@ mod tests {
     fn hidden_projects_are_not_offered() {
         let mut s = Session::new(None, date(4));
         s.apply_base(base(vec![project(1, "Keep"), project(2, "Old")], HashMap::new(), Vec::new()), None, &[]);
-        s.settings.hidden_projects = vec!["old".into()];
+        s.set_settings(Settings { hidden_projects: vec!["old".into()], ..Settings::default() });
         let ids = |options: Vec<(i64, String)>| options.into_iter().map(|(id, _)| id).collect::<Vec<_>>();
         assert!(s.is_hidden(2) && !s.is_hidden(1));
         assert_eq!(ids(s.project_options(None)), [1]);
@@ -914,7 +952,10 @@ mod tests {
         let mut s = Session::new(None, date(4));
         let tasks = HashMap::from([(1, vec![task(10, 1, "Dev"), task(20, 1, "Old"), task(30, 1, "Meet")])]);
         s.apply_base(base(vec![project(1, "Keep"), project(2, "Other")], tasks, Vec::new()), None, &[]);
-        s.settings.hidden_tasks = BTreeMap::from([("keep".into(), vec!["old".into(), "meet".into()])]);
+        s.set_settings(Settings {
+            hidden_tasks: BTreeMap::from([("keep".into(), vec!["old".into(), "meet".into()])]),
+            ..Settings::default()
+        });
         let ids = |options: Vec<(i64, String)>| options.into_iter().map(|(id, _)| id).collect::<Vec<_>>();
         assert!(s.is_task_hidden(1, "OLD") && !s.is_task_hidden(1, "Dev") && !s.is_task_hidden(2, "Old"));
         assert_eq!(ids(s.task_options(Some(1), None, None)), [10]);

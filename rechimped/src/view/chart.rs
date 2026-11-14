@@ -19,7 +19,7 @@ const GUTTER: f32 = 60.;
 
 impl TimeChimpApp {
     pub(super) fn render_chart(&self, chart: &BillabilityChart, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let goal = self.session.settings.billable_goal;
+        let goal = self.session().settings().billable_goal;
         let body = match &chart.weeks {
             Some(weeks) => plot(theme, weeks, goal).into_any_element(),
             None => {

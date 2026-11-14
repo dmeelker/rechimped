@@ -9,17 +9,17 @@ impl TimeChimpApp {
     /// After a session's first successful load only, so it comes up at startup (or login) and not
     /// on every reload. "Later" leaves it for the next start; "Not today" stores the day.
     pub(super) fn check_travel_reminder(&mut self, cx: &mut Context<Self>) {
-        if self.travel_reminder_checked == Some(self.session.epoch) {
+        if self.travel_reminder_checked == Some(self.session.epoch()) {
             return;
         }
-        self.travel_reminder_checked = Some(self.session.epoch);
+        self.travel_reminder_checked = Some(self.session.epoch());
         let today = domain::time::today();
         let shows_today = self.session.week_loaded() && self.session.week_start() == domain::time::monday_of(today);
-        if !self.session.settings.travel_reminder || !shows_today {
+        if !self.session.settings().travel_reminder || !shows_today {
             return;
         }
         let dismissed = reminder::path().and_then(|path| reminder::dismissed_on(&path));
-        if domain::week::travel_reminder_due(self.session.travel(), today, self.session.settings.work_days, dismissed) {
+        if domain::week::travel_reminder_due(self.session.travel(), today, self.session.settings().work_days, dismissed) {
             self.open_overlay(Overlay::TravelReminder, cx);
         }
     }

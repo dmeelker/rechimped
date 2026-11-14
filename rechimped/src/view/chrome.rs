@@ -19,7 +19,7 @@ use super::widgets::*;
 
 impl TimeChimpApp {
     pub(super) fn render_main(&mut self, window: &Window, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let title = self.session.me().map_or_else(String::new, |me| format!("{} @ {}", me.display_name, me.company_name));
+        let title = self.session().me().map_or_else(String::new, |me| format!("{} @ {}", me.display_name, me.company_name));
         let header = h_stack()
             .w_full()
             .px(px(16.))
@@ -44,10 +44,10 @@ impl TimeChimpApp {
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key))
             .on_action(cx.listener(|this, _: &gpuikit::a11y::FocusNext, window, cx| {
-                this.switch_tab((this.tab.index() + 1) % Tab::ALL.len(), window, cx)
+                this.switch_tab((this.tab().index() + 1) % Tab::ALL.len(), window, cx)
             }))
             .on_action(cx.listener(|this, _: &gpuikit::a11y::FocusPrevious, window, cx| {
-                this.switch_tab((this.tab.index() + Tab::ALL.len() - 1) % Tab::ALL.len(), window, cx)
+                this.switch_tab((this.tab().index() + Tab::ALL.len() - 1) % Tab::ALL.len(), window, cx)
             }))
             .flex_1()
             .min_h_0()
@@ -82,7 +82,7 @@ impl TimeChimpApp {
     pub(super) fn render_tab_body(&mut self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let theme = &theme;
-        let body = match self.tab {
+        let body = match self.tab() {
             Tab::Week => self.render_day(theme, cx).into_any_element(),
             Tab::Travel => self.render_travel(theme, cx).into_any_element(),
             Tab::Report => self.render_report(theme, cx).into_any_element(),
@@ -99,7 +99,7 @@ impl TimeChimpApp {
         let m = theme.control(ControlSize::Large);
         let fg = theme.fg();
         h_stack().gap(m.gap).children(Tab::ALL.iter().map(|&tab| {
-            let selected = tab == self.tab;
+            let selected = tab == self.tab();
             div()
                 .id(ElementId::NamedInteger("tab".into(), tab.index() as u64))
                 .flex()
@@ -130,14 +130,14 @@ impl TimeChimpApp {
             ),
             None => {
                 let (range, week) = week_title(self);
-                let start = self.session.week_start();
-                let (at_today, prev_tip, next_tip) = if self.tab == Tab::Week {
-                    (self.session.day() == today, "Previous week ([)", "Next week (])")
+                let start = self.session().week_start();
+                let (at_today, prev_tip, next_tip) = if self.tab() == Tab::Week {
+                    (self.session().day() == today, "Previous week ([)", "Next week (])")
                 } else {
                     (start <= today && today < start + chrono::Duration::days(7), "Previous week (←)", "Next week (→)")
                 };
-                let suffix = if self.tab == Tab::Travel && self.session.week_loaded() {
-                    let km = crate::domain::total(self.session.travel().iter().map(|m| m.distance));
+                let suffix = if self.tab() == Tab::Travel && self.session().week_loaded() {
+                    let km = crate::domain::total(self.session().travel().iter().map(|m| m.distance));
                     format!("{week} · {} km", plain_number(km))
                 } else {
                     week
@@ -172,7 +172,7 @@ impl TimeChimpApp {
             .child(arrows)
             .child(period_title(theme, title, suffix))
             .child(div().flex_1());
-        match self.tab {
+        match self.tab() {
             Tab::Week | Tab::Travel => bar.child(self.render_add(theme, cx)),
             Tab::Report | Tab::Review => bar.child(pop(
                 theme,
@@ -199,7 +199,7 @@ impl TimeChimpApp {
     }
 
     pub(super) fn render_add(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let (label, kind) = match self.tab {
+        let (label, kind) = match self.tab() {
             Tab::Week => ("+ Add time", Menu::AddTime),
             _ => ("+ Add trip", Menu::AddTrip),
         };
@@ -228,8 +228,8 @@ impl TimeChimpApp {
         type Act = Rc<dyn Fn(&mut TimeChimpApp, &mut Window, &mut Context<TimeChimpApp>)>;
         let (presets, empty): (Vec<(AnyElement, Act, Act)>, &str) = match kind {
             Menu::AddTime => (
-                self.session
-                    .time_presets
+                self.session()
+                    .time_presets()
                     .iter()
                     .map(|p| {
                         let label = v_stack()
@@ -245,8 +245,8 @@ impl TimeChimpApp {
                 "No presets yet: use \"Save as preset\" in the time form",
             ),
             _ => (
-                self.session
-                    .trip_presets
+                self.session()
+                    .trip_presets()
                     .iter()
                     .map(|p| {
                         let (open, delete) = (p.clone(), p.clone());
@@ -358,7 +358,7 @@ impl TimeChimpApp {
                 d.when(locked.is_none(), |d| {
                     d.child(action("row-edit", Icons::pencil_1(), "Edit (E)", |this, w, cx| this.edit_selected(w, cx)))
                 })
-                .when(matches!(self.tab, Tab::Week | Tab::Review), |d| {
+                .when(matches!(self.tab(), Tab::Week | Tab::Review), |d| {
                     d.child(action("row-copy", Icons::copy(), "Copy (C)", |this, w, cx| this.copy_selected(w, cx)))
                 })
                 .when(locked.is_none(), |d| {
@@ -368,11 +368,11 @@ impl TimeChimpApp {
     }
 
     pub(super) fn render_footer(&self, theme: &T) -> impl IntoElement {
-        let left: AnyElement = match (self.busy(), &self.error) {
+        let left: AnyElement = match (self.busy(), self.error()) {
             (Some(busy), _) => div().text_color(theme.accent()).child(busy).into_any_element(),
-            (None, Some(error)) => div().text_color(theme.danger()).child(error.clone()).into_any_element(),
+            (None, Some(error)) => div().text_color(theme.danger()).child(error.to_owned()).into_any_element(),
             (None, None) => {
-                let hints: Vec<gpui::Div> = match self.tab {
+                let hints: Vec<gpui::Div> = match self.tab() {
                     Tab::Week => vec![
                         hint(theme, "←/→", "day"),
                         hint(theme, "[ ]", "week"),

@@ -168,7 +168,7 @@ pub fn preset(v: &TravelValues, session: &Session) -> Result<TripPreset, String>
         None => return Err("Distance must be a number (or empty)".into()),
     };
     let name = config::preset_name(&v.from, &v.to, &v.notes);
-    if session.trip_presets.iter().any(|p| same_name(&p.name, &name)) {
+    if session.trip_presets().iter().any(|p| same_name(&p.name, &name)) {
         return Err(format!("There already is a preset \"{name}\" in config.toml"));
     }
     Ok(TripPreset {
@@ -201,7 +201,7 @@ pub fn time_preset(v: &TimeValues, session: &Session) -> Result<TimePreset, Stri
             && p.task.as_deref().is_some_and(|t| same_name(t, &task.name))
             && p.notes.as_deref().map(str::trim) == preset.notes.as_deref()
     };
-    if session.time_presets.iter().any(same) {
+    if session.time_presets().iter().any(same) {
         return Err("There already is a preset for this project, task and description in config.toml".into());
     }
     Ok(preset)
@@ -353,7 +353,7 @@ mod tests {
         assert_eq!((p.project.as_str(), p.distance, p.return_trip), ("Intern", None, true));
         assert_eq!(p.travel_type.as_deref(), Some("home-work"));
 
-        s.trip_presets.push(p);
+        s.set_presets(vec![p], Vec::new());
         assert!(preset(&trip_values(), &s).unwrap_err().starts_with("There already is a preset"));
         let bad = TravelValues { distance: "far".into(), notes: "Other".into(), ..trip_values() };
         assert_eq!(preset(&bad, &s).unwrap_err(), "Distance must be a number (or empty)");
@@ -370,7 +370,7 @@ mod tests {
             p,
             TimePreset { project: "Intern".into(), task: Some("Dev".into()), notes: Some("Standup".into()), tags: vec!["Daily".into()] }
         );
-        s.time_presets.push(p);
+        s.set_presets(Vec::new(), vec![p]);
         assert!(time_preset(&v, &s).unwrap_err().starts_with("There already is a preset"));
         assert!(time_preset(&TimeValues { notes: "Other".into(), ..v.clone() }, &s).is_ok());
         assert_eq!(time_preset(&TimeValues { project_task_id: None, ..v }, &s).unwrap_err(), "Pick a task first");

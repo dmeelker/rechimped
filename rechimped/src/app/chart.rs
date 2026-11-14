@@ -33,7 +33,7 @@ impl TimeChimpApp {
                         && chart.mondays == wanted
                     {
                         chart.weeks =
-                            Some(week::week_cards(&entries, &wanted, contract, &this.session.settings.excluded_tasks));
+                            Some(week::week_cards(&entries, &wanted, contract, &this.session.settings().excluded_tasks));
                     }
                 }
                 Err(e) => this.api_error(e, window, cx),

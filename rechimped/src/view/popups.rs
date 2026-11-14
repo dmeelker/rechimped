@@ -88,7 +88,7 @@ impl TimeChimpApp {
     }
 
     pub(super) fn render_detail(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let Some(e) = self.session.selected_entry() else { return div().into_any_element() };
+        let Some(e) = self.session().selected_entry() else { return div().into_any_element() };
         let field = |label: &'static str, value: String| {
             h_stack().py(px(3.)).child(muted(theme, label).w(px(90.)).flex_none()).child(value)
         };

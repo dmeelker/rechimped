@@ -274,7 +274,7 @@ impl ProjectVisibility {
         projects.sort_by(by_name);
         let hidden = projects.iter().filter(|p| session.is_hidden(p.id)).map(|p| p.id).collect();
         let others = session
-            .settings
+            .settings()
             .hidden_projects
             .iter()
             .filter(|name| !projects.iter().any(|p| same_name(&p.name, name)))
@@ -463,11 +463,11 @@ pub struct ProjectTagsForm {
 
 impl ProjectTagsForm {
     pub fn new(session: &Session, hidden_projects: &BTreeSet<i64>) -> Self {
-        let in_use: BTreeSet<i64> = session.project_tags.values().flatten().map(|t| t.id).collect();
+        let in_use: BTreeSet<i64> = session.project_tags().values().flatten().map(|t| t.id).collect();
         let projects: Vec<_> = session
             .projects()
             .iter()
-            .filter(|p| p.active || session.project_tags.get(&p.id).is_some_and(|t| !t.is_empty()))
+            .filter(|p| p.active || session.project_tags().get(&p.id).is_some_and(|t| !t.is_empty()))
             .map(ProjectRow::of)
             .collect();
         let chosen: HashMap<i64, BTreeSet<i64>> =
@@ -573,6 +573,7 @@ impl ProjectTagsForm {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::config::Settings;
     use crate::test_support::*;
 
     #[test]
@@ -581,7 +582,7 @@ mod tests {
         let mut inactive = project(9, "Inactive");
         inactive.active = false;
         s.apply_base(base(vec![project(3, "b"), project(6, "A"), inactive], HashMap::new(), Vec::new()), None, &[]);
-        s.settings.hidden_projects = vec!["B".into(), "Inactive".into(), "Gone".into()];
+        s.set_settings(Settings { hidden_projects: vec!["B".into(), "Inactive".into(), "Gone".into()], ..Settings::default() });
 
         let mut form = ProjectVisibility::new(&s);
         assert_eq!(form.projects.iter().map(|p| p.id).collect::<Vec<_>>(), [6, 3], "active ones, by name");
@@ -603,10 +604,12 @@ mod tests {
         gone.active = false;
         let tasks = HashMap::from([(3, vec![task(10, 3, "b"), task(20, 3, "A"), gone]), (6, Vec::new())]);
         s.apply_base(base(vec![project(3, "P"), project(6, "Empty")], tasks, Vec::new()), None, &[]);
-        s.settings.hidden_tasks =
-            BTreeMap::from([("p".into(), vec!["B".into(), "Gone".into()]), ("Old".into(), vec!["X".into()])]);
+        s.set_settings(Settings {
+            hidden_tasks: BTreeMap::from([("p".into(), vec!["B".into(), "Gone".into()]), ("Old".into(), vec!["X".into()])]),
+            ..Settings::default()
+        });
 
-        let mut form = TaskVisibility::new(&s, &BTreeSet::new(), &s.settings.hidden_tasks);
+        let mut form = TaskVisibility::new(&s, &BTreeSet::new(), &s.settings().hidden_tasks);
         assert_eq!(form.projects.iter().map(|(p, _)| p.id).collect::<Vec<_>>(), [3], "only projects with active tasks");
         assert_eq!(form.projects[0].1.iter().map(|t| t.0).collect::<Vec<_>>(), [20, 10], "tasks by name");
         assert!(form.is_hidden(3, 10) && !form.is_hidden(3, 20));
@@ -630,7 +633,7 @@ mod tests {
         old.active = false;
         let tags = vec![tag(10, "b"), tag(20, "A"), tag(30, "z_hidden"), tag(40, "z_used")];
         s.apply_base(base(vec![project(3, "P"), project(6, "Other"), old], HashMap::new(), tags), None, &[]);
-        s.project_tags = HashMap::from([(3, vec![tag(40, "z_used")])]);
+        s.set_project_tags(HashMap::from([(3, vec![tag(40, "z_used")])]));
 
         let mut form = ProjectTagsForm::new(&s, &BTreeSet::new());
         assert_eq!(form.projects.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["Other", "P"], "by name, inactive left out");
@@ -650,7 +653,7 @@ mod tests {
         form.set_all(false);
         assert_eq!(form.count(3), 0);
 
-        s.project_tags = HashMap::new();
+        s.set_project_tags(HashMap::new());
         let mut form = ProjectTagsForm::new(&s, &BTreeSet::new());
         assert_eq!(form.count(6), 2, "all tags while none are configured");
         assert!(form.changes().is_empty(), "nothing written unless changed");
@@ -685,7 +688,7 @@ mod tests {
         let mut s = Session::new(None, date(4));
         let tasks = HashMap::from([(1, vec![task(10, 1, "a"), task(11, 1, "b")]), (2, vec![task(20, 2, "c")])]);
         s.apply_base(base(vec![project(1, "A"), project(2, "B")], tasks, Vec::new()), None, &[]);
-        let mut form = TaskVisibility::new(&s, &BTreeSet::new(), &s.settings.hidden_tasks);
+        let mut form = TaskVisibility::new(&s, &BTreeSet::new(), &s.settings().hidden_tasks);
 
         form.toggle_at(None);
         assert_eq!(form.hidden_count(1), 0, "Space does nothing in the project list");

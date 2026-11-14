@@ -15,7 +15,7 @@ use super::widgets::*;
 
 impl TimeChimpApp {
     pub(super) fn render_login(&self, theme: &T, t: f32, cx: &mut Context<Self>) -> impl IntoElement {
-        let Screen::Login(login) = &self.screen else { unreachable!() };
+        let Screen::Login(login) = self.screen() else { unreachable!() };
         let accent = theme.accent();
         let label = |text: &'static str| div().text_xs().text_color(theme.fg_muted()).child(text);
         let message = match (self.busy(), &login.error) {
@@ -69,7 +69,7 @@ impl TimeChimpApp {
     }
 
     pub(super) fn login_confirm_click(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Screen::Login(login) = &self.screen else { return };
+        let Screen::Login(login) = self.screen() else { return };
         if login.mfa.is_some() {
             self.login_confirm(window, cx);
         } else {

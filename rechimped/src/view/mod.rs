@@ -24,7 +24,7 @@ use crate::app::{Overlay, Screen, TimeChimpApp, ToggleShowcase};
 impl Render for TimeChimpApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
-        let login = matches!(self.screen, Screen::Login(_));
+        let login = matches!(self.screen(), Screen::Login(_));
         // Loads need no frames of their own here: the sweep bar is a gpui animation and asks for its own.
         let started = self.fx.begin_frame(login || self.fx.showcase, window, cx);
         let t = self.fx.time(cx);
@@ -45,7 +45,7 @@ impl Render for TimeChimpApp {
                 let strength = if login { 1.0 } else { 0.7 };
                 d.child(div().absolute().inset_0().child(crate::fx::aurora(t, theme.accent(), theme.bg(), strength)))
             });
-        let root = match &self.screen {
+        let root = match self.screen() {
             Screen::Login(_) => root.child(self.render_login(&theme, t, cx)),
             Screen::Main => root.child(self.render_main(window, &theme, cx)),
         };
@@ -66,7 +66,7 @@ impl Render for TimeChimpApp {
 impl TimeChimpApp {
     /// What is on screen, for the perf log: `Login`, or the tab plus any overlay and open menu.
     fn perf_view(&self) -> String {
-        if matches!(self.screen, Screen::Login(_)) {
+        if matches!(self.screen(), Screen::Login(_)) {
             return "Login".into();
         }
         let overlay = match self.overlay() {
@@ -79,7 +79,7 @@ impl TimeChimpApp {
             Overlay::Confirm { .. } => Some("Confirm"),
             Overlay::TravelReminder => Some("TravelReminder"),
         };
-        let mut view = self.tab.label().to_string();
+        let mut view = self.tab().label().to_string();
         for part in overlay.into_iter().chain(self.menu().map(|_| "Menu")) {
             view.push('+');
             view.push_str(part);

@@ -102,7 +102,7 @@ impl TimeChimpApp {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let (id, selected) = (line.id, row.selected);
-        let excluded = &self.session.settings.excluded_tasks;
+        let excluded = &self.session().settings().excluded_tasks;
         let lacks_notes = lacks_notes(line.notes.as_deref(), &line.project, &line.task, excluded);
         let findings: Vec<String> = [(line.rejected, "Rejected"), (lacks_notes, "No notes")]
             .into_iter()
@@ -148,11 +148,11 @@ impl TimeChimpApp {
         let mut rows = Vec::new();
         for (n, &i) in indices.iter().enumerate() {
             if let Some(&prev) = n.checked_sub(1).and_then(|p| indices.get(p))
-                && let Some(junction) = crate::domain::week::junction(&self.session.entries()[prev], &self.session.entries()[i]) {
+                && let Some(junction) = crate::domain::week::junction(&self.session().entries()[prev], &self.session().entries()[i]) {
                     let row = junction_row(theme, &junction);
                     rows.push(match junction {
                         Junction::Gap { from, to } => {
-                            let date = self.session.entries()[i].date;
+                            let date = self.session().entries()[i].date;
                             row.id(ElementId::NamedInteger("gap".into(), i as u64))
                                 .cursor_pointer()
                                 .hover(|s| s.bg(theme.warning().opacity(0.18)))
@@ -167,21 +167,21 @@ impl TimeChimpApp {
                         Junction::Overlap { .. } => row.into_any_element(),
                     });
                 }
-            let line = EntryLine::from(&self.session.entries()[i]);
-            let row = EntryRow { selected: self.session.selected_entry_id() == Some(line.id), wrap: false, tags_differ: None };
+            let line = EntryLine::from(&self.session().entries()[i]);
+            let row = EntryRow { selected: self.session().selected_entry_id() == Some(line.id), wrap: false, tags_differ: None };
             rows.push(self.entry_row(theme, i, &line, row, cx).into_any_element());
         }
         rows
     }
 
     pub(super) fn render_day(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let per_day = self.session.hours_per_day();
+        let per_day = self.session().hours_per_day();
 
-        let shown = self.session.shown_days(crate::domain::time::today());
+        let shown = self.session().shown_days(crate::domain::time::today());
         let strip = h_stack().flex_none().gap(px(8.)).children(shown.into_iter().map(|i| {
-            let day = self.session.week_start() + Duration::days(i as i64);
-            let (hours, target) = (per_day[i], self.session.target_for(i));
-            let selected = day == self.session.day();
+            let day = self.session().week_start() + Duration::days(i as i64);
+            let (hours, target) = (per_day[i], self.session().target_for(i));
+            let selected = day == self.session().day();
             let is_today = day == crate::domain::time::today();
             let fraction = if target > 0.0 { (hours / target).min(1.0) as f32 } else { 0.0 };
             v_stack()
@@ -210,12 +210,12 @@ impl TimeChimpApp {
         }));
 
         let card = crate::domain::week::week_card(
-            self.session.entries(),
-            self.session.contract_hours(),
-            &self.session.settings.excluded_tasks,
+            self.session().entries(),
+            self.session().contract_hours(),
+            &self.session().settings().excluded_tasks,
         );
         let (total, contract, share) = (card.hours, card.contract, card.share);
-        let goal = self.session.settings.billable_goal;
+        let goal = self.session().settings().billable_goal;
         let ratio = share.unwrap_or(0.0);
         let ratio_colour = goal_colour(theme, share, goal);
         let week_card = v_stack()
@@ -272,10 +272,10 @@ impl TimeChimpApp {
             );
         let strip = strip.child(week_card);
 
-        let visible = self.session.visible_entries();
+        let visible = self.session().visible_entries();
         let rows = self.entry_rows_with_gaps(theme, &visible, cx);
         let message =
-            if self.session.week_loaded() { "No time registered on this day. Press A to add." } else { NOT_LOADED };
+            if self.session().week_loaded() { "No time registered on this day. Press A to add." } else { NOT_LOADED };
 
         v_stack()
             .flex_1()

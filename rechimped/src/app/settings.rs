@@ -18,7 +18,7 @@ impl TimeChimpApp {
         if self.refuse_config_write(window, cx) {
             return;
         }
-        let current = &self.session.settings;
+        let current = &self.session.settings();
         let work_days = (0..7u8)
             .zip(current.work_days)
             .map(|(i, on)| {
@@ -32,7 +32,7 @@ impl TimeChimpApp {
                 .label("At startup, remind me to register today's trip while I haven't")
         });
         let projects = ProjectVisibility::new(&self.session);
-        let presets = PresetsForm::new(self.session.trip_presets.clone(), self.session.time_presets.clone());
+        let presets = PresetsForm::new(self.session.trip_presets().to_vec(), self.session.time_presets().to_vec());
         let form = SettingsForm {
             page,
             focus: cx.focus_handle(),

@@ -268,7 +268,7 @@ pub(super) fn goal_colour(theme: &T, share: Option<f64>, goal: f64) -> gpui::Hsl
 }
 
 pub(super) fn week_title(app: &TimeChimpApp) -> (String, String) {
-    let (start, end) = (app.session.week_start(), app.session.week_start() + Duration::days(6));
+    let (start, end) = (app.session().week_start(), app.session().week_start() + Duration::days(6));
     let range = if start.year() != end.year() {
         format!("{} – {}", start.format("%-d %b %Y"), end.format("%-d %b %Y"))
     } else if start.month() != end.month() {

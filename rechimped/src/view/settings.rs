@@ -113,7 +113,7 @@ impl TimeChimpApp {
     }
 
     fn render_general(&self, form: &SettingsForm, theme: &T) -> gpui::AnyElement {
-        let contract = crate::domain::week::contract_summary(self.session.contract_hours());
+        let contract = crate::domain::week::contract_summary(self.session().contract_hours());
         let days = h_stack().gap(px(14.)).children(form.work_days.iter().cloned()).into_any_element();
         v_stack()
             .gap(px(14.))
@@ -125,7 +125,7 @@ impl TimeChimpApp {
 
     fn render_billability(&self, form: &SettingsForm, focused: bool, theme: &T, cx: &mut Context<Self>) -> gpui::AnyElement {
         let goal = crate::validate::billable_goal(&form.values(cx).billable_goal)
-            .and_then(|goal| crate::domain::week::goal_summary(self.session.contract_hours(), goal))
+            .and_then(|goal| crate::domain::week::goal_summary(self.session().contract_hours(), goal))
             .unwrap_or_default();
         let target = setting_row(
             theme,

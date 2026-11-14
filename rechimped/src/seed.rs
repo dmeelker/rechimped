@@ -110,7 +110,7 @@ pub fn time_form(session: &Session, entry: Option<&TimeEntry>, copy: bool, date:
         end,
         hours: editing.map(|e| crate::domain::hh_mm(e.hours)).unwrap_or_default(),
         notes: entry.and_then(|e| e.notes.clone()).unwrap_or_default(),
-        recent: entry.is_none() && !session.recent.is_empty(),
+        recent: entry.is_none() && !session.recent().is_empty(),
     }
 }
 
@@ -217,7 +217,7 @@ mod tests {
         me.mileage_addresses = vec!["Home".into(), "Office".into()];
         let tasks = HashMap::from([(3, vec![task(4, 3, "Dev")]), (6, vec![task(7, 6, "Ops")])]);
         s.apply_base(Base { me, ..base(vec![project(3, "P"), project(6, "Other")], tasks, Vec::new()) }, None, &[]);
-        s.project_tags = HashMap::from([(3, vec![tag(10, "a")]), (6, vec![tag(20, "b")])]);
+        s.set_project_tags(HashMap::from([(3, vec![tag(10, "a")]), (6, vec![tag(20, "b")])]));
         let mut first = entry(1, 4, "09:00-10:00");
         first.tag_ids = vec![10, 20, 99];
         first.modified = date(3).and_hms_opt(12, 0, 0).unwrap();

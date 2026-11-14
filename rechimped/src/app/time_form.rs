@@ -149,7 +149,7 @@ impl TimeChimpApp {
         if query.is_empty() {
             return Vec::new();
         }
-        let recent = self.session.recent.iter().filter(|item| {
+        let recent = self.session.recent().iter().filter(|item| {
             let e = &item.entry;
             !self.session.is_hidden(e.project_id) && !self.session.is_task_hidden(e.project_id, &e.task_name)
         });

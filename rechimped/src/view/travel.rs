@@ -12,7 +12,7 @@ use super::widgets::*;
 
 impl TimeChimpApp {
     pub(super) fn trip_row(&self, theme: &T, i: usize, m: &timechimp_api::Mileage, cx: &mut Context<Self>) -> impl IntoElement {
-        let (id, selected) = (m.id, self.session.selected_travel_id() == Some(m.id));
+        let (id, selected) = (m.id, self.session().selected_travel_id() == Some(m.id));
         h_stack()
             .id(ElementId::NamedInteger("trip".into(), i as u64))
             .w_full()
@@ -37,7 +37,7 @@ impl TimeChimpApp {
     pub(super) fn render_travel(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         let mut rows: Vec<AnyElement> = Vec::new();
         let mut start = 0;
-        for (n, day) in self.session.travel().chunk_by(|a, b| a.date == b.date).enumerate() {
+        for (n, day) in self.session().travel().chunk_by(|a, b| a.date == b.date).enumerate() {
             let km = crate::domain::total(day.iter().map(|m| m.distance));
             let trips = if day.len() == 1 { "1 trip".to_owned() } else { format!("{} trips", day.len()) };
             rows.push(
@@ -54,8 +54,8 @@ impl TimeChimpApp {
             }
             start += day.len();
         }
-        let empty = self.session.travel().is_empty() && self.busy().is_none();
-        let message = if self.session.week_loaded() { "No travel this week. Press A to add." } else { NOT_LOADED };
+        let empty = self.session().travel().is_empty() && self.busy().is_none();
+        let message = if self.session().week_loaded() { "No travel this week. Press A to add." } else { NOT_LOADED };
         table_card(theme)
             .child(
                 header_row(
