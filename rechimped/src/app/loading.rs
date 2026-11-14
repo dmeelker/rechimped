@@ -10,8 +10,8 @@ use super::{Tab, TimeChimpApp};
 impl TimeChimpApp {
     pub fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(client) = self.session.client().cloned() else { return };
-        let (report_month, want_report) = (self.session.report_month(), self.tab == Tab::Report);
         self.session.invalidate_derived();
+        let report_load = (self.tab == Tab::Report).then(|| self.session.begin_report_load());
         let (generation, week_start) = self.session.begin_week_load();
         let today = domain::time::today();
         let future = async move {
@@ -19,7 +19,12 @@ impl TimeChimpApp {
             let user_id = base.me.id;
             // Only the week is needed: a failed history (the Recent picker) or report (its tab
             // then says "Not loaded") is reported but doesn't fail the reload.
-            let report = async { if want_report { Some(net::load_report(&client, user_id, report_month).await) } else { None } };
+            let report = async {
+                match report_load {
+                    Some((_, month)) => Some(net::load_report(&client, user_id, month).await),
+                    None => None,
+                }
+            };
             let (week, history, report) = tokio::join!(
                 net::load_week(&client, user_id, week_start),
                 net::load_history(&client, user_id, today, week_start),
@@ -40,12 +45,12 @@ impl TimeChimpApp {
                 if this.tab == Tab::Review && this.session.review_rows().is_none() {
                     this.load_review(None, window, cx);
                 }
-                match report {
-                    // Unless a report loaded meanwhile (tab switch, other month), which is newer.
-                    Some(Ok(report)) if this.session.report().is_none() => {
-                        this.session.apply_report(report);
+                match (report, report_load) {
+                    // Dropped when a newer load started meanwhile (tab switch, other month, a save).
+                    (Some(Ok(report)), Some((report_generation, _))) => {
+                        this.session.apply_report(report_generation, report);
                     }
-                    Some(Err(e)) => this.set_error(format!("Could not load the report: {e}"), window, cx),
+                    (Some(Err(e)), _) => this.set_error(format!("Could not load the report: {e}"), window, cx),
                     _ => {}
                 }
                 if this.tab == Tab::Report && this.session.report().is_none() && !report_failed {
@@ -113,16 +118,17 @@ impl TimeChimpApp {
 
     pub(super) fn load_report(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (Some(client), Some(me)) = (self.session.client().cloned(), self.session.me()) else { return };
-        let (user_id, month) = (me.id, self.session.report_month());
+        let user_id = me.id;
+        let (generation, month) = self.session.begin_report_load();
         self.run(
             "Loading…",
             async move { net::load_report(&client, user_id, month).await },
             window,
             cx,
-            |this, result, window, cx| match result {
-                // Only keep it if the user didn't move on to another month meanwhile.
+            move |this, result, window, cx| match result {
+                // Only keep it if the user didn't move on to another month or change data meanwhile.
                 Ok(report) => {
-                    if this.session.apply_report(report) {
+                    if this.session.apply_report(generation, report) {
                         this.error = None;
                     }
                 }

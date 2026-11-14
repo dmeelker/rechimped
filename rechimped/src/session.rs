@@ -47,6 +47,12 @@ pub struct Session {
     report: Report,
     /// `report.summary()`, worked out once when the report changes rather than every frame.
     report_summary: Summary,
+    /// Bumped on every report load and by `invalidate_derived`, so a load that started before a
+    /// newer one, or before a change to the user's data, is dropped.
+    report_generation: u64,
+    /// Bumped by `invalidate_derived`: loads without a generation of their own (the chart, the
+    /// entry the Review tab opens) compare it to drop what was read before a change.
+    data_version: u64,
 
     review: Review,
 }
@@ -105,6 +111,8 @@ impl Session {
             report_month: domain::time::first_of_month(today),
             report: Report::default(),
             report_summary: Report::default().summary(),
+            report_generation: 0,
+            data_version: 0,
             // The month usually handed in.
             review: Review {
                 month: domain::time::first_of_month(today) - Months::new(1),
@@ -314,8 +322,15 @@ impl Session {
         self.report().is_some().then_some(&self.report_summary)
     }
 
-    pub fn apply_report(&mut self, report: Report) -> bool {
-        let current = report.month == Some(self.report_month);
+    pub fn begin_report_load(&mut self) -> (u64, NaiveDate) {
+        self.report_generation += 1;
+        (self.report_generation, self.report_month)
+    }
+
+    /// Drops what an older load, one started before `invalidate_derived` or one for another
+    /// month brings back.
+    pub fn apply_report(&mut self, generation: u64, report: Report) -> bool {
+        let current = generation == self.report_generation && report.month == Some(self.report_month);
         if current {
             self.report = report;
             self.report_summary = self.report.summary();
@@ -323,15 +338,23 @@ impl Session {
         current
     }
 
-    /// Drops the report and the review together: call after any change to the user's data.
+    /// Drops the report and the review together, and whatever loads for them are still running:
+    /// call after any change to the user's data.
     pub fn invalidate_derived(&mut self) {
         self.invalidate_report();
         self.invalidate_review();
+        self.data_version += 1;
+    }
+
+    /// Changes whenever `invalidate_derived` runs.
+    pub fn data_version(&self) -> u64 {
+        self.data_version
     }
 
     fn invalidate_report(&mut self) {
         self.report = Report::default();
         self.report_summary = self.report.summary();
+        self.report_generation += 1;
     }
 
     pub fn review_month(&self) -> NaiveDate {
@@ -400,6 +423,7 @@ impl Session {
 
     fn invalidate_review(&mut self) {
         self.review.loaded = None;
+        self.review.generation += 1;
     }
 
     pub fn selected_review_id(&self) -> Option<i64> {
@@ -778,9 +802,11 @@ mod tests {
         let mut s = Session::new(None, date(4));
         assert!(s.report().is_none());
         let report = |month| Report { month: Some(month), ..Report::default() };
-        assert!(!s.apply_report(report(date(1) - Duration::days(1))), "October's report arrives too late");
+        let (generation, month) = s.begin_report_load();
+        assert_eq!(month, date(1));
+        assert!(!s.apply_report(generation, report(date(1) - Duration::days(1))), "October's report arrives too late");
         let rows = vec![crate::test_support::report_row("A", "Dev", 2, 2.0, true)];
-        assert!(s.apply_report(Report { time: rows, ..report(date(1)) }));
+        assert!(s.apply_report(generation, Report { time: rows, ..report(date(1)) }));
         assert!(s.report().is_some());
         assert_eq!(s.report_summary().map(|summary| summary.total), Some(2.0), "summed when applied");
         s.set_report_month(date(1) - Duration::days(1));
@@ -797,13 +823,43 @@ mod tests {
         let mut s = Session::new(None, date(4));
         s.set_report_month(date(1));
         s.set_review_month(date(1));
-        assert!(s.apply_report(Report { month: Some(date(1)), ..Report::default() }));
+        let (generation, _) = s.begin_report_load();
+        assert!(s.apply_report(generation, Report { month: Some(date(1)), ..Report::default() }));
         let (generation, month) = s.begin_review_load();
         assert!(s.apply_review(generation, month, vec![time_row(1, 2)], None));
         assert!(s.report().is_some() && s.review_rows().is_some());
+        let version = s.data_version();
         s.invalidate_derived();
         assert!(s.report().is_none());
         assert!(s.review_rows().is_none());
+        assert_ne!(s.data_version(), version);
+    }
+
+    #[test]
+    fn report_loads_from_before_a_change_are_dropped() {
+        let mut s = Session::new(None, date(4));
+        let report = || Report { month: Some(date(1)), ..Report::default() };
+        let (stale, _) = s.begin_report_load();
+        s.invalidate_derived();
+        assert!(!s.apply_report(stale, report()), "read before the change");
+        assert!(s.report().is_none());
+
+        let (older, _) = s.begin_report_load();
+        let (current, _) = s.begin_report_load();
+        assert!(!s.apply_report(older, report()), "a newer load is running");
+        assert!(s.apply_report(current, report()), "the load started after the change");
+        assert!(s.report().is_some());
+    }
+
+    #[test]
+    fn review_loads_from_before_a_change_are_dropped() {
+        let mut s = Session::new(None, date(4));
+        let (stale, month) = s.begin_review_load();
+        s.invalidate_derived();
+        assert!(!s.apply_review(stale, month, vec![time_row(1, 2)], None));
+        assert!(s.review_rows().is_none());
+        let (current, month) = s.begin_review_load();
+        assert!(s.apply_review(current, month, vec![time_row(1, 2)], None));
     }
 
     #[test]

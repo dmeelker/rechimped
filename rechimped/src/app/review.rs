@@ -38,9 +38,11 @@ impl TimeChimpApp {
         if self.overlay_open() {
             return;
         }
+        let version = self.session.data_version();
         self.run("Loading…", async move { client.time_entry(id).await }, window, cx, move |this, result, window, cx| {
             match result {
-                Ok(entry) if this.tab == Tab::Review => {
+                // Not after a save or delete meanwhile: the entry may have been read before it.
+                Ok(entry) if this.tab == Tab::Review && this.session.data_version() == version => {
                     let origin = Origin::Review { date: (!copy).then_some(entry.date) };
                     this.open_time_form_on(Some(&entry), copy, entry.date, origin, window, cx);
                 }
