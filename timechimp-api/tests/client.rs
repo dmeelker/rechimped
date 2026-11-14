@@ -41,3 +41,16 @@ async fn unexpected_shapes_are_decode_errors() {
     let error = client(base).projects().await.unwrap_err();
     assert!(matches!(error, Error::Decode { ref url, .. } if url.ends_with("/api/project/uiselect")), "{error}");
 }
+
+#[tokio::test]
+async fn a_report_row_that_doesnt_decode_is_skipped() {
+    let fixture = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/time_report.json")).unwrap();
+    let (base, request) = serve_once("200 OK", fixture).await;
+
+    let (from, to) = (NaiveDate::from_ymd_opt(2026, 11, 1).unwrap(), NaiveDate::from_ymd_opt(2026, 11, 30).unwrap());
+    let page = client(base).query_time(1, from, to, 0..500).await.unwrap();
+
+    assert!(request.await.to_lowercase().starts_with("post /api/time/query http/1.1\r\n"));
+    assert_eq!(page.row_data.iter().map(|r| r.id).collect::<Vec<_>>(), [101, 102]);
+    assert_eq!((page.skipped, page.row_count), (1, 3));
+}

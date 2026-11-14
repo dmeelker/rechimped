@@ -51,6 +51,7 @@ Cargo workspace with two crates.
 Client for TimeChimp's **undocumented internal** web API (`web.timechimp.com/api`, as used by app.timechimp.com); it may change without notice.
 - `auth.rs`: AWS Cognito login with SRP (password never sent), SMS/TOTP MFA, token refresh. Persisting `refresh_token()` lets apps skip the password.
 - `client.rs`: one async method per endpoint. Report grids (`query_time`, `query_mileage`) must be paged by the caller. `query_time` filters on the user server-side; `query_mileage` doesn't (that grid's key is unverified), so its rows include everyone the caller can see.
+- Decoding is lenient where it's safe: a null name or display field becomes empty, `modified` falls back to the epoch (`null_default`, `datetime_or_epoch`); ids, dates, hours/distance and statuses stay required. Report grid rows decode one by one: a bad row is dropped and counted in `QueryResult::skipped` (the next page's offset includes it), and the app toasts the count after a report or review load.
 - `Error::is_auth()` says whether logging in again is the fix, as opposed to network/server trouble (including other Cognito errors such as throttling).
 - Tests: JSON fixtures in `testdata/` are hand-written to the observed shapes, not captured; swap in scrubbed real ones when the API changes. `tests/` run against a local HTTP server standing in for TimeChimp and Cognito (`#[doc(hidden)]` constructors `with_base_url`, `with_access_token`, `from_refresh_token_at`, `login_at`), so a test never reaches AWS.
 

@@ -58,7 +58,7 @@ fn not_found(what: &str, id: i64) -> Error {
 fn page<T>(rows: Vec<T>, range: Range<u32>) -> QueryResult<T> {
     let row_count = rows.len() as i64;
     let row_data = rows.into_iter().skip(range.start as usize).take(range.len()).collect();
-    QueryResult { row_data, row_count }
+    QueryResult { row_data, row_count, skipped: 0 }
 }
 
 fn in_week(date: NaiveDate, monday: NaiveDate) -> bool {

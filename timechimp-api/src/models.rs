@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, Utc};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 
@@ -503,15 +504,20 @@ impl NewTimeEntry {
     }
 }
 
+/// Lenient on display names and `modified`, as `TimeEntry`; ids, date, distance, type and the
+/// statuses (which lock a trip and are sent back on update) stay required.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Mileage {
     pub id: i64,
     pub user_id: i64,
+    #[serde(default, deserialize_with = "null_default")]
     pub user_display_name: String,
     pub customer_id: i64,
+    #[serde(default, deserialize_with = "null_default")]
     pub customer_name: String,
     pub project_id: i64,
+    #[serde(default, deserialize_with = "null_default")]
     pub project_name: String,
     pub project_code: Option<String>,
     #[serde(deserialize_with = "date")]
@@ -528,7 +534,7 @@ pub struct Mileage {
     pub status: i32,
     pub status_intern: i32,
     pub status_extern: i32,
-    #[serde(deserialize_with = "datetime")]
+    #[serde(default, deserialize_with = "datetime_or_epoch")]
     pub modified: NaiveDateTime,
 }
 
@@ -599,28 +605,54 @@ impl NewMileage {
     }
 }
 
+/// A page of a report grid. Rows are decoded one by one: a row that doesn't decode is left out
+/// and counted in `skipped` rather than failing the page. `row_count` counts every row on the
+/// server, so the next page starts at `row_data.len() + skipped` rows further on.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(from = "RawQueryResult", bound(deserialize = "T: DeserializeOwned"))]
 pub struct QueryResult<T> {
     pub row_data: Vec<T>,
     pub row_count: i64,
+    pub skipped: usize,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawQueryResult {
+    row_data: Vec<Value>,
+    row_count: i64,
+}
+
+impl<T: DeserializeOwned> From<RawQueryResult> for QueryResult<T> {
+    fn from(raw: RawQueryResult) -> Self {
+        let total = raw.row_data.len();
+        let row_data: Vec<T> = raw.row_data.into_iter().filter_map(|row| serde_json::from_value(row).ok()).collect();
+        Self { skipped: total - row_data.len(), row_data, row_count: raw.row_count }
+    }
+}
+
+/// Lenient on names, `week` and `pause`; ids, date, hours and the statuses (rejected and locked
+/// rows are findings in the review) stay required.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeReportRow {
     pub id: i64,
+    #[serde(default, deserialize_with = "null_default")]
     pub week: i32,
     #[serde(deserialize_with = "date")]
     pub date: NaiveDate,
     pub billable: bool,
+    #[serde(default, deserialize_with = "null_default")]
     pub customer: String,
     pub customer_id: i64,
+    #[serde(default, deserialize_with = "null_default")]
     pub project: String,
     pub project_id: i64,
     pub project_code: Option<String>,
+    #[serde(default, deserialize_with = "null_default")]
     pub task: String,
     pub task_id: i64,
+    #[serde(default, deserialize_with = "null_default")]
     pub user: String,
     pub user_id: i64,
     pub team: Option<String>,
@@ -632,6 +664,7 @@ pub struct TimeReportRow {
     pub start: Option<NaiveDateTime>,
     #[serde(default, deserialize_with = "opt_datetime")]
     pub end: Option<NaiveDateTime>,
+    #[serde(default, deserialize_with = "null_default")]
     pub pause: f64,
     pub amount: Option<f64>,
     pub tags: Option<String>,
@@ -642,17 +675,23 @@ pub struct TimeReportRow {
     pub extra: HashMap<String, Value>,
 }
 
+/// Lenient on names and `week`; ids (`user_id` filters the grid), date, distance, type and status
+/// stay required.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MileageReportRow {
     pub id: i64,
+    #[serde(default, deserialize_with = "null_default")]
     pub week: i32,
     #[serde(deserialize_with = "date")]
     pub date: NaiveDate,
+    #[serde(default, deserialize_with = "null_default")]
     pub user: String,
     pub user_id: i64,
+    #[serde(default, deserialize_with = "null_default")]
     pub customer: String,
     pub customer_id: i64,
+    #[serde(default, deserialize_with = "null_default")]
     pub project: String,
     pub project_id: i64,
     pub from_address: Option<String>,
@@ -755,13 +794,58 @@ mod tests {
 
     #[test]
     fn decodes_mileage() {
-        let [trip]: [Mileage; 1] = fixture("mileage.json");
+        let [trip, odd]: [Mileage; 2] = fixture("mileage.json");
+        assert_eq!((odd.user_display_name.as_str(), odd.project_name.as_str()), ("", ""), "null names become empty");
+        assert_eq!(odd.modified, NaiveDateTime::default());
+        assert_eq!(odd.distance, 23.5);
         assert_eq!(trip.distance, 23.5);
         assert_eq!(trip.mileage_type, MileageType::HomeWork);
         assert_eq!(MileageType::from(2), MileageType::Other(2));
         assert_eq!(i32::from(MileageType::Other(2)), 2);
         assert_eq!(trip.from_address.as_deref(), Some("Home street 1, Town"));
         assert_eq!(trip.mileage_vehicle_id, None);
+    }
+
+    #[test]
+    fn mileage_keeps_its_statuses_required() {
+        let mut trips: Vec<Value> = fixture("mileage.json");
+        trips[0].as_object_mut().unwrap().insert("statusIntern".into(), Value::Null);
+        assert!(serde_json::from_value::<Mileage>(trips.remove(0)).is_err(), "they lock a trip and go back on update");
+    }
+
+    #[test]
+    fn report_grids_skip_rows_that_dont_decode() {
+        let time: QueryResult<TimeReportRow> = fixture("time_report.json");
+        assert_eq!((time.row_data.len(), time.skipped, time.row_count), (2, 1, 3), "the row without a date");
+        let [full, sparse] = [&time.row_data[0], &time.row_data[1]];
+        assert_eq!((full.project.as_str(), full.pause, full.week), ("Project", 0.0, 45));
+        assert_eq!((sparse.id, sparse.customer.as_str(), sparse.project.as_str(), sparse.task.as_str()), (102, "", "", ""));
+        assert_eq!((sparse.user.as_str(), sparse.pause, sparse.week, sparse.time), ("", 0.0, 0, 2.0));
+
+        let trips: QueryResult<MileageReportRow> = fixture("mileage_report.json");
+        assert_eq!((trips.row_data.len(), trips.skipped), (2, 1), "the row without a distance");
+        let sparse = &trips.row_data[1];
+        assert_eq!((sparse.id, sparse.user.as_str(), sparse.customer.as_str(), sparse.project.as_str()), (202, "", "", ""));
+        assert_eq!(sparse.week, 0);
+
+        // Not a grid at all still fails the page.
+        assert!(serde_json::from_value::<QueryResult<TimeReportRow>>(json!({ "rowData": null, "rowCount": 0 })).is_err());
+    }
+
+    #[test]
+    fn report_rows_keep_their_keys_and_statuses_required() {
+        let grid: Value = fixture("time_report.json");
+        for key in ["userId", "taskId", "time", "status", "clientStatus"] {
+            let mut row = grid["rowData"][0].clone();
+            row.as_object_mut().unwrap().insert(key.into(), Value::Null);
+            assert!(serde_json::from_value::<TimeReportRow>(row).is_err(), "{key}");
+        }
+        let grid: Value = fixture("mileage_report.json");
+        for key in ["userId", "distance", "status"] {
+            let mut row = grid["rowData"][0].clone();
+            row.as_object_mut().unwrap().insert(key.into(), Value::Null);
+            assert!(serde_json::from_value::<MileageReportRow>(row).is_err(), "{key}");
+        }
     }
 
     #[test]

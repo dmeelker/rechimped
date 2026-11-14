@@ -20,9 +20,10 @@ impl TimeChimpApp {
             window,
             cx,
             move |this, result, window, cx| match result {
-                Ok(rows) => {
+                Ok(net::Rows { rows, skipped }) => {
                     if this.session.apply_review(generation, month, rows, select_id) {
                         this.error = None;
+                        this.warn_skipped(skipped, window, cx);
                         this.scroll_to_review_selection();
                     }
                 }

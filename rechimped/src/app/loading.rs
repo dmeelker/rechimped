@@ -48,7 +48,10 @@ impl TimeChimpApp {
                 match (report, report_load) {
                     // Dropped when a newer load started meanwhile (tab switch, other month, a save).
                     (Some(Ok(report)), Some((report_generation, _))) => {
-                        this.session.apply_report(report_generation, report);
+                        let skipped = report.skipped;
+                        if this.session.apply_report(report_generation, report) {
+                            this.warn_skipped(skipped, window, cx);
+                        }
                     }
                     (Some(Err(e)), _) => this.set_error(format!("Could not load the report: {e}"), window, cx),
                     _ => {}
@@ -128,12 +131,22 @@ impl TimeChimpApp {
             move |this, result, window, cx| match result {
                 // Only keep it if the user didn't move on to another month or change data meanwhile.
                 Ok(report) => {
+                    let skipped = report.skipped;
                     if this.session.apply_report(generation, report) {
                         this.error = None;
+                        this.warn_skipped(skipped, window, cx);
                     }
                 }
                 Err(e) => this.api_error(e, window, cx),
             },
         );
+    }
+
+    /// Rows of a report grid that couldn't be read are left out: say so, as figures then fall short.
+    pub(super) fn warn_skipped(&mut self, skipped: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if skipped > 0 {
+            let rows = if skipped == 1 { "row" } else { "rows" };
+            self.set_error(format!("Left out {skipped} {rows} from TimeChimp that couldn't be read"), window, cx);
+        }
     }
 }

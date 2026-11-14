@@ -8,6 +8,8 @@ pub struct Report {
     pub month: Option<NaiveDate>,
     pub time: Vec<TimeReportRow>,
     pub travel: Vec<MileageReportRow>,
+    /// Grid rows that couldn't be decoded and are left out.
+    pub skipped: usize,
 }
 
 #[derive(Debug, PartialEq)]
@@ -80,6 +82,7 @@ mod tests {
             month: Some(crate::test_support::date(1)),
             time: vec![row("A", "Dev", 2, 2.0, true), row("B", "Meeting", 2, 1.0, false), row("A", "Dev", 3, 4.0, true)],
             travel: Vec::new(),
+            skipped: 0,
         };
         let s = report.summary();
         assert_eq!(

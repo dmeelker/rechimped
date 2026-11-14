@@ -71,18 +71,27 @@ pub async fn load_weeks(client: &Api, user_id: i64, mondays: &[NaiveDate]) -> ti
     Ok(futures::future::try_join_all(weeks).await?.into_iter().flatten().collect())
 }
 
-async fn page_all<T, Fut>(mut fetch: impl FnMut(std::ops::Range<u32>) -> Fut) -> timechimp_api::Result<Vec<T>>
+/// Rows read from a report grid, and how many it held that couldn't be decoded.
+pub struct Rows<T> {
+    pub rows: Vec<T>,
+    pub skipped: usize,
+}
+
+async fn page_all<T, Fut>(mut fetch: impl FnMut(std::ops::Range<u32>) -> Fut) -> timechimp_api::Result<Rows<T>>
 where
     Fut: Future<Output = timechimp_api::Result<QueryResult<T>>>,
 {
-    let mut rows = Vec::new();
+    let (mut rows, mut skipped) = (Vec::new(), 0);
     loop {
-        let start = rows.len() as u32;
+        // Skipped rows count towards the offset: the server handed them out.
+        let start = (rows.len() + skipped) as u32;
         let page = fetch(start..start + PAGE).await?;
-        let done = page.row_data.is_empty() || (start as i64 + page.row_data.len() as i64) >= page.row_count;
+        let read = page.row_data.len() + page.skipped;
+        let done = read == 0 || (start as i64 + read as i64) >= page.row_count;
         rows.extend(page.row_data);
+        skipped += page.skipped;
         if done {
-            return Ok(rows);
+            return Ok(Rows { rows, skipped });
         }
     }
 }
@@ -94,21 +103,23 @@ pub async fn load_time_rows(
     user_id: i64,
     from: NaiveDate,
     to: NaiveDate,
-) -> timechimp_api::Result<Vec<TimeReportRow>> {
-    let mut rows = page_all(|rows| client.query_time(user_id, from, to, rows)).await?;
+) -> timechimp_api::Result<Rows<TimeReportRow>> {
+    let Rows { mut rows, skipped } = page_all(|rows| client.query_time(user_id, from, to, rows)).await?;
     // The query filters on the user already; this guards against the server ignoring that.
     rows.retain(|r| r.user_id == user_id);
     rows.sort_by_key(|r| (r.date, r.start));
-    Ok(rows)
+    Ok(Rows { rows, skipped })
 }
 
 pub async fn load_report(client: &Api, user_id: i64, month: NaiveDate) -> timechimp_api::Result<Report> {
     let to = last_of_month(month);
-    let (time, mut travel) =
+    let (time, travel) =
         tokio::try_join!(load_time_rows(client, user_id, month, to), page_all(|rows| client.query_mileage(month, to, rows)),)?;
-    // The mileage report includes everyone the caller can see.
-    travel.retain(|r: &MileageReportRow| r.user_id == user_id);
-    Ok(Report { month: Some(month), time, travel })
+    let Rows { rows: mut trips, skipped: trips_skipped } = travel;
+    // The mileage report includes everyone the caller can see, so a skipped trip may not be the
+    // user's: it is counted all the same.
+    trips.retain(|r: &MileageReportRow| r.user_id == user_id);
+    Ok(Report { month: Some(month), time: time.rows, travel: trips, skipped: time.skipped + trips_skipped })
 }
 
 #[cfg(test)]
@@ -130,7 +141,7 @@ mod tests {
     ) -> impl FnMut(std::ops::Range<u32>) -> std::future::Ready<timechimp_api::Result<QueryResult<u32>>> {
         move |rows: std::ops::Range<u32>| {
             let row_data = (rows.start..rows.end.min(total)).collect();
-            std::future::ready(Ok(QueryResult { row_data, row_count }))
+            std::future::ready(Ok(QueryResult { row_data, row_count, skipped: 0 }))
         }
     }
 
@@ -142,7 +153,8 @@ mod tests {
             asked.push(range.clone());
             fetch(range)
         }))
-        .unwrap();
+        .unwrap()
+        .rows;
         assert_eq!(rows, (0..1200).collect::<Vec<_>>());
         assert_eq!(asked, [0..500, 500..1000, 1000..1500]);
     }
@@ -150,15 +162,32 @@ mod tests {
     #[test]
     fn stops_at_an_empty_page_or_an_exact_fit() {
         // The server counting more rows than it hands out doesn't loop forever.
-        assert_eq!(futures::executor::block_on(page_all(grid(10, 9999))).unwrap().len(), 10);
+        assert_eq!(futures::executor::block_on(page_all(grid(10, 9999))).unwrap().rows.len(), 10);
         let mut calls = 0;
         let mut fetch = grid(500, 500);
         let rows = futures::executor::block_on(page_all(|range| {
             calls += 1;
             fetch(range)
         }))
-        .unwrap();
+        .unwrap()
+        .rows;
         assert_eq!((rows.len(), calls), (500, 1));
+    }
+
+    #[test]
+    fn skipped_rows_count_towards_the_offset() {
+        // Every tenth row of 1200 fails to decode: the pages still follow on from each other.
+        let mut asked = Vec::new();
+        let rows = futures::executor::block_on(page_all(|range: std::ops::Range<u32>| {
+            asked.push(range.clone());
+            let all: Vec<u32> = (range.start..range.end.min(1200)).collect();
+            let row_data: Vec<u32> = all.iter().copied().filter(|n| n % 10 != 0).collect();
+            let skipped = all.len() - row_data.len();
+            std::future::ready(Ok(QueryResult { row_data, row_count: 1200, skipped }))
+        }))
+        .unwrap();
+        assert_eq!(asked, [0..500, 500..1000, 1000..1500]);
+        assert_eq!((rows.rows.len(), rows.skipped), (1080, 120));
     }
 
     /// Thursday 12 November 2026; the mock's data runs up to then.
@@ -263,7 +292,7 @@ mod tests {
         assert!(mine > 0);
 
         let report = block_on(load_report(&api, me, month));
-        assert_eq!(report.month, Some(month));
+        assert_eq!((report.month, report.skipped), (Some(month), 0));
         assert_eq!(report.travel.len(), mine);
         assert!(report.travel.iter().all(|r| r.user_id == me));
         assert!(!report.time.is_empty());

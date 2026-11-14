@@ -21,5 +21,28 @@
     "statusIntern": 0,
     "statusExtern": 0,
     "modified": "2026-11-04T17:02:11.123Z"
+  },
+  {
+    "id": 202,
+    "userId": 1,
+    "userDisplayName": null,
+    "customerId": 2,
+    "customerName": null,
+    "projectId": 3,
+    "projectName": null,
+    "projectCode": null,
+    "date": "2026-11-04T00:00:00",
+    "mileageVehicleId": null,
+    "mileageVehicleName": null,
+    "fromAddress": "Office lane 2, City",
+    "toAddress": "Home street 1, Town",
+    "notes": null,
+    "distance": 23.5,
+    "billable": false,
+    "type": 3,
+    "status": 0,
+    "statusIntern": 0,
+    "statusExtern": 0,
+    "modified": null
   }
 ]
