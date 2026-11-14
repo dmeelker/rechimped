@@ -49,7 +49,7 @@ struct Task {
     abort: tokio::task::AbortHandle,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
     Week,
     Travel,
@@ -71,6 +71,12 @@ impl Tab {
 
     pub fn index(self) -> usize {
         Tab::ALL.iter().position(|t| *t == self).expect("tab in ALL")
+    }
+
+    /// The tab `step` places along the strip, wrapping around.
+    pub fn cycled(self, step: isize) -> Tab {
+        let len = Tab::ALL.len() as isize;
+        Tab::ALL[(self.index() as isize + step).rem_euclid(len) as usize]
     }
 }
 

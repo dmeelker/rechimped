@@ -26,7 +26,7 @@ impl TimeChimpApp {
 
     pub fn reminder_go_to_travel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.close_overlay(window, cx);
-        self.switch_tab(Tab::Travel.index(), window, cx);
+        self.switch_tab(Tab::Travel, window, cx);
         self.select_day(domain::time::today(), window, cx);
     }
 

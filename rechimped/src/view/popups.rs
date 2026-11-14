@@ -14,7 +14,6 @@ use crate::app::{
     NextWeek, PickAddress, PickRecent, PreviousDay, PreviousMonth, PreviousWeek, RecentDown, RecentUp, TimeChimpApp,
 };
 use crate::forms::{AddressField, DateField, Form, FormBody, TravelForm, RecentPicker};
-use crate::domain::week::RecentItem;
 
 use super::widgets::*;
 
@@ -371,13 +370,13 @@ impl TimeChimpApp {
     }
 
     pub(super) fn render_recent(&self, picker: &RecentPicker, theme: &T, cx: &mut Context<Self>) -> AnyElement {
-        let matches: Vec<RecentItem> = self.recent_matches(cx).into_iter().cloned().collect();
+        let matches = self.recent_matches(cx);
         let selected = picker.selected.min(matches.len().saturating_sub(1));
         let empty = matches.is_empty();
         let typed = !crate::forms::text(&picker.filter, cx).is_empty();
         let rows = matches.into_iter().enumerate().map(|(i, item)| {
             let notes = item.notes().to_owned();
-            let e = item.entry;
+            let e = &item.entry;
             let label = format!("{} / {}", e.project_name, e.task_name);
             let tags = e.tag_names.join(", ");
             h_stack()
@@ -394,7 +393,9 @@ impl TimeChimpApp {
                 })
                 .child(cell(None, label).text_color(theme.fg_muted()))
                 .child(cell(Some(110.), tags).text_color(theme.fg_muted()))
-                .on_click(cx.listener(move |this, _, w, cx| this.pick_recent(e.clone(), w, cx)))
+                .on_click(cx.listener(move |this, _, w, cx| {
+                    this.pick_recent_at(i, w, cx);
+                }))
         });
         let list = v_stack()
             .border_1()

@@ -6,8 +6,7 @@ use crate::domain;
 use super::{Overlay, Screen, Tab, TimeChimpApp};
 
 impl TimeChimpApp {
-    pub fn switch_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let tab = Tab::ALL[index];
+    pub fn switch_tab(&mut self, tab: Tab, window: &mut Window, cx: &mut Context<Self>) {
         if tab == self.tab {
             return;
         }
@@ -160,7 +159,7 @@ impl TimeChimpApp {
         };
         match command {
             Command::Quit => cx.quit(),
-            Command::SwitchTab(index) => self.switch_tab(index, window, cx),
+            Command::SwitchTab(tab) => self.switch_tab(tab, window, cx),
             Command::Reload => self.reload(window, cx),
             Command::Logout => self.logout(window, cx),
             Command::ShiftMonth(months) => self.shift_month(months, window, cx),
@@ -189,7 +188,7 @@ impl TimeChimpApp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Command {
     Quit,
-    SwitchTab(usize),
+    SwitchTab(Tab),
     Reload,
     Logout,
     ShiftMonth(i32),
@@ -212,7 +211,7 @@ fn browse_command(key: &str, shift: bool, ctrl: bool, tab: Tab, has_entry: bool)
         ("q", true) => Command::Quit,
         (",", true) => Command::Settings,
         (_, true) => return None,
-        ("1" | "2" | "3" | "4", _) => Command::SwitchTab(key.parse::<usize>().expect("digit") - 1),
+        ("1" | "2" | "3" | "4", _) => Command::SwitchTab(Tab::ALL[key.parse::<usize>().expect("digit") - 1]),
         ("r", _) => Command::Reload,
         ("l", _) if shift => Command::Logout,
         ("left" | "h", _) if tab == Tab::Report => Command::ShiftMonth(-1),
@@ -279,10 +278,18 @@ mod tests {
         assert_eq!(browse_command(",", false, true, Tab::Travel, false), Some(Settings));
         assert_eq!(browse_command("r", false, true, Tab::Week, true), None, "Ctrl+R isn't R");
         assert_eq!(browse_command("l", true, false, Tab::Report, false), Some(Logout), "Shift+L before the month keys");
-        assert_eq!(key("4", Tab::Week), Some(SwitchTab(3)));
+        assert_eq!(key("4", Tab::Week), Some(SwitchTab(Tab::Report)));
         assert_eq!(key("5", Tab::Week), None, "four tabs");
         assert_eq!(key("c", Tab::Travel), None, "copy is for time entries");
         assert_eq!(key("d", Tab::Report), None);
+    }
+
+    #[test]
+    fn tabs_cycle_around_the_strip() {
+        assert_eq!(Tab::Week.cycled(1), Tab::Travel);
+        assert_eq!(Tab::Report.cycled(1), Tab::Week, "wraps forward");
+        assert_eq!(Tab::Week.cycled(-1), Tab::Report, "wraps back");
+        assert_eq!(key("3", Tab::Week), Some(SwitchTab(Tab::Review)), "digits follow the strip's order");
     }
 
     #[test]
@@ -297,7 +304,7 @@ mod tests {
         assert_eq!(key("f", Tab::Week), None, "findings are the review's");
         assert_eq!(key("t", Tab::Review), Some(Today));
         assert_eq!(key("r", Tab::Review), Some(Reload));
-        assert_eq!(key("1", Tab::Review), Some(SwitchTab(0)));
+        assert_eq!(key("1", Tab::Review), Some(SwitchTab(Tab::Week)));
         assert_eq!(shifted("l"), Some(Logout));
         assert_eq!(key("enter", Tab::Review), Some(Edit), "no details popup here");
         assert_eq!(key("e", Tab::Review), Some(Edit));

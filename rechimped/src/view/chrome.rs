@@ -44,10 +44,10 @@ impl TimeChimpApp {
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key))
             .on_action(cx.listener(|this, _: &gpuikit::a11y::FocusNext, window, cx| {
-                this.switch_tab((this.tab().index() + 1) % Tab::ALL.len(), window, cx)
+                this.switch_tab(this.tab().cycled(1), window, cx)
             }))
             .on_action(cx.listener(|this, _: &gpuikit::a11y::FocusPrevious, window, cx| {
-                this.switch_tab((this.tab().index() + Tab::ALL.len() - 1) % Tab::ALL.len(), window, cx)
+                this.switch_tab(this.tab().cycled(-1), window, cx)
             }))
             .flex_1()
             .min_h_0()
@@ -112,7 +112,7 @@ impl TimeChimpApp {
                 .border_color(if selected { theme.accent() } else { gpui::Hsla::transparent_black() })
                 .text_color(if selected { theme.accent() } else { theme.fg_muted() })
                 .when(!selected, |d| d.cursor_pointer().hover(move |s| s.text_color(fg)))
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.switch_tab(tab.index(), window, cx)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.switch_tab(tab, window, cx)))
                 .child(tab.label())
         }))
     }

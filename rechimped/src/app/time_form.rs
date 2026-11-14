@@ -166,13 +166,19 @@ impl TimeChimpApp {
 
     pub fn pick_highlighted_recent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(selected) = self.time_form().and_then(|f| f.recent.as_ref()).map(|p| p.selected) else { return };
-        match self.recent_matches(cx).get(selected).map(|item| item.entry.clone()) {
-            Some(entry) => self.pick_recent(entry, window, cx),
-            None => window.focus_next(cx),
+        if !self.pick_recent_at(selected, window, cx) {
+            window.focus_next(cx);
         }
     }
 
-    pub fn pick_recent(&mut self, entry: TimeEntry, window: &mut Window, cx: &mut Context<Self>) {
+    /// Picks the `index`th of the shown matches; false when there is none.
+    pub fn pick_recent_at(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(entry) = self.recent_matches(cx).get(index).map(|item| item.entry.clone()) else { return false };
+        self.pick_recent(entry, window, cx);
+        true
+    }
+
+    fn pick_recent(&mut self, entry: TimeEntry, window: &mut Window, cx: &mut Context<Self>) {
         let fill = TimeFill {
             project_id: entry.project_id,
             project_task_id: Some(entry.project_task_id),

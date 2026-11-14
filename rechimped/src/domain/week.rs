@@ -46,10 +46,6 @@ pub fn recent_items<'a>(entries: impl IntoIterator<Item = &'a TimeEntry>) -> Vec
     items
 }
 
-pub fn billable_hours(entries: &[TimeEntry]) -> f64 {
-    super::total(entries.iter().filter(|e| e.billable).map(|e| e.hours))
-}
-
 /// Per project, by name, as the config holds them.
 pub type TaskNames = BTreeMap<String, Vec<String>>;
 
@@ -77,12 +73,14 @@ pub struct WeekCard {
     pub share: Option<f64>,
 }
 
-pub fn week_card(entries: &[TimeEntry], contract_hours: f64, excluded: &TaskNames) -> WeekCard {
-    let worked: Vec<TimeEntry> = entries.iter().filter(|e| !is_excluded(e, excluded)).cloned().collect();
+/// Borrows the entries: it runs on every render of the Time tab.
+pub fn week_card<'a>(entries: impl IntoIterator<Item = &'a TimeEntry>, contract_hours: f64, excluded: &TaskNames) -> WeekCard {
+    let (leave, worked): (Vec<&TimeEntry>, Vec<&TimeEntry>) =
+        entries.into_iter().partition(|e| is_excluded(e, excluded));
     let hours = super::total(worked.iter().map(|e| e.hours));
-    let leave = super::total(entries.iter().filter(|e| is_excluded(e, excluded)).map(|e| e.hours));
+    let leave = super::total(leave.iter().map(|e| e.hours));
     let contract = (contract_hours - leave).max(0.0);
-    let billable = billable_hours(&worked);
+    let billable = super::total(worked.iter().filter(|e| e.billable).map(|e| e.hours));
     let non_billable = super::total(worked.iter().filter(|e| !e.billable).map(|e| e.hours));
     let of = if contract > 0.0 { contract } else { hours };
     WeekCard {
@@ -120,8 +118,7 @@ pub fn week_cards(
         .iter()
         .map(|&monday| {
             let week = monday..monday + chrono::Duration::days(7);
-            let in_week: Vec<TimeEntry> = entries.iter().filter(|e| week.contains(&e.date)).cloned().collect();
-            (monday, week_card(&in_week, contract_hours, excluded))
+            (monday, week_card(entries.iter().filter(|e| week.contains(&e.date)), contract_hours, excluded))
         })
         .collect()
 }
@@ -265,8 +262,8 @@ mod tests {
         let entries = [entry(1, 2, "9:00-10:00"), unbilled];
         assert_eq!(week_card(&entries, 40.0, &TaskNames::new()).share, Some(1.0 / 40.0));
         assert_eq!(week_card(&entries, 0.0, &TaskNames::new()).share, Some(1.0 / 4.0), "of the hours logged");
-        assert_eq!(week_card(&[], 0.0, &TaskNames::new()).share, None);
-        assert!(week_card(&[], 40.0, &TaskNames::new()).share.unwrap().is_sign_positive(), "not -0");
+        assert_eq!(week_card([], 0.0, &TaskNames::new()).share, None);
+        assert!(week_card([], 40.0, &TaskNames::new()).share.unwrap().is_sign_positive(), "not -0");
     }
 
     #[test]
@@ -297,7 +294,7 @@ mod tests {
         assert_eq!(week_card(&entries, 0.0, &excluded).billable_to_go(0.75), None, "no contract");
         assert_eq!(week_card(&entries, 0.0, &excluded).share, Some(1.0 / 3.0), "of the hours logged, leave excluded");
         assert_eq!(week_card(&entries, 40.0, &TaskNames::new()).hours, 11.0, "nothing excluded");
-        let card = week_card(&[leave], 8.0, &excluded);
+        let card = week_card([&leave], 8.0, &excluded);
         assert_eq!((card.hours, card.contract, card.share), (0.0, 0.0, None));
         assert!(card.hours.is_sign_positive() && card.non_billable.is_sign_positive(), "not -0");
     }
