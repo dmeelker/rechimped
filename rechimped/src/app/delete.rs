@@ -45,14 +45,14 @@ impl TimeChimpApp {
     }
 
     pub fn ask_delete_trip_preset(&mut self, preset: config::TripPreset, window: &mut Window, cx: &mut Context<Self>) {
-        self.menu = None;
+        self.close_menu(cx);
         let label = format!("\"{}\": {} → {}", preset.name, preset.from, preset.to);
         let target = DeleteTarget::TripPreset(preset);
         self.confirm_delete(target, "Delete preset?", label, window, cx);
     }
 
     pub fn ask_delete_time_preset(&mut self, preset: config::TimePreset, window: &mut Window, cx: &mut Context<Self>) {
-        self.menu = None;
+        self.close_menu(cx);
         let task = preset.task.as_deref().map(|t| format!(" / {t}")).unwrap_or_default();
         let label = format!("\"{}\": {}{task}", session::time_preset_label(&preset), preset.project);
         let target = DeleteTarget::TimePreset(preset);
@@ -67,6 +67,9 @@ impl TimeChimpApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.overlay_open() {
+            return;
+        }
         let this = cx.weak_entity();
         let state = cx.new(|_| {
             DialogState::new(dialog("confirm-delete").confirm(question, label).confirm_label("Delete").on_confirm(
@@ -82,8 +85,7 @@ impl TimeChimpApp {
             }
         });
         state.update(cx, |d, cx| d.open(window, cx));
-        self.overlay = Overlay::Confirm { dialog: state, _closed: sub };
-        cx.notify();
+        self.open_overlay(Overlay::Confirm { dialog: state, _closed: sub }, cx);
     }
 
     fn delete(&mut self, target: DeleteTarget, window: &mut Window, cx: &mut Context<Self>) {

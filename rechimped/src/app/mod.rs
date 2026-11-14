@@ -116,8 +116,8 @@ pub struct TimeChimpApp {
     pub screen: Screen,
     pub session: Session,
     pub tab: Tab,
-    pub overlay: Overlay,
-    pub menu: Option<Menu>,
+    overlay: Overlay,
+    menu: Option<Menu>,
     pub error: Option<String>,
     in_flight: Vec<Task>,
     tasks_started: u64,
@@ -233,6 +233,16 @@ impl TimeChimpApp {
         }
     }
 
+    /// What covers the main screen; it changes only through `open_overlay`, `close_overlay` and `reset_overlay`.
+    pub fn overlay(&self) -> &Overlay {
+        &self.overlay
+    }
+
+    /// The open dropdown; it changes only through `toggle_menu`, `close_menu`, and when an overlay opens or is reset.
+    pub fn menu(&self) -> Option<Menu> {
+        self.menu
+    }
+
     pub fn overlay_open(&self) -> bool {
         !matches!(self.overlay, Overlay::None)
     }
@@ -250,6 +260,14 @@ impl TimeChimpApp {
     pub fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.overlay = Overlay::None;
         window.focus(&self.focus, cx);
+        cx.notify();
+    }
+
+    /// Drops any overlay and menu without handing focus back to the main view, for when the screen itself
+    /// changes (back to login) and focus goes elsewhere.
+    fn reset_overlay(&mut self, cx: &mut Context<Self>) {
+        self.overlay = Overlay::None;
+        self.menu = None;
         cx.notify();
     }
 

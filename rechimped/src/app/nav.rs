@@ -131,11 +131,15 @@ impl TimeChimpApp {
         }
         match self.overlay {
             Overlay::None if self.menu.is_none() => {}
-            Overlay::None | Overlay::Detail | Overlay::About | Overlay::Chart(_) => {
-                self.menu = None;
-                self.overlay = Overlay::None;
+            Overlay::None => {
+                self.close_menu(cx);
                 cx.stop_propagation();
-                cx.notify();
+                return;
+            }
+            Overlay::Detail | Overlay::About | Overlay::Chart(_) => {
+                self.close_menu(cx);
+                self.close_overlay(window, cx);
+                cx.stop_propagation();
                 return;
             }
             Overlay::TravelReminder => {

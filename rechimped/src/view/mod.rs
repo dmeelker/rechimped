@@ -52,7 +52,7 @@ impl Render for TimeChimpApp {
         let root = root.when(self.fx.showcase, |d| {
             d.child(self.fx.hud(theme.fg(), theme.fg_muted(), theme.accent(), theme.surface()))
         })
-        .children(match &self.overlay {
+        .children(match self.overlay() {
             Overlay::Confirm { dialog, .. } => Some(dialog.clone()),
             Overlay::Settings(form) => form.discard.as_ref().map(|(dialog, _)| dialog.clone()),
             _ => None,
@@ -69,7 +69,7 @@ impl TimeChimpApp {
         if matches!(self.screen, Screen::Login(_)) {
             return "Login".into();
         }
-        let overlay = match &self.overlay {
+        let overlay = match self.overlay() {
             Overlay::None => None,
             Overlay::Detail => Some("Detail"),
             Overlay::About => Some("About"),
@@ -80,7 +80,7 @@ impl TimeChimpApp {
             Overlay::TravelReminder => Some("TravelReminder"),
         };
         let mut view = self.tab.label().to_string();
-        for part in overlay.into_iter().chain(self.menu.map(|_| "Menu")) {
+        for part in overlay.into_iter().chain(self.menu().map(|_| "Menu")) {
             view.push('+');
             view.push_str(part);
         }

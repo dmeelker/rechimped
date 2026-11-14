@@ -32,7 +32,7 @@ impl TimeChimpApp {
             .child(div().mb(px(-1.)).font_weight(FontWeight::MEDIUM).child(self.render_tabs(theme, cx)))
             .child(div().flex_1())
             .child(div().relative().child(self.render_user_button(theme, title, cx)).when(
-                self.menu == Some(Menu::User),
+                self.menu() == Some(Menu::User),
                 |d| d.child(self.render_user_menu(theme, cx)),
             ));
 
@@ -68,10 +68,10 @@ impl TimeChimpApp {
             })
             .child(disclaimer(theme))
             .child(browse)
-            .when(self.menu.is_some(), |d| d.child(self.render_menu_backdrop(cx)))
-            .when(matches!(self.overlay, Overlay::Detail), |d| d.child(self.render_detail(theme, cx)))
-            .when(matches!(self.overlay, Overlay::About), |d| d.child(self.render_about(theme, cx)))
-            .when(matches!(self.overlay, Overlay::TravelReminder), |d| d.child(self.render_travel_reminder(theme, cx)))
+            .when(self.menu().is_some(), |d| d.child(self.render_menu_backdrop(cx)))
+            .when(matches!(self.overlay(), Overlay::Detail), |d| d.child(self.render_detail(theme, cx)))
+            .when(matches!(self.overlay(), Overlay::About), |d| d.child(self.render_about(theme, cx)))
+            .when(matches!(self.overlay(), Overlay::TravelReminder), |d| d.child(self.render_travel_reminder(theme, cx)))
             .when_some(self.chart(), |d, chart| d.child(self.render_chart(chart, theme, cx)))
             .when_some(self.form(), |d, form| d.child(self.render_form(form, theme, cx)))
             .when_some(self.settings_form(), |d, form| d.child(self.render_settings(form, window, theme, cx)))
@@ -191,7 +191,7 @@ impl TimeChimpApp {
             .py(px(4.))
             .rounded(px(6.))
             .cursor_pointer()
-            .when(self.menu == Some(Menu::User), |d| d.bg(theme.surface()))
+            .when(self.menu() == Some(Menu::User), |d| d.bg(theme.surface()))
             .hover(|s| s.bg(theme.surface()))
             .child(muted(theme, title))
             .child(muted(theme, "▾"))
@@ -219,7 +219,7 @@ impl TimeChimpApp {
         div()
             .relative()
             .child(h_stack().child(main).child(caret))
-            .when(self.menu == Some(kind), |d| d.child(self.render_presets_menu(theme, kind, cx)))
+            .when(self.menu() == Some(kind), |d| d.child(self.render_presets_menu(theme, kind, cx)))
     }
 
     fn render_presets_menu(&self, theme: &T, kind: Menu, cx: &mut Context<Self>) -> impl IntoElement {

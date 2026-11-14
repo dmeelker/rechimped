@@ -124,8 +124,10 @@ impl TimeChimpApp {
             }));
         }
         let id = self.new_form_id();
-        self.overlay = Overlay::Form(Box::new(Form { id, body: FormBody::Time(form), origin, error: None, _subscriptions: subscriptions }));
-        cx.notify();
+        self.open_overlay(
+            Overlay::Form(Box::new(Form { id, body: FormBody::Time(form), origin, error: None, _subscriptions: subscriptions })),
+            cx,
+        );
     }
 
     fn subscribe_project(
@@ -214,7 +216,7 @@ impl TimeChimpApp {
     }
 
     pub fn open_time_preset(&mut self, preset: TimePreset, window: &mut Window, cx: &mut Context<Self>) {
-        self.menu = None;
+        self.close_menu(cx);
         if self.session.me().is_none() || self.overlay_open() {
             return;
         }

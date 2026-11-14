@@ -10,7 +10,7 @@ use crate::session::Session;
 use crate::store::token;
 use crate::password::{PasswordEvent, PasswordField};
 
-use super::{Login, Overlay, Screen, TimeChimpApp};
+use super::{Login, Screen, TimeChimpApp};
 
 impl TimeChimpApp {
     pub(super) fn show_login(&mut self, error: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
@@ -33,8 +33,7 @@ impl TimeChimpApp {
 
         self.cancel_loads();
         self.session = Session::new(None, domain::time::today());
-        self.overlay = Overlay::None;
-        self.menu = None;
+        self.reset_overlay(cx);
         self.error = None;
         self.screen = Screen::Login(Box::new(Login {
             email: email_input,
@@ -134,7 +133,6 @@ impl TimeChimpApp {
     }
 
     pub fn logout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.menu = None;
         token::delete_token();
         self.show_login(None, window, cx);
     }

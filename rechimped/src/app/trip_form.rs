@@ -11,7 +11,7 @@ use super::{Overlay, TimeChimpApp};
 
 impl TimeChimpApp {
     pub fn open_trip_preset(&mut self, preset: config::TripPreset, window: &mut Window, cx: &mut Context<Self>) {
-        self.menu = None;
+        self.close_menu(cx);
         if self.session.me().is_none() || self.overlay_open() {
             return;
         }
@@ -58,9 +58,10 @@ impl TimeChimpApp {
         window.focus(&form.from.read(cx).focus_handle(cx), cx);
         let id = self.new_form_id();
         let body = FormBody::Travel(form);
-        self.overlay =
-            Overlay::Form(Box::new(Form { id, body, origin: Origin::Week, error: None, _subscriptions: subscriptions }));
-        cx.notify();
+        self.open_overlay(
+            Overlay::Form(Box::new(Form { id, body, origin: Origin::Week, error: None, _subscriptions: subscriptions })),
+            cx,
+        );
     }
 
     pub fn open_addresses(&mut self, field: AddressField, filtered: bool, cx: &mut Context<Self>) {
