@@ -324,7 +324,13 @@ impl Session {
         current
     }
 
-    pub fn invalidate_report(&mut self) {
+    /// Drops the report and the review together: call after any change to the user's data.
+    pub fn invalidate_derived(&mut self) {
+        self.invalidate_report();
+        self.invalidate_review();
+    }
+
+    fn invalidate_report(&mut self) {
         self.report = Report::default();
         self.report_summary = self.report.summary();
     }
@@ -393,7 +399,7 @@ impl Session {
         (self.review.loaded == Some(self.review.month)).then_some(self.review.rows.as_slice())
     }
 
-    pub fn invalidate_review(&mut self) {
+    fn invalidate_review(&mut self) {
         self.review.loaded = None;
     }
 
@@ -788,6 +794,20 @@ mod tests {
         s.invalidate_report();
         assert!(s.report().is_none());
         assert!(s.report_summary().is_none());
+    }
+
+    #[test]
+    fn invalidate_derived_drops_report_and_review() {
+        let mut s = Session::new(None, date(4));
+        s.set_report_month(date(1));
+        s.set_review_month(date(1));
+        assert!(s.apply_report(Report { month: Some(date(1)), ..Report::default() }));
+        let (generation, month) = s.begin_review_load();
+        assert!(s.apply_review(generation, month, vec![time_row(1, 2)], None));
+        assert!(s.report().is_some() && s.review_rows().is_some());
+        s.invalidate_derived();
+        assert!(s.report().is_none());
+        assert!(s.review_rows().is_none());
     }
 
     #[test]

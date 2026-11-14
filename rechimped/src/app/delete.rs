@@ -112,8 +112,7 @@ impl TimeChimpApp {
         let Some(client) = self.session.client().cloned() else { return };
         self.run_write("Deleting…", request(client), window, cx, move |this, result, window, cx| match result {
             Ok(()) => {
-                this.session.invalidate_report();
-                this.session.invalidate_review();
+                this.session.invalidate_derived();
                 match review_date {
                     Some(date) => this.reload_after_review_change(&[date], None, window, cx),
                     None => this.load_week(None, window, cx),

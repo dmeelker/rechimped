@@ -11,8 +11,7 @@ impl TimeChimpApp {
     pub fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(client) = self.session.client().cloned() else { return };
         let (report_month, want_report) = (self.session.report_month(), self.tab == Tab::Report);
-        self.session.invalidate_report();
-        self.session.invalidate_review();
+        self.session.invalidate_derived();
         let (generation, week_start) = self.session.begin_week_load();
         let today = domain::time::today();
         let future = async move {

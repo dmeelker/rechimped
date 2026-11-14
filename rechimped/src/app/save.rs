@@ -89,8 +89,7 @@ impl TimeChimpApp {
             if this.form().map(|f| f.id) == form_id {
                 this.close_overlay(window, cx);
             }
-            this.session.invalidate_report();
-            this.session.invalidate_review();
+            this.session.invalidate_derived();
             match origin {
                 Some(Origin::Review { date: old }) => {
                     let dates: Vec<NaiveDate> = [Some(date), old].into_iter().flatten().collect();
