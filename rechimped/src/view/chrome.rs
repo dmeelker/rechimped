@@ -120,7 +120,7 @@ impl TimeChimpApp {
     }
 
     pub(super) fn render_toolbar(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
-        let today = domain::time::today();
+        let today = self.session().today();
         let (today_label, at_today, prev_tip, next_tip, title, suffix) = match self.shown_month() {
             Some(month) => (
                 "This month",

@@ -179,12 +179,13 @@ impl TimeChimpApp {
     pub(super) fn render_day(&self, theme: &T, cx: &mut Context<Self>) -> impl IntoElement {
         let per_day = self.session().hours_per_day();
 
-        let shown = self.session().shown_days(crate::domain::time::today());
+        let today = self.session().today();
+        let shown = self.session().shown_days(today);
         let strip = h_stack().flex_none().gap(px(8.)).children(shown.into_iter().map(|i| {
             let day = self.session().week_start() + Duration::days(i as i64);
             let (hours, target) = (per_day[i], self.session().target_for(i));
             let selected = day == self.session().day();
-            let is_today = day == crate::domain::time::today();
+            let is_today = day == today;
             let fraction = if target > 0.0 { (hours / target).min(1.0) as f32 } else { 0.0 };
             v_stack()
                 .id(ElementId::NamedInteger("day".into(), i as u64))

@@ -13,7 +13,7 @@ impl TimeChimpApp {
             return;
         }
         self.travel_reminder_checked = Some(self.session.epoch());
-        let today = domain::time::today();
+        let today = self.session.today();
         let shows_today = self.session.week_loaded() && self.session.week_start() == domain::time::monday_of(today);
         if !self.session.settings().travel_reminder || !shows_today {
             return;
@@ -27,7 +27,7 @@ impl TimeChimpApp {
     pub fn reminder_go_to_travel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.close_overlay(window, cx);
         self.switch_tab(Tab::Travel, window, cx);
-        self.select_day(domain::time::today(), window, cx);
+        self.select_day(self.session.today(), window, cx);
     }
 
     pub fn reminder_later(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -38,7 +38,7 @@ impl TimeChimpApp {
         self.close_overlay(window, cx);
         let saved = reminder::path()
             .ok_or_else(|| "no config directory".to_owned())
-            .and_then(|path| reminder::dismiss(&path, domain::time::today()).map_err(|e| e.to_string()));
+            .and_then(|path| reminder::dismiss(&path, self.session.today()).map_err(|e| e.to_string()));
         if let Err(e) = saved {
             self.set_error(format!("Could not save that you didn't travel today: {e}"), window, cx);
         }

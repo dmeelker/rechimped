@@ -95,7 +95,7 @@ One root entity, `TimeChimpApp` (`app/mod.rs`), holds UI state and a `Session` (
 - Scrolling lists use `view::widgets::with_scrollbar`; tables put their rows in `view::widgets::table_rows` so they scroll under a fixed header. Scrollbar state is in `scroll.rs` (pure geometry unit-tested).
 - Hours are shown as `hh:mm` everywhere (`domain::hh_mm`), never as fractions.
 - An entry is locked when its internal or client approval status is 1 or more (`domain::lock_status`), as in the web app; locked entries can be copied but not edited or deleted. Rejected (-1) entries stay editable.
-- `Session::now` is passed into `seed` functions rather than read there, so they stay testable.
+- `Session::now` is passed into `seed` functions rather than read there, so they stay testable. "Today" is `Session::today()` (the date of `now`, in the account's timezone), not the system date: `domain::time::today()` only seeds a `Session::new` before the account is known, and both fall back to system time until then.
 - On Linux with client-side decorations (GNOME/Wayland) `view/frame.rs` draws the title bar, shadow and resize strips; with server decorations the content is returned as is.
 
 ## Checking UI changes

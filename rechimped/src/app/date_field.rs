@@ -32,7 +32,7 @@ impl TimeChimpApp {
         let calendar = cx.new(|cx| {
             Calendar::new("form-calendar", forms::to_calendar_date(date), cx)
                 .first_day_of_week(Weekday::Monday)
-                .today(forms::to_calendar_date(domain::time::today()))
+                .today(forms::to_calendar_date(self.session.today()))
                 .selected(Some(forms::to_calendar_date(date)))
         });
         let calendar_focus = calendar.read(cx).focus_handle(cx);

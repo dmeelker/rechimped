@@ -1,6 +1,5 @@
 use gpui::{Context, Window};
 
-use crate::domain;
 use crate::net;
 use crate::session;
 use crate::store::config;
@@ -13,7 +12,7 @@ impl TimeChimpApp {
         self.session.invalidate_derived();
         let report_load = (self.tab == Tab::Report).then(|| self.session.begin_report_load());
         let (generation, week_start) = self.session.begin_week_load();
-        let today = domain::time::today();
+        let today = self.session.today();
         let future = async move {
             let base = net::load_base(&client).await?;
             let user_id = base.me.id;

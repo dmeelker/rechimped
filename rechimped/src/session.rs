@@ -655,9 +655,22 @@ impl Session {
         domain::time::timezone([own, account].into_iter().chain(entries))
     }
 
-    /// The wall-clock time in the user's timezone.
+    /// The wall-clock time in the user's timezone; the system's until the account is loaded.
     pub fn now(&self) -> chrono::NaiveDateTime {
-        chrono::Utc::now().with_timezone(&self.timezone(None)).naive_local()
+        self.wall_clock(chrono::Utc::now())
+    }
+
+    /// Today in the user's timezone (the date of `now`). Use this, not the system date, wherever
+    /// a session exists, so "today" agrees with the forms' seeds near midnight.
+    pub fn today(&self) -> NaiveDate {
+        self.now().date()
+    }
+
+    fn wall_clock(&self, utc: chrono::DateTime<chrono::Utc>) -> chrono::NaiveDateTime {
+        match self.base {
+            Some(_) => utc.with_timezone(&self.timezone(None)).naive_local(),
+            None => utc.with_timezone(&chrono::Local).naive_local(),
+        }
     }
 
     pub fn saved_addresses(&self) -> Vec<String> {
@@ -747,6 +760,18 @@ mod tests {
 
     use super::*;
     use crate::test_support::*;
+
+    #[test]
+    fn clock_follows_the_account_timezone() {
+        let utc = chrono::DateTime::parse_from_rfc3339("2026-11-04T12:00:00Z").unwrap().to_utc();
+        let mut s = Session::new(None, date(4));
+        assert_eq!(s.wall_clock(utc), utc.with_timezone(&chrono::Local).naive_local(), "system time before the account loads");
+        let mut b = base(Vec::new(), HashMap::new(), Vec::new());
+        b.me.timezone = Some("Pacific/Kiritimati".into());
+        s.apply_base(b, None, &[]);
+        assert_eq!(s.wall_clock(utc).date(), date(5), "UTC+14 is already the next day");
+        assert_eq!(s.wall_clock(utc).time(), chrono::NaiveTime::from_hms_opt(2, 0, 0).unwrap());
+    }
 
     #[test]
     fn sessions_are_distinct() {

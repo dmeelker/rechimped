@@ -24,6 +24,8 @@ pub fn shift_date(date: NaiveDate, days: i64, months: i32) -> Option<NaiveDate> 
     shifted?.checked_add_signed(Duration::days(days))
 }
 
+/// The system's date: only for starting a session before its account (and timezone) is known.
+/// With a session, use `Session::today`.
 pub fn today() -> NaiveDate {
     Local::now().date_naive()
 }
