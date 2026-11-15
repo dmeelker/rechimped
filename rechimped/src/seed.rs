@@ -301,7 +301,7 @@ mod tests {
         let mut me = user();
         me.mileage_addresses = vec!["Home".into(), "Office".into()];
         let tasks = HashMap::from([(3, vec![task(4, 3, "Dev")]), (6, vec![task(7, 6, "Ops")])]);
-        s.apply_base(Base { me, ..base(vec![project(3, "P"), project(6, "Other")], tasks, Vec::new()) }, None, &[]);
+        s.set_base(Base { me, ..base(vec![project(3, "P"), project(6, "Other")], tasks, Vec::new()) });
         s.set_project_tags(HashMap::from([(3, vec![tag(10, "a")]), (6, vec![tag(20, "b")])]));
         let mut first = entry(1, 4, "09:00-10:00");
         first.tag_ids = vec![10, 20, 99];
@@ -453,7 +453,7 @@ mod tests {
     fn all_tags_until_some_are_configured() {
         let mut s = Session::new(None, date(4));
         let tags = vec![tag(10, "a"), tag(20, "z_old"), tag(30, "b")];
-        s.apply_base(base(vec![project(1, "P")], HashMap::new(), tags), None, &[]);
+        s.set_base(base(vec![project(1, "P")], HashMap::new(), tags));
         let ids = |s: &Session, p| tags_for(s, p).iter().map(|t| t.id).collect::<Vec<_>>();
         assert_eq!(ids(&s, Some(1)), [10, 30], "nothing configured: all but z_");
         assert_eq!(ids(&s, None), Vec::<i64>::new(), "no project, no tags");
@@ -469,7 +469,7 @@ mod tests {
     #[test]
     fn hidden_projects_are_not_offered() {
         let mut s = Session::new(None, date(4));
-        s.apply_base(base(vec![project(1, "Keep"), project(2, "Old")], HashMap::new(), Vec::new()), None, &[]);
+        s.set_base(base(vec![project(1, "Keep"), project(2, "Old")], HashMap::new(), Vec::new()));
         s.set_settings(Settings { hidden_projects: vec!["old".into()], ..Settings::default() });
         let ids = |options: Vec<(i64, String)>| options.into_iter().map(|(id, _)| id).collect::<Vec<_>>();
         assert!(is_hidden(&s, 2) && !is_hidden(&s, 1));
@@ -481,7 +481,7 @@ mod tests {
     fn hidden_tasks_are_not_offered() {
         let mut s = Session::new(None, date(4));
         let tasks = HashMap::from([(1, vec![task(10, 1, "Dev"), task(20, 1, "Old"), task(30, 1, "Meet")])]);
-        s.apply_base(base(vec![project(1, "Keep"), project(2, "Other")], tasks, Vec::new()), None, &[]);
+        s.set_base(base(vec![project(1, "Keep"), project(2, "Other")], tasks, Vec::new()));
         s.set_settings(Settings {
             hidden_tasks: BTreeMap::from([("keep".into(), vec!["old".into(), "meet".into()])]),
             ..Settings::default()

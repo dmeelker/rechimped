@@ -582,7 +582,7 @@ mod tests {
         let mut s = Session::new(None, date(4));
         let mut inactive = project(9, "Inactive");
         inactive.active = false;
-        s.apply_base(base(vec![project(3, "b"), project(6, "A"), inactive], HashMap::new(), Vec::new()), None, &[]);
+        s.set_base(base(vec![project(3, "b"), project(6, "A"), inactive], HashMap::new(), Vec::new()));
         s.set_settings(Settings { hidden_projects: vec!["B".into(), "Inactive".into(), "Gone".into()], ..Settings::default() });
 
         let mut form = ProjectVisibility::new(&s);
@@ -604,7 +604,7 @@ mod tests {
         let mut gone = task(40, 3, "Gone");
         gone.active = false;
         let tasks = HashMap::from([(3, vec![task(10, 3, "b"), task(20, 3, "A"), gone]), (6, Vec::new())]);
-        s.apply_base(base(vec![project(3, "P"), project(6, "Empty")], tasks, Vec::new()), None, &[]);
+        s.set_base(base(vec![project(3, "P"), project(6, "Empty")], tasks, Vec::new()));
         s.set_settings(Settings {
             hidden_tasks: BTreeMap::from([("p".into(), vec!["B".into(), "Gone".into()]), ("Old".into(), vec!["X".into()])]),
             ..Settings::default()
@@ -636,7 +636,7 @@ mod tests {
         let mut old = project(9, "old");
         old.active = false;
         let tags = vec![tag(10, "b"), tag(20, "A"), tag(30, "z_hidden"), tag(40, "z_used")];
-        s.apply_base(base(vec![project(3, "P"), project(6, "Other"), old], HashMap::new(), tags), None, &[]);
+        s.set_base(base(vec![project(3, "P"), project(6, "Other"), old], HashMap::new(), tags));
         s.set_project_tags(HashMap::from([(3, vec![tag(40, "z_used")])]));
 
         let mut form = ProjectTagsForm::new(&s, &BTreeSet::new());
@@ -677,7 +677,7 @@ mod tests {
     fn hidden_projects_last() {
         let mut s = Session::new(None, date(4));
         let tasks = HashMap::from([(1, vec![task(10, 1, "t")]), (2, vec![task(20, 2, "t")]), (3, vec![task(30, 3, "t")])]);
-        s.apply_base(base(vec![project(1, "A"), project(2, "B"), project(3, "C")], tasks, Vec::new()), None, &[]);
+        s.set_base(base(vec![project(1, "A"), project(2, "B"), project(3, "C")], tasks, Vec::new()));
         let ids = |f: &TaskVisibility| f.projects.iter().map(|(p, _)| p.id).collect::<Vec<_>>();
 
         let mut form = TaskVisibility::new(&s, &BTreeSet::from([1]), &BTreeMap::new());
@@ -696,7 +696,7 @@ mod tests {
     fn keyboard_cursor() {
         let mut s = Session::new(None, date(4));
         let tasks = HashMap::from([(1, vec![task(10, 1, "a"), task(11, 1, "b")]), (2, vec![task(20, 2, "c")])]);
-        s.apply_base(base(vec![project(1, "A"), project(2, "B")], tasks, Vec::new()), None, &[]);
+        s.set_base(base(vec![project(1, "A"), project(2, "B")], tasks, Vec::new()));
         let mut form = TaskVisibility::new(&s, &BTreeSet::new(), &s.config().settings().hidden_tasks);
 
         form.toggle_at(None);

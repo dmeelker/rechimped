@@ -249,11 +249,7 @@ mod tests {
 
     fn session() -> Session {
         let mut s = Session::new(None, date(4));
-        s.apply_base(
-            base(vec![project(3, "Intern")], HashMap::from([(3, vec![task(4, 3, "Dev")])]), vec![tag(7, "Daily")]),
-            None,
-            &[],
-        );
+        s.set_base(base(vec![project(3, "Intern")], HashMap::from([(3, vec![task(4, 3, "Dev")])]), vec![tag(7, "Daily")]));
         s
     }
 

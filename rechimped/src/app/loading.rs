@@ -1,5 +1,11 @@
-use gpui::{Context, Window};
+use std::future::Future;
 
+use chrono::NaiveDate;
+use gpui::{Context, Window};
+use timechimp_api::TimeEntry;
+
+use crate::backend::Api;
+use crate::domain::report::Report;
 use crate::net;
 use crate::session;
 use crate::store::config;
@@ -7,65 +13,101 @@ use crate::store::config;
 use super::{Tab, TimeChimpApp};
 
 impl TimeChimpApp {
+    /// With the user known, the week, history and report start straight away from the base data
+    /// in hand, and the base refreshes alongside them: its per-project tasks take one request per
+    /// project. Before that (logging in), they wait for the base, which says who the user is.
     pub fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(client) = self.session.client().cloned() else { return };
         self.session.invalidate_derived();
-        let report_load = (self.tab == Tab::Report).then(|| self.session.begin_report_load());
+        // Cleared now rather than on success: the loads below finish in any order, and any of them
+        // (or loading the config) may report one.
+        self.error = None;
+        let plan = plan_reload(self.tab, self.session.me().map(|m| m.id));
+        let report_load = plan.report.then(|| self.session.begin_report_load());
         let (generation, week_start) = self.session.begin_week_load();
+        let base_generation = self.session.begin_base_load();
         let today = self.session.today();
-        let future = async move {
-            let base = net::load_base(&client).await?;
-            let user_id = base.me.id;
-            // Only the week is needed: a failed history (the Recent picker) or report (its tab
-            // then says "Not loaded") is reported but doesn't fail the reload.
-            let report = async {
-                match report_load {
-                    Some((_, month)) => Some(net::load_report(&client, user_id, month).await),
-                    None => None,
-                }
+        let data = Data { generation, report_load };
+        let report_month = report_load.map(|(_, month)| month);
+        let Some(user_id) = plan.user_id else {
+            let future = async move {
+                let base = net::load_base(&client).await?;
+                let loaded = load_data(&client, base.me.id, week_start, today, report_month).await?;
+                timechimp_api::Result::Ok((base, loaded))
             };
-            let (week, history, report) = tokio::join!(
-                net::load_week(&client, user_id, week_start),
-                net::load_history(&client, user_id, today, week_start),
-                report
-            );
-            timechimp_api::Result::Ok((base, week?, report, history))
-        };
-        self.run("Loading…", future, window, cx, move |this, result, window, cx| match result {
-            Ok((base, week, report, history)) => {
-                let report_failed = matches!(report, Some(Err(_)));
-                // Clear the old error first: loading the config or the history may report one.
-                this.error = None;
-                let history = history.map_err(|e| this.set_error(format!("Could not load recent entries: {e}"), window, cx));
-                this.session.apply_base(base, history.ok(), &week.entries);
-                this.load_config(window, cx);
-                // The catch-ups also cover moving to another week, month or tab before the user was
-                // known, when no load could start.
-                if this.tab == Tab::Review && this.session.review_rows().is_none() {
-                    this.load_review(None, window, cx);
-                }
-                match (report, report_load) {
-                    // Dropped when a newer load started meanwhile (tab switch, other month, a save).
-                    (Some(Ok(report)), Some((report_generation, _))) => {
-                        let skipped = report.skipped;
-                        if this.session.apply_report(report_generation, report) {
-                            this.warn_skipped(skipped, window, cx);
-                        }
+            self.run("Loading…", future, window, cx, move |this, result, window, cx| match result {
+                Ok((base, loaded)) => {
+                    this.session.apply_base(base_generation, base);
+                    this.load_config(window, cx);
+                    let (week_applied, report_failed) = this.apply_data(data, loaded, window, cx);
+                    // The catch-ups cover moving to another week, month or tab before the user was
+                    // known, when no load could start.
+                    if this.tab == Tab::Review && this.session.review_rows().is_none() {
+                        this.load_review(None, window, cx);
                     }
-                    (Some(Err(e)), _) => this.set_error(format!("Could not load the report: {e}"), window, cx),
-                    _ => {}
+                    if this.tab == Tab::Report && this.session.report().is_none() && !report_failed {
+                        this.load_report(window, cx);
+                    }
+                    if !week_applied && !this.session.week().loaded() {
+                        this.load_week(None, window, cx);
+                    }
                 }
-                if this.tab == Tab::Report && this.session.report().is_none() && !report_failed {
-                    this.load_report(window, cx);
+                Err(e) => this.api_error(e, window, cx),
+            });
+            return;
+        };
+
+        let base_client = client.clone();
+        self.run("Loading…", async move { net::load_base(&base_client).await }, window, cx, move |this, result, window, cx| {
+            match result {
+                Ok(base) => {
+                    this.session.apply_base(base_generation, base);
                 }
-                if this.on_week_loaded(generation, week, None) {
-                    this.check_travel_reminder(cx);
-                } else if !this.session.week().loaded() {
-                    this.load_week(None, window, cx);
-                }
+                // Logged out: there's no session left to load the config for.
+                Err(e) if e.is_auth() => return this.api_error(e, window, cx),
+                // The old base stays.
+                Err(e) => this.api_error(e, window, cx),
+            }
+            // Here rather than with the week: its presets and project tags resolve against the base.
+            this.load_config(window, cx);
+        });
+        if plan.review {
+            self.load_review(None, window, cx);
+        }
+        let future = load_data(&client, user_id, week_start, today, report_month);
+        self.run("Loading…", future, window, cx, move |this, result, window, cx| match result {
+            Ok(loaded) => {
+                this.apply_data(data, loaded, window, cx);
             }
             Err(e) => this.api_error(e, window, cx),
         });
+    }
+
+    /// Applies what `load_data` brought back for `data`. Returns whether the week was applied, and
+    /// whether the report failed.
+    fn apply_data(&mut self, data: Data, loaded: Loaded, window: &mut Window, cx: &mut Context<Self>) -> (bool, bool) {
+        let Loaded { week, history, report } = loaded;
+        match history {
+            Ok(history) => self.session.apply_history(history, &week.entries),
+            Err(e) => self.set_error(format!("Could not load recent entries: {e}"), window, cx),
+        }
+        let report_failed = matches!(report, Some(Err(_)));
+        match (report, data.report_load) {
+            // Dropped when a newer load started meanwhile (tab switch, other month, a save).
+            (Some(Ok(report)), Some((report_generation, _))) => {
+                let skipped = report.skipped;
+                if self.session.apply_report(report_generation, report) {
+                    self.warn_skipped(skipped, window, cx);
+                }
+            }
+            (Some(Err(e)), _) => self.set_error(format!("Could not load the report: {e}"), window, cx),
+            _ => {}
+        }
+        let week_applied = self.on_week_loaded(data.generation, week, None);
+        if week_applied {
+            self.check_travel_reminder(cx);
+        }
+        (week_applied, report_failed)
     }
 
     pub(super) fn load_config(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -147,5 +189,78 @@ impl TimeChimpApp {
             let rows = if skipped == 1 { "row" } else { "rows" };
             self.set_error(format!("Left out {skipped} {rows} from TimeChimp that couldn't be read"), window, cx);
         }
+    }
+}
+
+/// The loads a reload started, to apply what they bring back.
+#[derive(Clone, Copy)]
+struct Data {
+    generation: u64,
+    report_load: Option<(u64, NaiveDate)>,
+}
+
+struct Loaded {
+    week: session::Week,
+    history: timechimp_api::Result<Vec<TimeEntry>>,
+    report: Option<timechimp_api::Result<Report>>,
+}
+
+/// Only the week is needed: a failed history (the Recent picker) or report (its tab then says
+/// "Not loaded") is reported but doesn't fail the reload.
+fn load_data(
+    client: &Api,
+    user_id: i64,
+    week_start: NaiveDate,
+    today: NaiveDate,
+    report_month: Option<NaiveDate>,
+) -> impl Future<Output = timechimp_api::Result<Loaded>> + Send + 'static {
+    let client = client.clone();
+    async move {
+        let report = async {
+            match report_month {
+                Some(month) => Some(net::load_report(&client, user_id, month).await),
+                None => None,
+            }
+        };
+        let (week, history, report) = tokio::join!(
+            net::load_week(&client, user_id, week_start),
+            net::load_history(&client, user_id, today, week_start),
+            report
+        );
+        Ok(Loaded { week: week?, history, report })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct ReloadPlan {
+    /// None while the user isn't known: the base then loads first, as the rest needs its user id.
+    pub user_id: Option<i64>,
+    /// The report loads with the week.
+    pub report: bool,
+    /// The review loads on its own; without a user it catches up once the base is in.
+    pub review: bool,
+}
+
+/// What a reload with `tab` showing starts, for `user_id` if the base is loaded already.
+pub(super) fn plan_reload(tab: Tab, user_id: Option<i64>) -> ReloadPlan {
+    ReloadPlan { user_id, report: tab == Tab::Report, review: tab == Tab::Review && user_id.is_some() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn logging_in_loads_the_base_first() {
+        assert_eq!(plan_reload(Tab::Week, None), ReloadPlan { user_id: None, report: false, review: false });
+        assert_eq!(plan_reload(Tab::Report, None), ReloadPlan { user_id: None, report: true, review: false });
+        assert_eq!(plan_reload(Tab::Review, None), ReloadPlan { user_id: None, report: false, review: false });
+    }
+
+    #[test]
+    fn a_known_user_loads_without_waiting_for_the_base() {
+        assert_eq!(plan_reload(Tab::Travel, Some(7)), ReloadPlan { user_id: Some(7), report: false, review: false });
+        assert_eq!(plan_reload(Tab::Report, Some(7)), ReloadPlan { user_id: Some(7), report: true, review: false });
+        assert_eq!(plan_reload(Tab::Review, Some(7)), ReloadPlan { user_id: Some(7), report: false, review: true });
     }
 }

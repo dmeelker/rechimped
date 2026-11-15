@@ -24,6 +24,8 @@ pub struct Session {
     epoch: u64,
     client: Option<Api>,
     base: Option<Base>,
+    /// Bumped on every base data load, so an older one finishing last doesn't win.
+    base_generation: u64,
     config: ConfigState,
     week: WeekState,
     history: HashMap<i64, TimeEntry>,
@@ -65,6 +67,7 @@ impl Session {
             epoch: NEXT_EPOCH.fetch_add(1, Ordering::Relaxed),
             client,
             base: None,
+            base_generation: 0,
             config: ConfigState::default(),
             week: WeekState::new(today),
             history: HashMap::new(),
@@ -128,13 +131,32 @@ impl Session {
         self.base.as_ref().map_or(&[], |b| &b.tags)
     }
 
-    /// `history` leaves out the loaded week, so its `entries` are added here.
-    pub fn apply_base(&mut self, base: Base, history: Option<Vec<TimeEntry>>, entries: &[TimeEntry]) {
-        self.base = Some(base);
-        if let Some(history) = history {
-            self.history = history.into_iter().chain(entries.iter().cloned()).map(|e| (e.id, e)).collect();
-            self.recent = domain::week::recent_items(self.history.values());
+    pub fn begin_base_load(&mut self) -> u64 {
+        self.base_generation += 1;
+        self.base_generation
+    }
+
+    /// Drops what an older load brings back. Only replaces the base: the week, history and
+    /// config are applied on their own, so these may arrive in either order.
+    pub fn apply_base(&mut self, generation: u64, base: Base) -> bool {
+        let current = generation == self.base_generation;
+        if current {
+            self.base = Some(base);
         }
+        current
+    }
+
+    /// Stands in for loading the base data.
+    #[cfg(test)]
+    pub fn set_base(&mut self, base: Base) {
+        let generation = self.begin_base_load();
+        self.apply_base(generation, base);
+    }
+
+    /// `history` leaves out the loaded week, so its `entries` are added here.
+    pub fn apply_history(&mut self, history: Vec<TimeEntry>, entries: &[TimeEntry]) {
+        self.history = history.into_iter().chain(entries.iter().cloned()).map(|e| (e.id, e)).collect();
+        self.recent = domain::week::recent_items(self.history.values());
     }
 
     /// Falls back to the defaults, like a missing file, but blocks writes until a load succeeds.
@@ -490,7 +512,7 @@ mod tests {
         assert_eq!(s.wall_clock(utc), utc.with_timezone(&chrono::Local).naive_local(), "system time before the account loads");
         let mut b = base(Vec::new(), HashMap::new(), Vec::new());
         b.me.timezone = Some("Pacific/Kiritimati".into());
-        s.apply_base(b, None, &[]);
+        s.set_base(b);
         assert_eq!(s.wall_clock(utc).date(), date(5), "UTC+14 is already the next day");
         assert_eq!(s.wall_clock(utc).time(), chrono::NaiveTime::from_hms_opt(2, 0, 0).unwrap());
     }
@@ -531,6 +553,40 @@ mod tests {
     fn load_week(s: &mut Session, week: Week, select_id: Option<i64>) -> bool {
         let (generation, _) = s.begin_week_load();
         s.apply_week(generation, week, select_id)
+    }
+
+    #[test]
+    fn base_and_week_apply_in_either_order() {
+        let week = || Week { start: date(2), entries: vec![entry(1, 4, "09:00-10:00")], travel: Vec::new() };
+        let projects = |name| base(vec![project(3, name)], HashMap::new(), Vec::new());
+        for base_first in [true, false] {
+            let mut s = Session::new(None, date(4));
+            s.set_base(projects("Old"));
+            // A reload with the user known: the week and a base refresh run side by side.
+            let generation = s.begin_base_load();
+            if base_first {
+                assert!(s.apply_base(generation, projects("New")));
+            }
+            load_week(&mut s, week(), Some(1));
+            if !base_first {
+                assert!(s.apply_base(generation, projects("New")));
+            }
+            assert_eq!(s.projects()[0].name, "New");
+            assert!(s.week().loaded());
+            assert_eq!(s.week().selected_entry_id(), Some(1), "kept when the base comes in after the week");
+            assert_eq!(s.recent().len(), 1, "the week's entry is in Recent");
+        }
+    }
+
+    #[test]
+    fn base_from_an_older_load_is_dropped() {
+        let mut s = Session::new(None, date(4));
+        let first = s.begin_base_load();
+        let second = s.begin_base_load();
+        let projects = |name| base(vec![project(3, name)], HashMap::new(), Vec::new());
+        assert!(s.apply_base(second, projects("Newer")));
+        assert!(!s.apply_base(first, projects("Older")), "finished last, started first");
+        assert_eq!(s.projects()[0].name, "Newer");
     }
 
     #[test]
@@ -821,11 +877,7 @@ mod tests {
     #[test]
     fn time_presets() {
         let mut s = Session::new(None, date(4));
-        s.apply_base(
-            base(vec![project(3, "Intern")], HashMap::from([(3, vec![task(4, 3, "Meeting")])]), vec![tag(7, "Daily")]),
-            None,
-            &[],
-        );
+        s.set_base(base(vec![project(3, "Intern")], HashMap::from([(3, vec![task(4, 3, "Meeting")])]), vec![tag(7, "Daily")]));
         let preset = |task: Option<&str>, tags: &[&str]| TimePreset {
             project: "intern".into(),
             task: task.map(Into::into),
