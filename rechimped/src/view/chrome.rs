@@ -12,8 +12,8 @@ use gpuikit::layout::{h_stack, v_stack};
 use gpuikit::theme::{ActiveTheme, ControlSize, Themeable};
 
 use crate::app::{Menu, Overlay, Tab, TimeChimpApp};
+use crate::domain;
 use crate::domain::ApprovalStatus;
-use crate::{domain, session};
 
 use super::widgets::*;
 
@@ -132,14 +132,14 @@ impl TimeChimpApp {
             ),
             None => {
                 let (range, week) = week_title(self);
-                let start = self.session().week_start();
+                let start = self.session().week().week_start();
                 let (at_today, prev_tip, next_tip) = if self.tab() == Tab::Week {
-                    (self.session().day() == today, "Previous week ([)", "Next week (])")
+                    (self.session().week().day() == today, "Previous week ([)", "Next week (])")
                 } else {
                     (start <= today && today < start + chrono::Duration::days(7), "Previous week (←)", "Next week (→)")
                 };
-                let suffix = if self.tab() == Tab::Travel && self.session().week_loaded() {
-                    let km = crate::domain::total(self.session().travel().iter().map(|m| m.distance));
+                let suffix = if self.tab() == Tab::Travel && self.session().week().loaded() {
+                    let km = crate::domain::total(self.session().week().travel().iter().map(|m| m.distance));
                     format!("{week} · {} km", plain_number(km))
                 } else {
                     week
@@ -225,11 +225,12 @@ impl TimeChimpApp {
         let (presets, empty): (Vec<(AnyElement, Act, Act)>, &str) = match kind {
             Menu::AddTime => (
                 self.session()
+                    .config()
                     .time_presets()
                     .iter()
                     .map(|p| {
                         let label = v_stack()
-                            .child(session::time_preset_label(p).to_owned())
+                            .child(p.label().to_owned())
                             .child(div().text_xs().text_color(theme.fg_muted()).child(p.project.clone()))
                             .into_any_element();
                         let (open, delete) = (p.clone(), p.clone());
@@ -242,6 +243,7 @@ impl TimeChimpApp {
             ),
             _ => (
                 self.session()
+                    .config()
                     .trip_presets()
                     .iter()
                     .map(|p| {

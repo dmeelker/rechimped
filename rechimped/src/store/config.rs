@@ -129,6 +129,13 @@ impl Preset for TimePreset {
     }
 }
 
+impl TimePreset {
+    /// What a time preset is called in lists: its notes, else its task, else its project.
+    pub fn label(&self) -> &str {
+        [&self.notes, &self.task].into_iter().flatten().map(|s| s.trim()).find(|s| !s.is_empty()).unwrap_or(&self.project)
+    }
+}
+
 impl TripPreset {
     pub fn trip_type(&self) -> Option<MileageType> {
         let Some(name) = &self.travel_type else { return Some(MileageType::Business) };
@@ -894,5 +901,19 @@ mod tests {
         assert!(parse_config(&none).unwrap().trips.is_empty() && !none.contains("[[time_entries]]"));
         assert!(with_presets(&text, &[preset_named("Nope")], &[]).is_err());
         assert_eq!(with_presets(&text, &[client], &times).unwrap().matches("[[trips]]").count(), 1);
+    }
+
+    #[test]
+    fn time_preset_labels() {
+        let preset = |task: Option<&str>, notes: Option<&str>| TimePreset {
+            project: "intern".into(),
+            task: task.map(Into::into),
+            notes: notes.map(Into::into),
+            tags: Vec::new(),
+        };
+        assert_eq!(preset(Some("Meeting"), None).label(), "Meeting");
+        assert_eq!(preset(Some("Meeting"), Some(" Standup ")).label(), "Standup", "notes first, trimmed");
+        assert_eq!(preset(Some("Meeting"), Some(" ")).label(), "Meeting", "blank notes don't count");
+        assert_eq!(preset(None, None).label(), "intern");
     }
 }

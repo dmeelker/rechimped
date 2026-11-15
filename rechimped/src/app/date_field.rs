@@ -27,7 +27,7 @@ impl TimeChimpApp {
         if form.date().picker.is_some() {
             return;
         }
-        let date = form.date().parsed(cx).unwrap_or(self.session.day());
+        let date = form.date().parsed(cx).unwrap_or(self.session.week().day());
         let input = form.date().input.clone();
         let calendar = cx.new(|cx| {
             Calendar::new("form-calendar", forms::to_calendar_date(date), cx)
@@ -93,7 +93,7 @@ impl TimeChimpApp {
         let Some(form) = self.form() else { return cx.propagate() };
         let field = form.date();
         let Some(picker) = &field.picker else { return cx.propagate() };
-        let current = field.parsed(cx).unwrap_or(self.session.day());
+        let current = field.parsed(cx).unwrap_or(self.session.week().day());
         let Some(date) = domain::time::shift_date(current, days, months) else { return };
         field.input.update(cx, |input, cx| input.set_content_silent(date.to_string(), cx));
         picker.calendar.update(cx, |c, cx| c.set_selected(Some(forms::to_calendar_date(date)), cx));

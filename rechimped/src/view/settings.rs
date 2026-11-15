@@ -18,7 +18,6 @@ use crate::forms::{
     shift,
 };
 use crate::scroll::ScrollArea;
-use crate::session;
 
 use super::widgets::*;
 
@@ -331,7 +330,7 @@ impl TimeChimpApp {
         let times = form.times.iter().enumerate().map(|(i, time)| {
             let task = time.task.as_deref().map(|t| format!(" / {t}")).unwrap_or_default();
             let label = v_stack()
-                .child(div().truncate().child(session::time_preset_label(time).to_owned()))
+                .child(div().truncate().child(time.label().to_owned()))
                 .child(muted(theme, format!("{}{task}", time.project)).text_xs().truncate());
             preset_row(
                 theme,

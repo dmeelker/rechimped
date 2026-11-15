@@ -11,6 +11,7 @@ use super::{TypeAhead, text};
 use crate::domain::same_name;
 use crate::domain::week::TaskNames;
 use crate::scroll::ScrollArea;
+use crate::seed;
 use crate::session::Session;
 use crate::store::config::{TimePreset, TripPreset};
 use crate::validate::SettingsValues;
@@ -272,8 +273,9 @@ impl ProjectVisibility {
     pub fn new(session: &Session) -> Self {
         let mut projects: Vec<_> = session.projects().iter().filter(|p| p.active).map(ProjectRow::of).collect();
         projects.sort_by(by_name);
-        let hidden = projects.iter().filter(|p| session.is_hidden(p.id)).map(|p| p.id).collect();
+        let hidden = projects.iter().filter(|p| seed::is_hidden(session, p.id)).map(|p| p.id).collect();
         let others = session
+            .config()
             .settings()
             .hidden_projects
             .iter()
@@ -462,15 +464,15 @@ pub struct ProjectTagsForm {
 
 impl ProjectTagsForm {
     pub fn new(session: &Session, hidden_projects: &BTreeSet<i64>) -> Self {
-        let in_use: BTreeSet<i64> = session.project_tags().values().flatten().map(|t| t.id).collect();
+        let in_use: BTreeSet<i64> = session.config().project_tags().values().flatten().map(|t| t.id).collect();
         let projects: Vec<_> = session
             .projects()
             .iter()
-            .filter(|p| p.active || session.project_tags().get(&p.id).is_some_and(|t| !t.is_empty()))
+            .filter(|p| p.active || session.config().project_tags().get(&p.id).is_some_and(|t| !t.is_empty()))
             .map(ProjectRow::of)
             .collect();
         let chosen: HashMap<i64, BTreeSet<i64>> =
-            projects.iter().map(|p| (p.id, session.tags_for(Some(p.id)).iter().map(|t| t.id).collect())).collect();
+            projects.iter().map(|p| (p.id, seed::tags_for(session, Some(p.id)).iter().map(|t| t.id).collect())).collect();
         let mut tags: Vec<_> = session
             .tags()
             .iter()
@@ -478,7 +480,7 @@ impl ProjectTagsForm {
             .map(|t| (t.id, t.name.clone()))
             .collect();
         tags.sort_by_key(|(_, name)| name.to_lowercase());
-        let configured = session.tags_configured();
+        let configured = session.config().tags_configured();
         let mut form = Self {
             projects,
             tags,
@@ -608,7 +610,7 @@ mod tests {
             ..Settings::default()
         });
 
-        let mut form = TaskVisibility::new(&s, &BTreeSet::new(), &s.settings().hidden_tasks);
+        let mut form = TaskVisibility::new(&s, &BTreeSet::new(), &s.config().settings().hidden_tasks);
         assert_eq!(form.projects.iter().map(|(p, _)| p.id).collect::<Vec<_>>(), [3], "only projects with active tasks");
         assert_eq!(form.projects[0].1.iter().map(|t| t.0).collect::<Vec<_>>(), [20, 10], "tasks by name");
         assert!(form.is_hidden(3, 10) && !form.is_hidden(3, 20));
@@ -695,7 +697,7 @@ mod tests {
         let mut s = Session::new(None, date(4));
         let tasks = HashMap::from([(1, vec![task(10, 1, "a"), task(11, 1, "b")]), (2, vec![task(20, 2, "c")])]);
         s.apply_base(base(vec![project(1, "A"), project(2, "B")], tasks, Vec::new()), None, &[]);
-        let mut form = TaskVisibility::new(&s, &BTreeSet::new(), &s.settings().hidden_tasks);
+        let mut form = TaskVisibility::new(&s, &BTreeSet::new(), &s.config().settings().hidden_tasks);
 
         form.toggle_at(None);
         assert_eq!(form.hidden_count(1), 0, "Space does nothing in the project list");

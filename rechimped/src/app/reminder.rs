@@ -14,12 +14,17 @@ impl TimeChimpApp {
         }
         self.travel_reminder_checked = Some(self.session.epoch());
         let today = self.session.today();
-        let shows_today = self.session.week_loaded() && self.session.week_start() == domain::time::monday_of(today);
-        if !self.session.settings().travel_reminder || !shows_today {
+        let shows_today = self.session.week().loaded() && self.session.week().week_start() == domain::time::monday_of(today);
+        if !self.session.config().settings().travel_reminder || !shows_today {
             return;
         }
         let dismissed = reminder::path().and_then(|path| reminder::dismissed_on(&path));
-        if domain::week::travel_reminder_due(self.session.travel(), today, self.session.settings().work_days, dismissed) {
+        if domain::week::travel_reminder_due(
+            self.session.week().travel(),
+            today,
+            self.session.config().settings().work_days,
+            dismissed,
+        ) {
             self.open_overlay(Overlay::TravelReminder, cx);
         }
     }

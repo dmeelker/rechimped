@@ -32,7 +32,7 @@ impl TimeChimpApp {
         cx: &mut Context<Self>,
     ) {
         self.session.invalidate_derived();
-        for load in plan_reloads(self.tab, change, self.session.week_start(), select) {
+        for load in plan_reloads(self.tab, change, self.session.week().week_start(), select) {
             match load {
                 Load::Week { select } => self.load_week(select, window, cx),
                 Load::Review { select } => self.load_review(select, window, cx),

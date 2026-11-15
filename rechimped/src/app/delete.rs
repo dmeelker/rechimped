@@ -5,7 +5,7 @@ use gpui::{AppContext, Context, Window};
 use gpuikit::elements::dialog::{DialogClosed, DialogState, dialog};
 
 use crate::backend::Api;
-use crate::session::{self, Selected};
+use crate::session::Selected;
 use crate::store::config;
 
 use super::changes::Change;
@@ -52,7 +52,7 @@ impl TimeChimpApp {
     pub fn ask_delete_time_preset(&mut self, preset: config::TimePreset, window: &mut Window, cx: &mut Context<Self>) {
         self.close_menu(cx);
         let task = preset.task.as_deref().map(|t| format!(" / {t}")).unwrap_or_default();
-        let label = format!("\"{}\": {}{task}", session::time_preset_label(&preset), preset.project);
+        let label = format!("\"{}\": {}{task}", preset.label(), preset.project);
         let target = DeleteTarget::TimePreset(preset);
         self.confirm_delete(target, "Delete preset?", label, window, cx);
     }
@@ -119,7 +119,7 @@ impl TimeChimpApp {
 
     fn delete_preset(&mut self, preset: &impl config::Preset, window: &mut Window, cx: &mut Context<Self>) {
         let removed =
-            self.session.config_writable().and_then(|()| config::path()).and_then(|path| config::remove_preset(&path, preset));
+            self.session.config().writable().and_then(|()| config::path()).and_then(|path| config::remove_preset(&path, preset));
         match removed {
             Ok(()) => {
                 self.load_config(window, cx);

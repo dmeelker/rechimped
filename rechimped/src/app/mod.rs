@@ -361,7 +361,7 @@ impl TimeChimpApp {
 
     /// config.toml failed to load: true, after an error toast, so nothing writes the defaults over it.
     fn refuse_config_write(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let Err(e) = self.session.config_writable() else { return false };
+        let Err(e) = self.session.config().writable() else { return false };
         self.set_error(e, window, cx);
         true
     }

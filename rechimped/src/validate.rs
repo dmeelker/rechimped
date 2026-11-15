@@ -58,7 +58,7 @@ fn date_and_customer(date: &str, project_id: Option<i64>, session: &Session) -> 
     let customer_id = session
         .project(project_id)
         .map(|p| p.customer_id)
-        .or(session.entries().iter().find(|e| e.project_id == project_id).map(|e| e.customer_id))
+        .or(session.week().entries().iter().find(|e| e.project_id == project_id).map(|e| e.customer_id))
         .or_else(|| session.review_rows()?.iter().find(|r| r.project_id == project_id).map(|r| r.customer_id))
         .ok_or("Unknown project")?;
     Ok((date, project_id, customer_id))
@@ -171,7 +171,7 @@ pub fn preset(v: &TravelValues, session: &Session) -> Result<TripPreset, String>
         None => return Err("Distance must be a number (or empty)".into()),
     };
     let name = config::preset_name(&v.from, &v.to, &v.notes);
-    if session.trip_presets().iter().any(|p| same_name(&p.name, &name)) {
+    if session.config().trip_presets().iter().any(|p| same_name(&p.name, &name)) {
         return Err(format!("There already is a preset \"{name}\" in config.toml"));
     }
     Ok(TripPreset {
@@ -204,7 +204,7 @@ pub fn time_preset(v: &TimeValues, session: &Session) -> Result<TimePreset, Stri
             && p.task.as_deref().is_some_and(|t| same_name(t, &task.name))
             && p.notes.as_deref().map(str::trim) == preset.notes.as_deref()
     };
-    if session.time_presets().iter().any(same) {
+    if session.config().time_presets().iter().any(same) {
         return Err("There already is a preset for this project, task and description in config.toml".into());
     }
     Ok(preset)

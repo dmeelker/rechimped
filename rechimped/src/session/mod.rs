@@ -1,13 +1,22 @@
+mod config;
+mod review;
+mod week;
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use chrono::{Duration, Months, NaiveDate};
+use chrono::{Duration, NaiveDate};
 use timechimp_api::{CurrentUser, Mileage, Project, ProjectTask, Tag, TimeEntry, TimeReportRow};
 
+pub use self::config::ConfigState;
+use self::review::Review;
+pub use self::week::WeekState;
 use crate::backend::Api;
 use crate::domain::report::{Report, Summary};
-use crate::domain::{self, review, same_name, week::RecentItem};
-use crate::store::config::{self, Config, Settings, TimePreset, TripPreset};
+use crate::domain::{self, same_name, week::RecentItem};
+#[cfg(test)]
+use crate::store::config::TripPreset;
+use crate::store::config::{self as config_file, Config, Settings, TimePreset};
 use crate::tab::Tab;
 
 pub struct Session {
@@ -15,30 +24,8 @@ pub struct Session {
     epoch: u64,
     client: Option<Api>,
     base: Option<Base>,
-
-    /// Read through `tags_for`, which offers all tags while none are configured.
-    project_tags: HashMap<i64, Vec<Tag>>,
-    settings: Settings,
-    trip_presets: Vec<TripPreset>,
-    time_presets: Vec<TimePreset>,
-    /// Why config.toml failed to load. While set nothing writes to it: the defaults shown
-    /// meanwhile would be saved over what the file holds.
-    config_error: Option<String>,
-
-    day: NaiveDate,
-    /// Always the Monday of `day`'s week.
-    week_start: NaiveDate,
-    /// Moving to another week empties `entries`/`travel` right away, and `apply_week` takes only
-    /// the week shown, so they never hold another week than `week_start`.
-    loaded_week: Option<NaiveDate>,
-    entries: Vec<TimeEntry>,
-    /// Always one of the selected day's entries, if it has any.
-    selected_entry: Option<i64>,
-    travel: Vec<Mileage>,
-    selected_travel: Option<i64>,
-    /// Bumped on every week load and on moving to another week, so a slow response for a week
-    /// we already left is dropped, even if no load for the new week could start yet.
-    week_generation: u64,
+    config: ConfigState,
+    week: WeekState,
     history: HashMap<i64, TimeEntry>,
     recent: Vec<RecentItem>,
 
@@ -56,22 +43,6 @@ pub struct Session {
     data_version: u64,
 
     review: Review,
-}
-
-/// The Review tab's month, kept apart from the report's.
-struct Review {
-    /// Always the first of the month.
-    month: NaiveDate,
-    /// The month `rows` are for; None while they are stale, as after `invalidate_review`.
-    loaded: Option<NaiveDate>,
-    /// Kept while stale, so a reload can keep the selection on the row nearest to it.
-    rows: Vec<TimeReportRow>,
-    selected: Option<i64>,
-    generation: u64,
-    /// Worked out from `rows` and the excluded tasks.
-    analysis: review::Analysis,
-    /// Bumped whenever `analysis` is redone, so the list knows to measure its lines again.
-    revision: u64,
 }
 
 pub struct Base {
@@ -94,19 +65,8 @@ impl Session {
             epoch: NEXT_EPOCH.fetch_add(1, Ordering::Relaxed),
             client,
             base: None,
-            project_tags: HashMap::new(),
-            settings: Settings::default(),
-            trip_presets: Vec::new(),
-            time_presets: Vec::new(),
-            config_error: None,
-            day: today,
-            week_start: domain::time::monday_of(today),
-            loaded_week: None,
-            entries: Vec::new(),
-            selected_entry: None,
-            travel: Vec::new(),
-            selected_travel: None,
-            week_generation: 0,
+            config: ConfigState::default(),
+            week: WeekState::new(today),
             history: HashMap::new(),
             recent: Vec::new(),
             report_month: domain::time::first_of_month(today),
@@ -114,16 +74,7 @@ impl Session {
             report_summary: Report::default().summary(),
             report_generation: 0,
             data_version: 0,
-            // The month usually handed in.
-            review: Review {
-                month: domain::time::first_of_month(today) - Months::new(1),
-                loaded: None,
-                rows: Vec::new(),
-                selected: None,
-                generation: 0,
-                analysis: review::Analysis::default(),
-                revision: 0,
-            },
+            review: Review::new(today),
         }
     }
 
@@ -131,21 +82,14 @@ impl Session {
         self.epoch
     }
 
-    pub fn settings(&self) -> &Settings {
-        &self.settings
+    /// config.toml as loaded: settings, project tags and presets.
+    pub fn config(&self) -> &ConfigState {
+        &self.config
     }
 
-    /// The tags configured per project id; offering them goes through `tags_for`.
-    pub fn project_tags(&self) -> &HashMap<i64, Vec<Tag>> {
-        &self.project_tags
-    }
-
-    pub fn trip_presets(&self) -> &[TripPreset] {
-        &self.trip_presets
-    }
-
-    pub fn time_presets(&self) -> &[TimePreset] {
-        &self.time_presets
+    /// The week the Time and Travel tabs show, with its entries, trips and selection.
+    pub fn week(&self) -> &WeekState {
+        &self.week
     }
 
     pub fn recent(&self) -> &[RecentItem] {
@@ -155,14 +99,13 @@ impl Session {
     /// Stands in for loading `[projects]` from config.toml.
     #[cfg(test)]
     pub fn set_project_tags(&mut self, project_tags: HashMap<i64, Vec<Tag>>) {
-        self.project_tags = project_tags;
+        self.config.set_project_tags(project_tags);
     }
 
     /// Stands in for loading the presets from config.toml.
     #[cfg(test)]
     pub fn set_presets(&mut self, trips: Vec<TripPreset>, times: Vec<TimePreset>) {
-        self.trip_presets = trips;
-        self.time_presets = times;
+        self.config.set_presets(trips, times);
     }
 
     pub fn client(&self) -> Option<&Api> {
@@ -185,14 +128,6 @@ impl Session {
         self.base.as_ref().map_or(&[], |b| &b.tags)
     }
 
-    pub fn entries(&self) -> &[TimeEntry] {
-        &self.entries
-    }
-
-    pub fn travel(&self) -> &[Mileage] {
-        &self.travel
-    }
-
     /// `history` leaves out the loaded week, so its `entries` are added here.
     pub fn apply_base(&mut self, base: Base, history: Option<Vec<TimeEntry>>, entries: &[TimeEntry]) {
         self.base = Some(base);
@@ -205,29 +140,17 @@ impl Session {
     /// Falls back to the defaults, like a missing file, but blocks writes until a load succeeds.
     pub fn apply_config_error(&mut self, error: String) {
         self.apply_config(None);
-        self.config_error = Some(error);
-    }
-
-    /// Err, with the message to show, while config.toml failed to load.
-    pub fn config_writable(&self) -> Result<(), String> {
-        match &self.config_error {
-            Some(e) => Err(format!("Fix config.toml first: {e}")),
-            None => Ok(()),
-        }
+        self.config.fail(error);
     }
 
     pub fn apply_config(&mut self, config: Option<Config>) -> Option<String> {
-        self.config_error = None;
         let Some(config) = config else {
-            self.project_tags.clear();
-            self.trip_presets.clear();
-            self.time_presets.clear();
+            self.config.apply(HashMap::new(), Vec::new(), Vec::new());
             self.set_settings(Settings::default());
             return None;
         };
         self.set_settings(config.settings);
-        let (resolved, warning) = config::resolve_project_tags(&config.projects, self.projects(), self.tags());
-        self.project_tags = resolved;
+        let (resolved, warning) = config_file::resolve_project_tags(&config.projects, self.projects(), self.tags());
         let mut unknown: Vec<String> = config
             .trips
             .iter()
@@ -235,7 +158,7 @@ impl Session {
             .map(|t| format!("project \"{}\" (trip \"{}\")", t.project, t.name))
             .collect();
         for preset in &config.time_entries {
-            let what = time_preset_label(preset);
+            let what = preset.label();
             match self.resolve_time_preset(preset) {
                 Err(name) => unknown.push(format!("{name} (time entry \"{what}\")")),
                 Ok(resolved) => {
@@ -243,8 +166,7 @@ impl Session {
                 }
             }
         }
-        self.trip_presets = config.trips;
-        self.time_presets = config.time_entries;
+        self.config.apply(resolved, config.trips, config.time_entries);
         match (warning, unknown.is_empty()) {
             (w, true) => w,
             (None, false) => Some(format!("config.toml: unknown {}", unknown.join(", "))),
@@ -252,59 +174,35 @@ impl Session {
         }
     }
 
-    pub fn begin_week_load(&mut self) -> (u64, NaiveDate) {
-        self.week_generation += 1;
-        (self.week_generation, self.week_start)
+    /// The settings go through here (not by assigning the field), as the review's findings
+    /// depend on the excluded tasks.
+    pub fn set_settings(&mut self, settings: Settings) {
+        if self.config.replace_settings(settings) {
+            self.analyze_review();
+        }
     }
 
-    pub fn week_loaded(&self) -> bool {
-        self.loaded_week == Some(self.week_start)
+    pub fn begin_week_load(&mut self) -> (u64, NaiveDate) {
+        self.week.begin_load()
     }
 
     /// Drops what an older load or one for another week brings back.
     pub fn apply_week(&mut self, generation: u64, week: Week, select_id: Option<i64>) -> bool {
-        if generation != self.week_generation || week.start != self.week_start {
+        let start = week.start;
+        if !self.week.apply(generation, week, select_id) {
             return false;
         }
         // The week replaces what the history had for it, so saves and deletes show up in Recent.
-        let week_end = week.start + Duration::days(7);
-        self.history.retain(|_, e| !(week.start..week_end).contains(&e.date));
-        self.history.extend(week.entries.iter().map(|e| (e.id, e.clone())));
+        let week_end = start + Duration::days(7);
+        self.history.retain(|_, e| !(start..week_end).contains(&e.date));
+        self.history.extend(self.week.entries().iter().map(|e| (e.id, e.clone())));
         self.recent = domain::week::recent_items(self.history.values());
-        self.loaded_week = Some(week.start);
-
-        let entry_ids = |entries: &[TimeEntry]| entries.iter().map(|e| e.id).collect::<Vec<_>>();
-        let trip_ids = |trips: &[Mileage]| trips.iter().map(|m| m.id).collect::<Vec<_>>();
-        self.selected_entry = reselect(self.selected_entry, select_id, &entry_ids(&self.entries), &entry_ids(&week.entries));
-        self.selected_travel = reselect(self.selected_travel, select_id, &trip_ids(&self.travel), &trip_ids(&week.travel));
-        self.entries = week.entries;
-        self.travel = week.travel;
-        self.fix_selection();
         true
     }
 
+    /// Returns whether `day` is in another week, which then needs loading.
     pub fn select_day(&mut self, day: NaiveDate) -> bool {
-        self.day = day;
-        let week_start = domain::time::monday_of(day);
-        let moved = week_start != self.week_start;
-        if moved {
-            self.week_start = week_start;
-            self.week_generation += 1;
-            self.loaded_week = None;
-            self.entries.clear();
-            self.travel.clear();
-            self.selected_travel = None;
-        }
-        self.fix_selection();
-        moved
-    }
-
-    pub fn day(&self) -> NaiveDate {
-        self.day
-    }
-
-    pub fn week_start(&self) -> NaiveDate {
-        self.week_start
+        self.week.select_day(day)
     }
 
     pub fn report_month(&self) -> NaiveDate {
@@ -359,138 +257,82 @@ impl Session {
     }
 
     pub fn review_month(&self) -> NaiveDate {
-        self.review.month
+        self.review.month()
     }
 
     /// Another month's rows go at once, so they never show under its title.
     pub fn set_review_month(&mut self, day: NaiveDate) {
-        let month = domain::time::first_of_month(day);
-        if month != self.review.month {
-            let Review { generation, revision, .. } = self.review;
-            let analysis = review::Analysis::default();
-            self.review = Review { month, loaded: None, rows: Vec::new(), selected: None, generation, analysis, revision };
+        if self.review.set_month(day) {
             self.analyze_review();
         }
     }
 
     pub fn begin_review_load(&mut self) -> (u64, NaiveDate) {
-        self.review.generation += 1;
-        (self.review.generation, self.review.month)
+        self.review.begin_load()
     }
 
     /// Drops what an older load or one for another month brings back.
     pub fn apply_review(&mut self, generation: u64, month: NaiveDate, rows: Vec<TimeReportRow>, select_id: Option<i64>) -> bool {
-        if generation != self.review.generation || month != self.review.month {
-            return false;
+        let applied = self.review.apply(generation, month, rows, select_id);
+        if applied {
+            self.analyze_review();
         }
-        let ids = |rows: &[TimeReportRow]| rows.iter().map(|r| r.id).collect::<Vec<_>>();
-        self.review.selected = reselect(self.review.selected, select_id, &ids(&self.review.rows), &ids(&rows));
-        self.review.rows = rows;
-        self.review.loaded = Some(month);
-        self.analyze_review();
-        true
+        applied
     }
 
     fn analyze_review(&mut self) {
-        self.review.analysis = review::Analysis::of(&self.review.rows, &self.settings.excluded_tasks);
-        self.review.revision += 1;
-    }
-
-    /// The settings go through here (not by assigning the field), as the review's findings
-    /// depend on the excluded tasks.
-    pub fn set_settings(&mut self, settings: Settings) {
-        let excluded_changed = settings.excluded_tasks != self.settings.excluded_tasks;
-        self.settings = settings;
-        if excluded_changed {
-            self.analyze_review();
-        }
+        self.review.analyze(&self.config.settings().excluded_tasks);
     }
 
     /// The lines, tag mismatches and findings of `review_rows`; None while those are.
-    pub fn review_analysis(&self) -> Option<&review::Analysis> {
-        self.review_rows().is_some().then_some(&self.review.analysis)
+    pub fn review_analysis(&self) -> Option<&domain::review::Analysis> {
+        self.review.analysis()
     }
 
     /// Changes whenever `review_analysis` is redone, also across sessions (which have their own
     /// epoch).
     pub fn review_revision(&self) -> (u64, u64) {
-        (self.epoch, self.review.revision)
+        (self.epoch, self.review.revision())
     }
 
     /// None unless loaded for the month shown and not invalidated since.
     pub fn review_rows(&self) -> Option<&[TimeReportRow]> {
-        (self.review.loaded == Some(self.review.month)).then_some(self.review.rows.as_slice())
+        self.review.rows()
     }
 
     fn invalidate_review(&mut self) {
-        self.review.loaded = None;
-        self.review.generation += 1;
+        self.review.invalidate();
     }
 
     pub fn selected_review_id(&self) -> Option<i64> {
-        self.review.selected
+        self.review.selected_id()
     }
 
     pub fn selected_review(&self) -> Option<&TimeReportRow> {
-        self.review_rows()?.iter().find(|r| Some(r.id) == self.review.selected)
-    }
-
-    pub fn select_review(&mut self, id: i64) {
-        if self.review_rows().is_some_and(|rows| rows.iter().any(|r| r.id == id)) {
-            self.review.selected = Some(id);
-        }
+        self.review.selected()
     }
 
     /// The next (`direction` 1) or previous (-1) row with a finding, wrapping around.
     pub fn next_review_finding(&mut self, direction: isize) {
-        let Some(rows) = self.review_rows() else { return };
-        let mismatches = &self.review.analysis.mismatches;
-        let len = rows.len() as isize;
-        let pos = rows.iter().position(|r| Some(r.id) == self.review.selected);
-        let start = pos.map_or(if direction < 0 { len } else { -1 }, |p| p as isize);
-        let next = (1..=len)
-            .map(|step| (start + direction * step).rem_euclid(len) as usize)
-            .find(|&i| review::has_finding(&rows[i], mismatches, &self.settings.excluded_tasks));
-        if let Some(i) = next {
-            self.review.selected = Some(rows[i].id);
-        }
-    }
-
-    pub fn visible_entries(&self) -> Vec<usize> {
-        (0..self.entries.len()).filter(|&i| self.entries[i].date == self.day).collect()
-    }
-
-    pub fn fix_selection(&mut self) {
-        let visible = self.visible_entries();
-        if !visible.iter().any(|&i| Some(self.entries[i].id) == self.selected_entry) {
-            self.selected_entry = visible.first().map(|&i| self.entries[i].id);
-        }
+        self.review.next_finding(direction, &self.config.settings().excluded_tasks);
     }
 
     /// Moves `tab`'s selection `delta` rows, stopping at either end. The Report tab has none.
     pub fn move_selection(&mut self, tab: Tab, delta: isize) {
-        let ids: Vec<i64> = match tab {
-            Tab::Week => self.visible_entries().into_iter().map(|i| self.entries[i].id).collect(),
-            Tab::Travel => self.travel.iter().map(|m| m.id).collect(),
-            Tab::Review => self.review_rows().unwrap_or_default().iter().map(|r| r.id).collect(),
-            Tab::Report => return,
-        };
-        let selected = match tab {
-            Tab::Week => &mut self.selected_entry,
-            Tab::Travel => &mut self.selected_travel,
-            _ => &mut self.review.selected,
-        };
-        if let Some(id) = step(&ids, *selected, delta) {
-            *selected = Some(id);
+        match tab {
+            Tab::Week => self.week.move_entry_selection(delta),
+            Tab::Travel => self.week.move_travel_selection(delta),
+            Tab::Review => self.review.move_selection(delta),
+            Tab::Report => {}
         }
     }
 
     /// Selects row `id` of `tab`, if it is one of the rows that tab shows.
     pub fn select(&mut self, tab: Tab, id: i64) {
         match tab {
-            Tab::Week => self.select_entry(id),
-            Tab::Travel => self.select_travel(id),
-            Tab::Review => self.select_review(id),
+            Tab::Week => self.week.select_entry(id),
+            Tab::Travel => self.week.select_travel(id),
+            Tab::Review => self.review.select(id),
             Tab::Report => {}
         }
     }
@@ -498,111 +340,12 @@ impl Session {
     /// What is selected on `tab`; the Report tab has no selection.
     pub fn selection(&self, tab: Tab) -> Selected<'_> {
         let selected = match tab {
-            Tab::Week => self.selected_entry().map(Selected::Entry),
-            Tab::Travel => self.selected_travel().map(Selected::Trip),
+            Tab::Week => self.week.selected_entry().map(Selected::Entry),
+            Tab::Travel => self.week.selected_travel().map(Selected::Trip),
             Tab::Review => self.selected_review().map(Selected::ReviewRow),
             Tab::Report => None,
         };
         selected.unwrap_or(Selected::None)
-    }
-
-    pub fn select_entry(&mut self, id: i64) {
-        if let Some(day) = self.entries.iter().find(|e| e.id == id).map(|e| e.date) {
-            self.selected_entry = Some(id);
-            self.day = day;
-        }
-    }
-
-    pub fn select_travel(&mut self, id: i64) {
-        if self.travel.iter().any(|m| m.id == id) {
-            self.selected_travel = Some(id);
-        }
-    }
-
-    pub fn selected_entry_id(&self) -> Option<i64> {
-        self.selected_entry
-    }
-
-    pub fn selected_travel_id(&self) -> Option<i64> {
-        self.selected_travel
-    }
-
-    pub fn selected_entry(&self) -> Option<&TimeEntry> {
-        self.entries.iter().find(|e| Some(e.id) == self.selected_entry)
-    }
-
-    pub fn selected_travel(&self) -> Option<&Mileage> {
-        self.travel.iter().find(|m| Some(m.id) == self.selected_travel)
-    }
-
-    pub fn is_hidden(&self, project_id: i64) -> bool {
-        self.project(project_id).is_some_and(|p| self.settings.hidden_projects.iter().any(|name| same_name(name, &p.name)))
-    }
-
-    pub fn project_options(&self, current: Option<(i64, &str, &str)>) -> Vec<(i64, String)> {
-        let mut options: Vec<(i64, String)> = self
-            .projects()
-            .iter()
-            .filter(|p| p.active && !self.is_hidden(p.id))
-            .map(|p| (p.id, domain::project_label(&p.name, &p.customer_name)))
-            .collect();
-        if let Some((id, name, customer)) = current
-            && !options.iter().any(|(o, _)| *o == id)
-        {
-            options.push((id, domain::project_label(name, customer)));
-        }
-        options
-    }
-
-    /// By name, as the config holds them, so it also answers for inactive or deleted tasks.
-    pub fn is_task_hidden(&self, project_id: i64, task_name: &str) -> bool {
-        self.project(project_id).is_some_and(|p| {
-            self.settings
-                .hidden_tasks
-                .iter()
-                .any(|(project, tasks)| same_name(project, &p.name) && tasks.iter().any(|t| same_name(t, task_name)))
-        })
-    }
-
-    /// `entry`'s task is offered even if hidden or inactive, and `keep` (a task chosen elsewhere,
-    /// as by a preset) even if hidden.
-    pub fn task_options(&self, project_id: Option<i64>, entry: Option<&TimeEntry>, keep: Option<i64>) -> Vec<(i64, String)> {
-        let mut tasks: Vec<(i64, String)> = project_id
-            .map(|id| {
-                self.project_tasks(id)
-                    .iter()
-                    .filter(|t| t.active && (Some(t.id) == keep || !self.is_task_hidden(id, &t.name)))
-                    .map(|t| (t.id, t.name.clone()))
-                    .collect()
-            })
-            .unwrap_or_default();
-        if let Some(e) = entry.filter(|e| Some(e.project_id) == project_id)
-            && !tasks.iter().any(|(id, _)| *id == e.project_task_id)
-        {
-            tasks.push((e.project_task_id, e.task_name.clone()));
-        }
-        tasks
-    }
-
-    /// Until a project has tags, every project offers all of them, so a new user needn't configure
-    /// anything first.
-    pub fn tags_configured(&self) -> bool {
-        self.project_tags.values().any(|tags| !tags.is_empty())
-    }
-
-    pub fn tags_for(&self, project_id: Option<i64>) -> Vec<&Tag> {
-        let Some(project_id) = project_id else { return Vec::new() };
-        if self.tags_configured() {
-            self.project_tags.get(&project_id).map(|tags| tags.iter().collect()).unwrap_or_default()
-        } else {
-            self.tags().iter().filter(|t| !t.name.starts_with("z_")).collect()
-        }
-    }
-
-    /// The time form has no checkbox for these, so it leaves them untouched.
-    pub fn kept_tags(&self, project_id: Option<i64>, tag_ids: &[i64]) -> Vec<i64> {
-        let offered = self.tags_for(project_id);
-        tag_ids.iter().copied().filter(|id| !offered.iter().any(|t| t.id == *id)).collect()
     }
 
     pub fn project_named(&self, name: &str) -> Option<&Project> {
@@ -639,9 +382,9 @@ impl Session {
     /// Where `date`'s last entry ended: from the week's entries, or the review's rows for a day
     /// outside the week.
     pub fn next_start_time(&self, date: NaiveDate) -> Option<String> {
-        let in_week = domain::week::touches_week(self.week_start, &[date]);
+        let in_week = domain::week::touches_week(self.week.week_start(), &[date]);
         let times: Vec<Option<&str>> = if in_week {
-            self.entries.iter().filter(|e| e.date == date).map(|e| e.start_end.as_deref()).collect()
+            self.week.entries().iter().filter(|e| e.date == date).map(|e| e.start_end.as_deref()).collect()
         } else {
             let rows = self.review_rows().unwrap_or_default();
             rows.iter().filter(|r| r.date == date).map(|r| r.start_end.as_deref()).collect()
@@ -651,7 +394,7 @@ impl Session {
 
     pub fn timezone(&self, own: Option<&str>) -> chrono_tz::Tz {
         let account = self.me().and_then(|m| m.timezone.as_deref());
-        let entries = self.entries.iter().map(|e| e.timezone.as_deref());
+        let entries = self.week.entries().iter().map(|e| e.timezone.as_deref());
         domain::time::timezone([own, account].into_iter().chain(entries))
     }
 
@@ -673,31 +416,14 @@ impl Session {
         }
     }
 
-    pub fn saved_addresses(&self) -> Vec<String> {
-        let mut addresses: Vec<String> = self.me().map(|m| m.mileage_addresses.clone()).unwrap_or_default();
-        for m in &self.travel {
-            for a in [&m.from_address, &m.to_address].into_iter().flatten() {
-                if !addresses.contains(a) {
-                    addresses.push(a.clone());
-                }
-            }
-        }
-        addresses
-    }
-
-    pub fn hours_per_day(&self) -> [f64; 7] {
-        domain::week::hours_per_day(&self.entries, self.week_start)
-    }
-
     pub fn target_for(&self, day: usize) -> f64 {
         self.me().and_then(|m| m.user_availability.as_ref()).and_then(|a| a.for_day(day)).unwrap_or(0.0)
     }
 
     pub fn shown_days(&self, today: NaiveDate) -> Vec<usize> {
-        let work_days = self.settings.work_days;
-        (0..7)
-            .filter(|&i| domain::week::shows_day(self.week_start + Duration::days(i as i64), work_days, today, self.day))
-            .collect()
+        let work_days = self.config.settings().work_days;
+        let (week_start, day) = (self.week.week_start(), self.week.day());
+        (0..7).filter(|&i| domain::week::shows_day(week_start + Duration::days(i as i64), work_days, today, day)).collect()
     }
 
     pub fn contract_hours(&self) -> f64 {
@@ -711,10 +437,6 @@ pub struct ResolvedTimePreset {
     pub project_task_id: Option<i64>,
     pub tag_ids: Vec<i64>,
     pub unknown_tags: Vec<String>,
-}
-
-pub fn time_preset_label(preset: &TimePreset) -> &str {
-    [&preset.notes, &preset.task].into_iter().flatten().map(|s| s.trim()).find(|s| !s.is_empty()).unwrap_or(&preset.project)
 }
 
 /// The row of a tab's list that is selected (see `Session::selection`).
@@ -756,7 +478,7 @@ fn reselect(selected: Option<i64>, wanted: Option<i64>, old: &[i64], new: &[i64]
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use chrono::Months;
 
     use super::*;
     use crate::test_support::*;
@@ -781,67 +503,34 @@ mod tests {
     #[test]
     fn week_and_selection() {
         let mut s = Session::new(None, date(4));
-        assert_eq!(s.week_start, date(2));
+        assert_eq!(s.week().week_start(), date(2));
         let week = |entries| Week { start: date(2), entries, travel: Vec::new() };
         load_week(&mut s, week(vec![entry(1, 3, "09:00-10:00"), entry(2, 4, "09:00-10:00"), entry(3, 4, "10:00-11:30")]), None);
-        assert_eq!(s.visible_entries(), [1, 2]);
-        assert_eq!(s.selected_entry().map(|e| e.id), Some(2), "the first entry of the selected day");
+        assert_eq!(s.week().visible_entries(), [1, 2]);
+        assert_eq!(s.week().selected_entry().map(|e| e.id), Some(2), "the first entry of the selected day");
         s.move_selection(Tab::Week, 5);
-        assert_eq!(s.selected_entry().map(|e| e.id), Some(3), "stays within the day");
+        assert_eq!(s.week().selected_entry().map(|e| e.id), Some(3), "stays within the day");
         assert_eq!(s.next_start_time(date(4)).as_deref(), Some("11:30"));
         assert_eq!(s.recent.len(), 1, "same project, task and notes");
 
         load_week(&mut s, week(vec![entry(2, 4, "09:00-10:00"), entry(4, 4, "12:00-13:00")]), Some(4));
-        assert_eq!(s.selected_entry().map(|e| e.id), Some(4));
+        assert_eq!(s.week().selected_entry().map(|e| e.id), Some(4));
 
         assert!(!s.select_day(date(8)), "Sunday is still this week");
-        assert_eq!(s.selected_entry_id(), None);
-        assert!(s.week_loaded());
+        assert_eq!(s.week().selected_entry_id(), None);
+        assert!(s.week().loaded());
         assert!(s.select_day(date(9)));
-        assert_eq!(s.week_start, date(9));
-        assert!(!s.week_loaded() && s.entries.is_empty(), "the week left doesn't show under the new one");
+        assert_eq!(s.week().week_start(), date(9));
+        assert!(!s.week().loaded() && s.week().entries().is_empty(), "the week left doesn't show under the new one");
 
         // Its entries were cleared on leaving, and no load has come back since.
         assert!(s.select_day(date(4)));
-        assert!(!s.week_loaded() && s.entries.is_empty());
+        assert!(!s.week().loaded() && s.week().entries().is_empty());
     }
 
     fn load_week(s: &mut Session, week: Week, select_id: Option<i64>) -> bool {
         let (generation, _) = s.begin_week_load();
         s.apply_week(generation, week, select_id)
-    }
-
-    #[test]
-    fn only_the_latest_load_of_the_week_shown_applies() {
-        let mut s = Session::new(None, date(4));
-        let week = |monday: u32, id| Week {
-            start: date(monday),
-            entries: vec![entry(id, monday + 1, "09:00-10:00")],
-            travel: vec![trip(id, monday + 1)],
-        };
-
-        let (first, monday) = s.begin_week_load();
-        let (second, _) = s.begin_week_load();
-        assert_eq!(monday, date(2));
-        assert!(!s.apply_week(first, week(2, 1), None), "an older load");
-        assert!(!s.week_loaded());
-        assert!(!s.apply_week(second, week(9, 1), None), "another week");
-        assert!(!s.week_loaded() && s.entries().is_empty());
-        assert!(s.apply_week(second, week(2, 1), None));
-        assert!(s.week_loaded() && s.entries().len() == 1);
-
-        // A load for this week is underway when the user moves on before any load for the next
-        // could start (as while the user isn't known yet): its week must not show under the next.
-        let (pending, _) = s.begin_week_load();
-        assert!(s.select_day(date(11)));
-        assert!(!s.apply_week(pending, week(2, 2), None));
-        assert!(!s.week_loaded() && s.entries().is_empty() && s.travel().is_empty());
-        assert!(load_week(&mut s, week(9, 3), None));
-        assert_eq!(s.entries()[0].id, 3);
-
-        let (generation, _) = s.begin_week_load();
-        assert!(!s.select_day(date(10)), "the same week");
-        assert!(s.apply_week(generation, week(9, 4), None), "a day within the week keeps its load");
     }
 
     #[test]
@@ -935,34 +624,6 @@ mod tests {
     }
 
     #[test]
-    fn review_month_and_rows() {
-        let mut s = Session::new(None, date(4));
-        assert_eq!(s.review_month(), NaiveDate::from_ymd_opt(2026, 10, 1).unwrap(), "the previous month");
-        assert!(s.review_rows().is_none());
-
-        let november = date(1);
-        let (stale, _) = s.begin_review_load();
-        s.set_review_month(date(20));
-        let (generation, month) = s.begin_review_load();
-        assert_eq!(month, november);
-        assert!(!s.apply_review(stale, month, vec![time_row(1, 2)], None), "an older load");
-        assert!(!s.apply_review(generation, november - Months::new(1), vec![time_row(1, 2)], None), "another month");
-        assert!(s.review_rows().is_none());
-
-        assert!(s.apply_review(generation, month, vec![time_row(1, 2), time_row(2, 3)], None));
-        assert_eq!(s.review_rows().map(<[_]>::len), Some(2));
-        assert_eq!(s.selected_review_id(), Some(1), "the first row");
-
-        s.set_review_month(date(30));
-        assert!(s.review_rows().is_some(), "the same month keeps its rows");
-        s.invalidate_review();
-        assert!(s.review_rows().is_none());
-
-        s.set_review_month(november - Months::new(1));
-        assert!(s.review.rows.is_empty() && s.selected_review_id().is_none(), "stepping clears the rows");
-    }
-
-    #[test]
     fn review_analysis_follows_rows_and_excluded_tasks() {
         let mut s = Session::new(None, date(4));
         assert!(s.review_analysis().is_none());
@@ -976,9 +637,9 @@ mod tests {
         assert_eq!(analysis.lines.len(), 3);
         assert_eq!(analysis.findings.no_notes, 0, "leave needs no notes");
 
-        s.set_settings(s.settings.clone());
+        s.set_settings(s.config().settings().clone());
         assert_eq!(s.review_revision(), loaded, "the same excluded tasks change nothing");
-        s.set_settings(Settings { excluded_tasks: Default::default(), ..s.settings.clone() });
+        s.set_settings(Settings { excluded_tasks: Default::default(), ..s.config().settings().clone() });
         assert_ne!(s.review_revision(), loaded);
         assert_eq!(s.review_analysis().unwrap().findings.no_notes, 1);
 
@@ -1046,8 +707,8 @@ mod tests {
         let mut row = time_row(5, 2);
         row.client_status = 1;
         s.apply_review(generation, month, vec![time_row(4, 2), row], None);
-        s.select_travel(8);
-        s.select_review(5);
+        s.select(Tab::Travel, 8);
+        s.select(Tab::Review, 5);
 
         let Selected::Entry(e) = s.selection(Tab::Week) else { panic!("an entry") };
         assert_eq!(e.id, 2, "the selected day's");
@@ -1061,9 +722,9 @@ mod tests {
         assert!(matches!(s.selection(Tab::Report), Selected::None), "the report has no selection");
 
         s.select(Tab::Week, 1);
-        assert_eq!(s.selected_entry_id(), Some(1));
+        assert_eq!(s.week().selected_entry_id(), Some(1));
         s.move_selection(Tab::Travel, -1);
-        assert_eq!(s.selected_travel_id(), Some(7));
+        assert_eq!(s.week().selected_travel_id(), Some(7));
         s.invalidate_review();
         assert!(matches!(s.selection(Tab::Review), Selected::None), "not while stale");
     }
@@ -1075,11 +736,11 @@ mod tests {
             let (generation, month) = s.begin_review_load();
             s.apply_review(generation, month, ids.iter().map(|&id| time_row(id, 2)).collect(), select_id)
         };
-        s.select_review(1);
+        s.select(Tab::Review, 1);
         assert_eq!(s.selected_review_id(), None, "nothing loaded");
         load(&mut s, &[1, 2, 3], None);
-        s.select_review(2);
-        s.select_review(9);
+        s.select(Tab::Review, 2);
+        s.select(Tab::Review, 9);
         assert_eq!(s.selected_review_id(), Some(2), "not a row");
         s.move_selection(Tab::Review, 5);
         assert_eq!(s.selected_review_id(), Some(3), "stops at the last row");
@@ -1096,61 +757,6 @@ mod tests {
         assert_eq!(s.selected_review_id(), Some(1), "deleted: the row now at its place");
         load(&mut s, &[3, 1, 7], Some(7));
         assert_eq!(s.selected_review_id(), Some(7), "the saved row");
-    }
-
-    #[test]
-    fn kept_tags() {
-        let mut s = Session::new(None, date(4));
-        s.set_project_tags(HashMap::from([(1, vec![tag(10, "a")]), (2, vec![tag(20, "b")])]));
-        assert_eq!(s.kept_tags(Some(2), &[10, 20, 30]), [10, 30]);
-        assert_eq!(s.kept_tags(Some(1), &[10, 20, 30]), [20, 30]);
-        assert_eq!(s.kept_tags(None, &[10, 20]), [10, 20]);
-    }
-
-    #[test]
-    fn all_tags_until_some_are_configured() {
-        let mut s = Session::new(None, date(4));
-        let tags = vec![tag(10, "a"), tag(20, "z_old"), tag(30, "b")];
-        s.apply_base(base(vec![project(1, "P")], HashMap::new(), tags), None, &[]);
-        let ids = |s: &Session, p| s.tags_for(p).iter().map(|t| t.id).collect::<Vec<_>>();
-        assert_eq!(ids(&s, Some(1)), [10, 30], "nothing configured: all but z_");
-        assert_eq!(ids(&s, None), Vec::<i64>::new(), "no project, no tags");
-        assert_eq!(s.kept_tags(Some(1), &[10, 20]), [20]);
-
-        s.set_project_tags(HashMap::from([(1, Vec::new())]));
-        assert_eq!(ids(&s, Some(1)), [10, 30], "only empty lists count as nothing configured");
-        s.set_project_tags(HashMap::from([(1, Vec::new()), (2, vec![tag(30, "b")])]));
-        assert_eq!(ids(&s, Some(1)), Vec::<i64>::new(), "once one project has tags, the lists hold");
-        assert_eq!(ids(&s, Some(2)), [30]);
-    }
-
-    #[test]
-    fn hidden_projects_are_not_offered() {
-        let mut s = Session::new(None, date(4));
-        s.apply_base(base(vec![project(1, "Keep"), project(2, "Old")], HashMap::new(), Vec::new()), None, &[]);
-        s.set_settings(Settings { hidden_projects: vec!["old".into()], ..Settings::default() });
-        let ids = |options: Vec<(i64, String)>| options.into_iter().map(|(id, _)| id).collect::<Vec<_>>();
-        assert!(s.is_hidden(2) && !s.is_hidden(1));
-        assert_eq!(ids(s.project_options(None)), [1]);
-        assert_eq!(ids(s.project_options(Some((2, "Old", "Us")))), [1, 2], "still offered when editing its entry");
-    }
-
-    #[test]
-    fn hidden_tasks_are_not_offered() {
-        let mut s = Session::new(None, date(4));
-        let tasks = HashMap::from([(1, vec![task(10, 1, "Dev"), task(20, 1, "Old"), task(30, 1, "Meet")])]);
-        s.apply_base(base(vec![project(1, "Keep"), project(2, "Other")], tasks, Vec::new()), None, &[]);
-        s.set_settings(Settings {
-            hidden_tasks: BTreeMap::from([("keep".into(), vec!["old".into(), "meet".into()])]),
-            ..Settings::default()
-        });
-        let ids = |options: Vec<(i64, String)>| options.into_iter().map(|(id, _)| id).collect::<Vec<_>>();
-        assert!(s.is_task_hidden(1, "OLD") && !s.is_task_hidden(1, "Dev") && !s.is_task_hidden(2, "Old"));
-        assert_eq!(ids(s.task_options(Some(1), None, None)), [10]);
-        assert_eq!(ids(s.task_options(Some(1), None, Some(30))), [10, 30], "kept when a preset picks it");
-        let mut e = entry(5, 4, "09:00-10:00");
-        (e.project_id, e.project_task_id, e.task_name) = (1, 20, "Old".into());
-        assert_eq!(ids(s.task_options(Some(1), Some(&e), None)), [10, 20], "still offered when editing its entry");
     }
 
     #[test]
@@ -1180,9 +786,15 @@ mod tests {
         let warning = s.apply_config(Some(config)).unwrap();
         assert!(warning.contains("project \"Nope\"") && warning.contains("trip \"Trip\""), "{warning}");
         assert!(warning.contains("(time entry \"Standup\")"), "{warning}");
-        assert_eq!((s.settings.billable_goal, s.trip_presets.len(), s.time_presets.len()), (0.7, 1, 1));
+        assert_eq!(
+            (s.config().settings().billable_goal, s.config().trip_presets().len(), s.config().time_presets().len()),
+            (0.7, 1, 1)
+        );
         assert_eq!(s.apply_config(None), None);
-        assert_eq!((s.settings, s.trip_presets.len(), s.time_presets.len()), (Settings::default(), 0, 0));
+        assert_eq!(
+            (s.config().settings(), s.config().trip_presets().len(), s.config().time_presets().len()),
+            (&Settings::default(), 0, 0)
+        );
     }
 
     #[test]
@@ -1194,16 +806,16 @@ mod tests {
             time_entries: Vec::new(),
         };
         let mut s = Session::new(None, date(4));
-        assert_eq!(s.config_writable(), Ok(()));
+        assert_eq!(s.config().writable(), Ok(()));
         s.apply_config(Some(config(0.7)));
         s.apply_config_error("bad billable_goal".into());
-        assert_eq!(s.settings, Settings::default());
-        assert_eq!(s.config_writable(), Err("Fix config.toml first: bad billable_goal".into()));
+        assert_eq!(s.config().settings(), &Settings::default());
+        assert_eq!(s.config().writable(), Err("Fix config.toml first: bad billable_goal".into()));
         s.apply_config(Some(config(0.8)));
-        assert_eq!(s.config_writable(), Ok(()), "a fixed file loads");
+        assert_eq!(s.config().writable(), Ok(()), "a fixed file loads");
         s.apply_config_error("again".into());
         s.apply_config(None);
-        assert_eq!(s.config_writable(), Ok(()), "a missing file gets a fresh template");
+        assert_eq!(s.config().writable(), Ok(()), "a missing file gets a fresh template");
     }
 
     #[test]
@@ -1231,9 +843,5 @@ mod tests {
         );
         assert_eq!(s.resolve_time_preset(&preset(None, &[])).unwrap().project_task_id, None);
         assert!(s.resolve_time_preset(&preset(Some("Nap"), &[])).unwrap_err().starts_with("task \"Nap\""));
-
-        assert_eq!(time_preset_label(&preset(Some("Meeting"), &[])), "Meeting");
-        assert_eq!(time_preset_label(&TimePreset { notes: Some(" Standup ".into()), ..preset(None, &[]) }), "Standup");
-        assert_eq!(time_preset_label(&preset(None, &[])), "intern");
     }
 }

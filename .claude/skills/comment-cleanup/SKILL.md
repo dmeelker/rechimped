@@ -29,7 +29,7 @@ edit the same working tree at once. Last time's split (rebalance it if the count
 
 1. API library: `timechimp-api/src/*`, `timechimp-api/examples/`, `timechimp-api/tests/`, both `Cargo.toml`s
    except the GUI one.
-2. State and data: `session.rs`, `store/*`, `seed.rs`, `validate.rs`.
+2. State and data: `session/*`, `store/*`, `seed.rs`, `validate.rs`.
 3. Behaviour: `forms.rs` and all of `app/`.
 4. The rest: `view/`, `domain/`, `fx.rs`, `main.rs`, `net.rs`, `password.rs`, `test_support.rs`,
    `build.rs`, `rechimped/Cargo.toml`, `assets/make-icon.ps1`.

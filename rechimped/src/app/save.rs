@@ -3,7 +3,6 @@ use gpui::{Context, Window};
 use timechimp_api::NewMileage;
 
 use crate::forms::{Form, FormBody, Origin};
-use crate::session;
 use crate::store::config;
 use crate::validate::{self, SaveRequest};
 
@@ -12,14 +11,14 @@ use super::changes::Change;
 
 impl TimeChimpApp {
     pub fn save_as_preset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Err(e) = self.session.config_writable() {
+        if let Err(e) = self.session.config().writable() {
             return self.form_error(e, cx);
         }
         let saved = match self.form() {
             Some(Form { body: FormBody::Travel(f), .. }) => validate::preset(&f.values(cx), &self.session)
                 .and_then(|p| config::path().and_then(|path| config::append_preset(&path, &p)).map(|_| p.name)),
             Some(Form { body: FormBody::Time(f), .. }) => validate::time_preset(&f.values(cx), &self.session).and_then(|p| {
-                let label = session::time_preset_label(&p).to_owned();
+                let label = p.label().to_owned();
                 config::path().and_then(|path| config::append_preset(&path, &p)).map(|_| label)
             }),
             None => return,

@@ -60,7 +60,7 @@ impl TimeChimpApp {
                 }
                 if this.on_week_loaded(generation, week, None) {
                     this.check_travel_reminder(cx);
-                } else if !this.session.week_loaded() {
+                } else if !this.session.week().loaded() {
                     this.load_week(None, window, cx);
                 }
             }

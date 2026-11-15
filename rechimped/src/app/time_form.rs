@@ -64,7 +64,7 @@ impl TimeChimpApp {
     }
 
     fn open_time_form(&mut self, entry: Option<&TimeEntry>, copy: bool, window: &mut Window, cx: &mut Context<Self>) {
-        self.open_time_form_on(entry, copy, self.session.day(), Origin::Week, window, cx);
+        self.open_time_form_on(entry, copy, self.session.week().day(), Origin::Week, window, cx);
     }
 
     /// A new or copied entry is dated on `date`.
@@ -153,7 +153,7 @@ impl TimeChimpApp {
         }
         let recent = self.session.recent().iter().filter(|item| {
             let e = &item.entry;
-            !self.session.is_hidden(e.project_id) && !self.session.is_task_hidden(e.project_id, &e.task_name)
+            !seed::is_hidden(&self.session, e.project_id) && !seed::is_task_hidden(&self.session, e.project_id, &e.task_name)
         });
         recent.filter(|item| item.matches(&query)).take(RECENT_ROWS).collect()
     }

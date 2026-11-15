@@ -22,13 +22,13 @@ impl TimeChimpApp {
     }
 
     pub fn shift_day(&mut self, days: i64, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_day(self.session.day() + Duration::days(days), window, cx);
+        self.select_day(self.session.week().day() + Duration::days(days), window, cx);
     }
 
     pub fn step(&mut self, direction: i64, window: &mut Window, cx: &mut Context<Self>) {
         if self.tab == Tab::Week {
-            let work_days = self.session.settings().work_days;
-            let day = domain::week::step_day(self.session.day(), direction, work_days, self.session.today());
+            let work_days = self.session.config().settings().work_days;
+            let day = domain::week::step_day(self.session.week().day(), direction, work_days, self.session.today());
             self.select_day(day, window, cx);
         } else {
             self.shift_day(7 * direction, window, cx);
@@ -108,7 +108,7 @@ impl TimeChimpApp {
     }
 
     pub fn click_travel(&mut self, id: i64, clicks: usize, window: &mut Window, cx: &mut Context<Self>) {
-        self.session.select_travel(id);
+        self.session.select(Tab::Travel, id);
         window.focus(&self.focus, cx);
         if clicks >= 2 {
             self.edit_selected(window, cx);
@@ -146,7 +146,7 @@ impl TimeChimpApp {
         }
         let ks = &event.keystroke;
         let (shift, ctrl) = (ks.modifiers.shift, ks.modifiers.control || ks.modifiers.platform);
-        let Some(command) = browse_command(&ks.key, shift, ctrl, self.tab, self.session.selected_entry().is_some()) else {
+        let Some(command) = browse_command(&ks.key, shift, ctrl, self.tab, self.session.week().selected_entry().is_some()) else {
             return;
         };
         match command {

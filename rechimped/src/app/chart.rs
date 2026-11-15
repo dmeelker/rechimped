@@ -17,7 +17,7 @@ impl TimeChimpApp {
         if self.session.me().is_none() {
             return;
         }
-        let mondays = week::weeks_up_to(self.session.week_start(), CHART_WEEKS);
+        let mondays = week::weeks_up_to(self.session.week().week_start(), CHART_WEEKS);
         if self.open_overlay(Overlay::Chart(BillabilityChart { mondays, weeks: None }), cx) {
             self.load_chart(window, cx);
         }
@@ -44,7 +44,7 @@ impl TimeChimpApp {
                         && this.session.data_version() == version
                     {
                         chart.weeks =
-                            Some(week::week_cards(&entries, &wanted, contract, &this.session.settings().excluded_tasks));
+                            Some(week::week_cards(&entries, &wanted, contract, &this.session.config().settings().excluded_tasks));
                     }
                 }
                 Err(e) => this.api_error(e, window, cx),

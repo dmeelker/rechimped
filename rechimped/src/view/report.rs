@@ -52,17 +52,16 @@ impl TimeChimpApp {
                 .child(div().font_weight(FontWeight::SEMIBOLD).child(value))
         };
         let s = summary;
+        let goal = self.session().config().settings().billable_goal;
         let totals = panel(theme, "Summary").w(px(300.)).flex_none().child(
             v_stack()
                 .p(px(12.))
                 .child(stat("Total hours", hh_mm(s.total)))
                 .child(
                     stat("Billable", format!("{} ({:.0}%)", hh_mm(s.billable), pct(s.billable)))
-                        .when_some(s.billable_share(), |d, share| {
-                            d.text_color(goal_colour(theme, Some(share), self.session().settings().billable_goal))
-                        }),
+                        .when_some(s.billable_share(), |d, share| d.text_color(goal_colour(theme, Some(share), goal))),
                 )
-                .child(stat("Billable goal", format!("{:.0}%", self.session().settings().billable_goal * 100.0)))
+                .child(stat("Billable goal", format!("{:.0}%", goal * 100.0)))
                 .child(stat("Non-billable", hh_mm(s.total - s.billable)))
                 .child(stat("Days registered", s.days.to_string()))
                 .child(stat("Entries", s.entries.to_string()))
